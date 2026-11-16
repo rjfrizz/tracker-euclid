@@ -10,6 +10,7 @@
 #include "core/titleBar.h"
 
 #include "fileBrowser/GlobalFileBrowser.h"
+#include "euclidParams/euclidParams.h"
 #include "imageViewer/imageViewer.h"
 #include "instrumentEditor/instrumentEditor.h"
 #include "masterParams/masterParams.h"
@@ -54,7 +55,7 @@ extern uint8_t isAudioOutMuted();
 //=======================================================================
 //=======================================================================
 
-const uint8_t Interface::modulesCount = 13;
+const uint8_t Interface::modulesCount = 14;
 const hModule Interface::modules[modulesCount] = {
     &projectEditor,    // 0
     &sampleImporter,   // 1
@@ -69,13 +70,14 @@ const hModule Interface::modules[modulesCount] = {
     &imageViewer,       // 10
     &globalFileBrowser, // 11
     &masterParams,      // 12
+    &euclidParams,      // 13
 };
 
 const uint8_t Interface::modulesButtonsCount = 11;
 const uint32_t Interface::modulesButtons[modulesButtonsCount][3] = {
     { interfaceButtonPerformance, 9, 0 },
     { interfaceButtonMaster, 12, 0 },
-    { interfaceButtonParams, 5, mtInstEditModeParams },
+    { interfaceButtonParams, 13, 0 }, // EUCLID home screen
     { interfaceButtonFile, 0, 0 },
     { interfaceButtonPattern, 2, 0 },
     { interfaceButtonSamplePlay, 3, 0 },
@@ -265,7 +267,7 @@ void Interface::processStartScreen()
 #ifdef TRACKER_MINI
             initSpecialMiniTrackerButtons();
 #endif
-            activateModule(&patternEditor, 0);
+            activateModule(&euclidParams, 0);
             unmuteAudioOutByKey();
 
 #ifdef TRACKER_MINI
