@@ -8,6 +8,8 @@
 #include "mtPadBoard.h"
 #include "mtPadsBacklight.h"
 #include "mtSequencer.h"
+#include "mtStructs.h"
+#include "fileManager.h"
 
 #include <stdio.h>
 
@@ -25,6 +27,7 @@ static void functSwitchModule(uint8_t button);
 static void functParamsView();
 static void functNotesView();
 static void functSetsView();
+static void functGlobalView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -43,10 +46,26 @@ void cEuclidParams::update()
             refreshParams();
         else if (view == View::notes)
             refreshNotes();
-        else
+        else if (view == View::sets)
             refreshSets();
+        else
+            refreshGlobal();
         refreshChannels();
         refreshRing();
+    }
+
+    // Tempo can change outside this screen (external clock, other screens),
+    // and a queued key change lands on the bar.
+    if (view == View::global)
+    {
+        int tempo = static_cast<int>(sequencer.getCurrentTempo() + 0.5f);
+        bool keyPending = euclidEngine.hasPendingGlobalKey();
+        if (tempo != lastShownTempo || keyPending != lastKeyPending)
+        {
+            lastShownTempo = tempo;
+            lastKeyPending = keyPending;
+            refreshGlobal();
+        }
     }
 
     bool running = euclidEngine.isRunning();
@@ -79,7 +98,6 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
 
     ip->setButtonObj(interfaceButtonPerformance, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonConfig, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonMaster, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonSamplePlay, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functSwitchModule);
@@ -92,6 +110,9 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // File opens Sets here; the stock project screen is still reachable
     // from the stock screens' File key.
     ip->setButtonObj(interfaceButtonFile, buttonPress, functSetsView);
+    // Master opens the global key and tempo; the stock mixer is still
+    // reachable from the stock screens' Master key.
+    ip->setButtonObj(interfaceButtonMaster, buttonPress, functGlobalView);
 
     // The first time this screen opens the SD card is ready, so this is
     // where the working state from before the last power-off comes back.
@@ -238,6 +259,47 @@ void cEuclidParams::changeParam(int16_t delta)
             rhythmChanged = true;
             break;
         }
+        case paramMode:
+        {
+            int m = clampInt(static_cast<int>(r.mode) + step, 0, static_cast<int>(euclid::NoteMode::count) - 1);
+            euclidEngine.setMode(ch, static_cast<euclid::NoteMode>(m));
+            break;
+        }
+        case paramKey:
+        {
+            // One row cycles Follow, +1 ... +11, Own.
+            int index = x.keyMode == euclid::KeyMode::follow   ? 0
+                        : x.keyMode == euclid::KeyMode::offset ? x.keyOffset
+                                                               : 12;
+            index = clampInt(index + step, 0, 12);
+            if (index == 0)
+                x.keyMode = euclid::KeyMode::follow;
+            else if (index == 12)
+                x.keyMode = euclid::KeyMode::own;
+            else
+            {
+                x.keyMode = euclid::KeyMode::offset;
+                x.keyOffset = static_cast<uint8_t>(index);
+            }
+            euclidEngine.setExpression(ch, x);
+            break;
+        }
+        case paramOwnRoot:
+            x.ownRoot = static_cast<uint8_t>((x.ownRoot + 12 + step) % 12);
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramOwnScale:
+            x.ownScale = static_cast<uint8_t>(clampInt(x.ownScale + step, 0, euclid::scaleCount() - 1));
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramOctave:
+            x.octave = static_cast<uint8_t>(clampInt(x.octave + step, 0, 8));
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramRange:
+            x.range = static_cast<uint8_t>(clampInt(x.range + step, 1, 4));
+            euclidEngine.setExpression(ch, x);
+            break;
         case paramNoteOrder:
         {
             int d = clampInt(static_cast<int>(r.direction) + step, 0,
@@ -273,6 +335,8 @@ void cEuclidParams::changeParam(int16_t delta)
     {
         refreshParam(selectedParam);
     }
+    if (selectedParam == paramMode || selectedParam == paramKey)
+        refreshParams(); // which rows apply has changed
     refreshChannels();
     refreshRing();
 }
@@ -339,6 +403,44 @@ void cEuclidParams::clearNotes()
     replaceNextNote = true;
     refreshNotes();
     refreshFrame();
+}
+
+//==============================================================================================
+// Global view
+
+void cEuclidParams::changeGlobal(int16_t delta)
+{
+    const int step = delta > 0 ? 1 : -1;
+    euclid::Key k = euclidEngine.getGlobalKey();
+
+    switch (selectedGlobal)
+    {
+        case globalTempo:
+        {
+            // Same rules as the stock Song screen: whole BPM steps, and
+            // left alone while following an external clock.
+            if (!sequencer.isSetInternalClock())
+                return;
+            float t = static_cast<float>(static_cast<int>(mtProject.values.globalTempo)) + delta;
+            if (t < Sequencer::MIN_TEMPO)
+                t = Sequencer::MIN_TEMPO;
+            if (t > Sequencer::MAX_TEMPO)
+                t = Sequencer::MAX_TEMPO;
+            mtProject.values.globalTempo = t;
+            newFileManager.setProjectStructChanged();
+            break;
+        }
+        case globalRoot:
+            k.root = static_cast<uint8_t>((k.root + 12 + step) % 12);
+            euclidEngine.setGlobalKey(k);
+            break;
+        case globalScale:
+            k.scale = static_cast<uint8_t>(clampInt(k.scale + step, 0, euclid::scaleCount() - 1));
+            euclidEngine.setGlobalKey(k);
+            break;
+        default: return;
+    }
+    refreshGlobal();
 }
 
 //==============================================================================================
@@ -442,6 +544,11 @@ void cEuclidParams::duplicateNote()
 //==============================================================================================
 static void functEncoder(int16_t value)
 {
+    if (EP->view == cEuclidParams::View::global)
+    {
+        EP->changeGlobal(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
     {
         EP->moveSetCursor(value > 0 ? 1 : -1);
@@ -461,6 +568,13 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::global)
+    {
+        if (EP->selectedGlobal > 0)
+            EP->selectedGlobal--;
+        EP->refreshFrame();
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
     {
         EP->moveSetCursor(-4);
@@ -474,6 +588,13 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::global)
+    {
+        if (EP->selectedGlobal + 1 < cEuclidParams::globalCount)
+            EP->selectedGlobal++;
+        EP->refreshFrame();
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
     {
         EP->moveSetCursor(4);
@@ -536,6 +657,14 @@ static void functParamsView()
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
+    EP->setDefaultScreenFunct();
+}
+
+static void functGlobalView()
+{
+    if (EP->view == cEuclidParams::View::global)
+        return;
+    EP->setView(cEuclidParams::View::global);
     EP->setDefaultScreenFunct();
 }
 

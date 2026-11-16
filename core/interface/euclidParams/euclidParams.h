@@ -19,7 +19,13 @@ class cEuclidParams : public ModuleBase
         paramPulses,
         paramRotation,
         paramDivision,
+        paramMode,
         paramNoteOrder,
+        paramKey,
+        paramOwnRoot,
+        paramOwnScale,
+        paramOctave,
+        paramRange,
         paramVelocity,
         paramGate,
         paramChance,
@@ -33,6 +39,15 @@ class cEuclidParams : public ModuleBase
         params,
         notes,
         sets,
+        global,
+    };
+
+    enum GlobalParam : uint8_t
+    {
+        globalTempo = 0,
+        globalRoot,
+        globalScale,
+        globalCount
     };
 
     enum class SetAction : uint8_t
@@ -67,6 +82,8 @@ class cEuclidParams : public ModuleBase
     void refreshTitle();
     void refreshNotes();
     void refreshSets();
+    void refreshGlobal();
+    uint16_t paramDimMask() const;
 
     void selectChannel(uint8_t ch);
     void moveFocus(int8_t delta);
@@ -85,15 +102,21 @@ class cEuclidParams : public ModuleBase
     void moveSetCursor(int8_t delta);
     void setSoftKey(uint8_t key);
 
+    // Global view.
+    void changeGlobal(int16_t delta);
+
     View view = View::params;
-    View viewBeforeSets = View::params;
+    View viewBeforeSets = View::params; // where Back on Sets or Global returns to
     uint8_t selectedChannel = 0;
     uint8_t selectedParam = paramPulses;
     uint8_t noteCursor = 0;
     bool replaceNextNote = false;
     uint8_t setCursor = 0; // 0-7 = slots 1-8
+    uint8_t selectedGlobal = globalRoot;
     SetAction armedAction = SetAction::none;
     uint32_t lastChangeCount = 0;
+    int lastShownTempo = -1;
+    bool lastKeyPending = false;
 
     hControl ring = -1;
     hControl panel = -1;
@@ -106,6 +129,7 @@ class cEuclidParams : public ModuleBase
     char ringText[16];
     char ringText2[32];
     char valueText[paramCount][12];
+    char globalText[globalCount][12];
     char noteHeaderText[40];
     char setText[8][8];
     char setStatus[40] = ""; // last save/load result, shown until the next action

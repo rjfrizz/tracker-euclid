@@ -1,5 +1,7 @@
 #include "euclidEngine.h"
 
+#include "scales.h"
+
 euclid::Engine euclidEngine;
 
 namespace euclid
@@ -44,6 +46,36 @@ const char* divisionName(Division d)
         case Division::d1_4: return "1/4";
         default: return "?";
     }
+}
+
+const char* noteModeName(NoteMode m)
+{
+    switch (m)
+    {
+        case NoteMode::seq: return "SEQ";
+        case NoteMode::random: return "Random";
+        case NoteMode::walk: return "Walk";
+        case NoteMode::arpUp: return "Arp up";
+        case NoteMode::arpUpDown: return "Arp up-down";
+        default: return "?";
+    }
+}
+
+uint8_t scaleCount()
+{
+    return MAX_SCALE + 1;
+}
+
+const char* scaleName(uint8_t scale)
+{
+    return scale <= MAX_SCALE ? scaleNames[scale] : "?";
+}
+
+const char* rootName(uint8_t root)
+{
+    static const char* const names[12] = { "C",  "C#", "D",  "D#", "E",  "F",
+                                            "F#", "G",  "G#", "A",  "A#", "B" };
+    return names[root % 12];
 }
 
 bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index)
@@ -95,6 +127,8 @@ void Engine::clampRhythm(Rhythm& r) const
         n = clampValue<uint8_t>(n, 0, 127);
     if (r.direction >= NoteDirection::count)
         r.direction = NoteDirection::forward;
+    if (r.mode >= NoteMode::count)
+        r.mode = NoteMode::seq;
 }
 
 void Engine::resetChannelPosition(Channel& c)
@@ -103,6 +137,8 @@ void Engine::resetChannelPosition(Channel& c)
     c.step = 0;
     c.noteIndex = 0;
     c.pingPongDir = 1;
+    c.degree = 0;
+    c.degreeDir = 1;
 }
 
 void Engine::closeNote(Channel& c)
@@ -117,6 +153,11 @@ void Engine::closeNote(Channel& c)
 
 void Engine::start()
 {
+    if (globalDirty)
+    {
+        globalActive = globalPending;
+        globalDirty = false;
+    }
     for (Channel& c : channels)
     {
         closeNote(c);
@@ -140,8 +181,89 @@ void Engine::stop()
     }
 }
 
+Key Engine::keyFor(const Channel& c, const Key& global) const
+{
+    Key k = global;
+    switch (c.expr.keyMode)
+    {
+        case KeyMode::offset: k.root = static_cast<uint8_t>((global.root + c.expr.keyOffset) % 12); break;
+        case KeyMode::own:
+            k.root = c.expr.ownRoot;
+            k.scale = c.expr.ownScale;
+            break;
+        default: break;
+    }
+    return k;
+}
+
+Key Engine::getChannelKey(int ch) const
+{
+    if (!validChannel(ch))
+        return globalPending;
+    return keyFor(channels[ch], globalPending);
+}
+
+uint8_t Engine::nextGeneratedNote(Channel& c)
+{
+    const Key key = keyFor(c, globalActive);
+
+    // Semitone offsets of the scale's notes above the root, from the stock
+    // 12-bit masks (bit n set = n semitones above the root is in the scale).
+    uint8_t intervals[12];
+    uint8_t len = 0;
+    const uint16_t mask = scaleDef[key.scale <= MAX_SCALE ? key.scale : 0] | 1u;
+    for (uint8_t n = 0; n < 12; n++)
+        if (mask & (1u << n))
+            intervals[len++] = n;
+
+    const int16_t range = static_cast<int16_t>(len * c.expr.range);
+    int16_t& d = c.degree;
+
+    switch (c.active.mode)
+    {
+        case NoteMode::random: d = out.randomBelow ? out.randomBelow(static_cast<uint8_t>(range)) : 0; break;
+        case NoteMode::walk:
+        {
+            int16_t step = out.randomBelow ? static_cast<int16_t>(out.randomBelow(5)) - 2 : 1;
+            d += step;
+            // Bounce off the ends of the range.
+            if (d < 0)
+                d = -d;
+            if (d >= range)
+                d = static_cast<int16_t>(2 * (range - 1) - d);
+            break;
+        }
+        case NoteMode::arpUp: break; // plays d, then moves up below
+        case NoteMode::arpUpDown: break;
+        default: break;
+    }
+    if (d < 0)
+        d = 0;
+    if (d >= range)
+        d = static_cast<int16_t>(range - 1);
+
+    int note = 12 * c.expr.octave + key.root + 12 * (d / len) + intervals[d % len];
+
+    // The arps play the current degree, then move on.
+    if (c.active.mode == NoteMode::arpUp)
+    {
+        d = static_cast<int16_t>((d + 1) % range);
+    }
+    else if (c.active.mode == NoteMode::arpUpDown && range > 1)
+    {
+        if (d + c.degreeDir >= range || d + c.degreeDir < 0)
+            c.degreeDir = static_cast<int8_t>(-c.degreeDir);
+        d = static_cast<int16_t>(d + c.degreeDir);
+    }
+
+    return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
+}
+
 uint8_t Engine::nextNote(Channel& c)
 {
+    if (c.active.mode != NoteMode::seq)
+        return nextGeneratedNote(c);
+
     const Rhythm& r = c.active;
     uint8_t count = r.noteCount;
     if (count <= 1)
@@ -218,6 +340,12 @@ void Engine::onMicroStep()
         return;
 
     bool barStart = barMicroStep == 0;
+
+    if (barStart && globalDirty)
+    {
+        globalActive = globalPending;
+        globalDirty = false;
+    }
 
     for (Channel& c : channels)
     {
@@ -390,6 +518,36 @@ void Engine::setDirection(int ch, NoteDirection d)
     unlock();
 }
 
+void Engine::setMode(int ch, NoteMode m)
+{
+    if (!validChannel(ch))
+        return;
+    lock();
+    channels[ch].pending.mode = m;
+    markDirty(ch);
+    unlock();
+}
+
+void Engine::setGlobalKey(const Key& k)
+{
+    Key x;
+    x.root = static_cast<uint8_t>(k.root % 12);
+    x.scale = k.scale <= MAX_SCALE ? k.scale : 0;
+    lock();
+    globalPending = x;
+    if (!running)
+    {
+        globalActive = x;
+        globalDirty = false;
+    }
+    else
+    {
+        globalDirty = globalPending.root != globalActive.root || globalPending.scale != globalActive.scale;
+    }
+    changeCount++;
+    unlock();
+}
+
 uint8_t Engine::getNextNoteIndex(int ch) const
 {
     return validChannel(ch) ? channels[ch].noteIndex : 0;
@@ -404,6 +562,13 @@ void Engine::setExpression(int ch, const Expression& e)
     x.velocity = clampValue<uint8_t>(x.velocity, 1, 127);
     x.gate = clampValue<uint8_t>(x.gate, 1, 100);
     x.probability = clampValue<uint8_t>(x.probability, 0, 100);
+    if (x.keyMode >= KeyMode::count)
+        x.keyMode = KeyMode::follow;
+    x.keyOffset = clampValue<uint8_t>(x.keyOffset, 1, 11);
+    x.ownRoot = static_cast<uint8_t>(x.ownRoot % 12);
+    x.ownScale = clampValue<uint8_t>(x.ownScale, 0, MAX_SCALE);
+    x.octave = clampValue<uint8_t>(x.octave, 0, 8);
+    x.range = clampValue<uint8_t>(x.range, 1, 4);
     lock();
     channels[ch].expr = x;
     changeCount++;

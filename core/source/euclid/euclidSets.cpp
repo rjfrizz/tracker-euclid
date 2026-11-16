@@ -31,7 +31,10 @@ uint32_t getU32(const uint8_t* p)
            (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
-constexpr size_t kCrcOffset = kSetFileSize - 4;
+template <typename E> E enumOr(uint8_t v, E count, E fallback)
+{
+    return v < static_cast<uint8_t>(count) ? static_cast<E>(v) : fallback;
+}
 } // namespace
 
 size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t bufLen)
@@ -42,6 +45,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
     for (size_t i = 0; i < kSetFileSize; i++)
         buf[i] = 0;
 
+    const Key key = engine.getGlobalKey();
     buf[0] = 'E';
     buf[1] = 'U';
     buf[2] = 'C';
@@ -49,6 +53,8 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
     buf[4] = kSetVersion;
     buf[5] = kChannels;
     buf[6] = slot <= kSetSlots ? slot : 0;
+    buf[7] = key.root;
+    buf[8] = key.scale;
 
     for (int ch = 0; ch < kChannels; ch++)
     {
@@ -70,37 +76,73 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[25] = x.velocity;
         p[26] = x.gate;
         p[27] = x.probability;
-        // 28-31 reserved
+        p[28] = static_cast<uint8_t>(r.mode);
+        p[29] = static_cast<uint8_t>(x.keyMode);
+        p[30] = x.keyOffset;
+        p[31] = x.ownRoot;
+        p[32] = x.ownScale;
+        p[33] = x.octave;
+        p[34] = x.range;
     }
 
-    putU32(buf + kCrcOffset, crc32(buf, kCrcOffset));
+    const size_t crcOffset = kSetFileSize - 4;
+    putU32(buf + crcOffset, crc32(buf, crcOffset));
     return kSetFileSize;
 }
 
 bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slotOut)
 {
-    if (buf == nullptr || len != kSetFileSize)
+    if (buf == nullptr || len < 8)
         return false;
     if (buf[0] != 'E' || buf[1] != 'U' || buf[2] != 'C' || buf[3] != 'S')
         return false;
-    if (buf[4] != kSetVersion || buf[5] != kChannels)
+    if (buf[5] != kChannels)
         return false;
-    if (getU32(buf + kCrcOffset) != crc32(buf, kCrcOffset))
+
+    const uint8_t version = buf[4];
+    size_t headerSize, channelSize, fileSize;
+    if (version == 1)
+    {
+        headerSize = kSetV1HeaderSize;
+        channelSize = kSetV1ChannelSize;
+        fileSize = kSetV1FileSize;
+    }
+    else if (version == 2)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetChannelSize;
+        fileSize = kSetFileSize;
+    }
+    else
+    {
         return false;
+    }
+
+    if (len != fileSize)
+        return false;
+    const size_t crcOffset = fileSize - 4;
+    if (getU32(buf + crcOffset) != crc32(buf, crcOffset))
+        return false;
+
+    // Everything is checked; from here on the engine is changed.
+    if (version >= 2)
+    {
+        Key key;
+        key.root = buf[7];
+        key.scale = buf[8];
+        engine.setGlobalKey(key);
+    }
 
     for (int ch = 0; ch < kChannels; ch++)
     {
-        const uint8_t* p = buf + kSetHeaderSize + ch * kSetChannelSize;
+        const uint8_t* p = buf + headerSize + ch * channelSize;
 
         Rhythm r;
         r.steps = p[0];
         r.pulses = p[1];
         r.rotation = p[2];
-        r.division = p[3] < static_cast<uint8_t>(Division::count) ? static_cast<Division>(p[3])
-                                                                  : Division::d1_16;
-        r.direction = p[4] < static_cast<uint8_t>(NoteDirection::count)
-                        ? static_cast<NoteDirection>(p[4])
-                        : NoteDirection::forward;
+        r.division = enumOr(p[3], Division::count, Division::d1_16);
+        r.direction = enumOr(p[4], NoteDirection::count, NoteDirection::forward);
         r.noteCount = p[5];
         for (int n = 0; n < kMaxNotes; n++)
             r.notes[n] = p[6 + n];
@@ -112,6 +154,17 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         x.velocity = p[25];
         x.gate = p[26];
         x.probability = p[27];
+
+        if (version >= 2)
+        {
+            r.mode = enumOr(p[28], NoteMode::count, NoteMode::seq);
+            x.keyMode = enumOr(p[29], KeyMode::count, KeyMode::follow);
+            x.keyOffset = p[30];
+            x.ownRoot = p[31];
+            x.ownScale = p[32];
+            x.octave = p[33];
+            x.range = p[34];
+        }
 
         // The engine clamps every field, so a hand-edited file can't put it
         // in a bad state.

@@ -118,13 +118,14 @@ bool readSetFile(const char* path, uint8_t* slotOut)
     auto [isOpen, file] = f->openFile(path);
     if (!isOpen)
         return false;
+    // Older versions are smaller; deserializeSet checks the exact size.
     size_t size = f->getFileSize(file);
-    int32_t got = size == sizeof(buf) ? f->readFile(buf, sizeof(buf), file) : -1;
+    int32_t got = size <= sizeof(buf) ? f->readFile(buf, size, file) : -1;
     f->closeFile(file);
 
-    if (got != static_cast<int32_t>(sizeof(buf)))
+    if (got != static_cast<int32_t>(size))
         return false;
-    return euclid::deserializeSet(euclidEngine, buf, sizeof(buf), slotOut);
+    return euclid::deserializeSet(euclidEngine, buf, size, slotOut);
 }
 
 bool saveCurrent()

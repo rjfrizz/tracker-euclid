@@ -98,21 +98,50 @@ void cEuclidPanel::drawList()
     const Theme& theme = display.getTheme();
     const uint8_t rows = data->rows < strEuclidPanelData::kMaxRows ? data->rows
                                                                    : strEuclidPanelData::kMaxRows;
+    const uint8_t visible = static_cast<uint8_t>(height / kRowH);
 
-    for (uint8_t i = 0; i < rows; i++)
+    // Scroll just far enough to keep the focused row on screen.
+    if (data->focusRow >= 0)
     {
-        int16_t y = posY + i * kRowH;
+        if (data->focusRow < data->firstRow)
+            data->firstRow = static_cast<uint8_t>(data->focusRow);
+        else if (data->focusRow >= data->firstRow + visible)
+            data->firstRow = static_cast<uint8_t>(data->focusRow - visible + 1);
+    }
+    if (rows <= visible)
+        data->firstRow = 0;
+    else if (data->firstRow > rows - visible)
+        data->firstRow = static_cast<uint8_t>(rows - visible);
+
+    for (uint8_t row = 0; row < visible && data->firstRow + row < rows; row++)
+    {
+        const uint8_t i = static_cast<uint8_t>(data->firstRow + row);
+        int16_t y = posY + row * kRowH;
         int16_t cy = y + kRowH / 2;
 
         if (i == data->focusRow)
             drawOutline(posX, y + 2, width, kRowH - 4, theme.frameColors[0]);
 
-        API_COLOR(theme.activeLabelsColors[0]);
+        bool dim = data->dimRows & (1u << i);
+        API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
         if (data->names[i] != nullptr)
             API_CMD_TEXT(posX + kPad, cy, fonts[kFontBold].handle, OPT_CENTERY, data->names[i]);
         if (data->values[i] != nullptr)
             API_CMD_TEXT(posX + width - kPad, cy, fonts[kFontBold].handle, OPT_CENTERY | OPT_RIGHTX,
                          data->values[i]);
+    }
+
+    // Small marks at the right edge when there are more rows above or below.
+    if (rows > visible)
+    {
+        API_COLOR(theme.inactiveLabelsColors[0]);
+        API_POINT_SIZE(16 * 3);
+        API_BEGIN(FTPOINTS);
+        if (data->firstRow > 0)
+            API_VERTEX2F(posX + width + 4, posY + 6);
+        if (data->firstRow + visible < rows)
+            API_VERTEX2F(posX + width + 4, posY + visible * kRowH - 6);
+        API_END();
     }
 }
 

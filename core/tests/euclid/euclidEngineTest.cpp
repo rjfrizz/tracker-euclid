@@ -3,6 +3,7 @@
 //       core/source/euclid/euclidEngine.cpp -o /tmp/euclidTest && /tmp/euclidTest
 
 #include "euclid/euclidEngine.h"
+#include "scales.h"
 
 #include <cstdio>
 #include <string>
@@ -290,8 +291,138 @@ static void testNoteEditsApplyImmediately()
     e.stop();
 }
 
+static std::vector<uint8_t> playedNotes()
+{
+    std::vector<uint8_t> notes;
+    for (auto& ev : events)
+        if (ev.on)
+            notes.push_back(ev.note);
+    return notes;
+}
+
+// Every step a pulse, so each 1/16 plays one note.
+static Engine makeGeneratedEngine(NoteMode mode, uint8_t (*below)(uint8_t) = zeroBelow)
+{
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = below;
+    Engine e;
+    e.init(o);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    r.mode = mode;
+    e.setRhythm(0, r);
+    Expression x;
+    x.enabled = true;
+    x.octave = 3;
+    x.range = 1;
+    e.setExpression(0, x);
+    return e;
+}
+
+static void testArpUpInCMajor()
+{
+    reset();
+    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    e.setGlobalKey(Key{0, 2}); // C major
+    e.start();
+    run(e, 48 * 8);
+    CHECK((playedNotes() == std::vector<uint8_t>{36, 38, 40, 41, 43, 45, 47, 36}));
+    e.stop();
+}
+
+static void testArpUpDownAndOffsetKey()
+{
+    reset();
+    Engine e = makeGeneratedEngine(NoteMode::arpUpDown);
+    Expression x = e.getExpression(0);
+    x.keyMode = KeyMode::offset;
+    x.keyOffset = 2; // D
+    e.setExpression(0, x);
+    e.setGlobalKey(Key{0, 17}); // C minor pentatonic -> D minor pentatonic
+    e.start();
+    run(e, 48 * 9);
+    // D F G A C, then back down and up again.
+    CHECK((playedNotes() == std::vector<uint8_t>{38, 41, 43, 45, 48, 45, 43, 41, 38}));
+    e.stop();
+}
+
+static uint8_t lcgBelow(uint8_t n)
+{
+    static uint32_t s = 12345;
+    s = s * 1103515245u + 12345u;
+    return static_cast<uint8_t>((s >> 16) % n);
+}
+
+static bool inScale(uint8_t note, uint8_t root, uint8_t scale)
+{
+    return (scaleDef[scale] | 1u) & (1u << ((note + 12 - root) % 12));
+}
+
+static void testRandomAndWalkStayInKeyAndRange()
+{
+    for (NoteMode mode : {NoteMode::random, NoteMode::walk})
+    {
+        reset();
+        Engine e = makeGeneratedEngine(mode, lcgBelow);
+        Expression x = e.getExpression(0);
+        x.keyMode = KeyMode::own;
+        x.ownRoot = 9;   // A
+        x.ownScale = 26; // Hirajoshi, 5 notes
+        x.range = 2;
+        e.setExpression(0, x);
+        e.start();
+        run(e, 48 * 200);
+        auto notes = playedNotes();
+        CHECK(notes.size() == 200);
+        int lastDegree = -1;
+        for (uint8_t n : notes)
+        {
+            CHECK(inScale(n, 9, 26));
+            CHECK(n >= 36 + 9 && n < 36 + 9 + 24);
+            if (mode == NoteMode::walk)
+            {
+                // Count scale notes between the lowest note and this one.
+                int degree = 0;
+                for (int k = 36 + 9; k < n; k++)
+                    degree += inScale(static_cast<uint8_t>(k), 9, 26);
+                if (lastDegree >= 0)
+                    CHECK(degree - lastDegree <= 2 && lastDegree - degree <= 2);
+                lastDegree = degree;
+            }
+        }
+        e.stop();
+    }
+}
+
+static void testGlobalKeyWaitsForBar()
+{
+    reset();
+    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    e.setGlobalKey(Key{0, 2});
+    e.start();
+    run(e, 100);
+    e.setGlobalKey(Key{7, 2}); // G major
+    CHECK(e.hasPendingGlobalKey());
+    CHECK(e.getActiveGlobalKey().root == 0);
+    CHECK(e.getChannelKey(0).root == 7);
+    run(e, kMicroStepsPerBar - 100);
+    CHECK(e.getActiveGlobalKey().root == 0);
+    run(e, 1);
+    CHECK(!e.hasPendingGlobalKey());
+    CHECK(e.getActiveGlobalKey().root == 7);
+    e.stop();
+}
+
 int main()
 {
+    testArpUpInCMajor();
+    testArpUpDownAndOffsetKey();
+    testRandomAndWalkStayInKeyAndRange();
+    testGlobalKeyWaitsForBar();
     testNoteEditsApplyImmediately();
     testPatterns();
     testTimingAndGate();

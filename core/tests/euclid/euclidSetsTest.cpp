@@ -50,8 +50,19 @@ static void fill(Engine& e)
         x.velocity = static_cast<uint8_t>(40 + ch * 10);
         x.gate = static_cast<uint8_t>(10 + ch * 11);
         x.probability = static_cast<uint8_t>(100 - ch * 7);
+        x.keyMode = static_cast<KeyMode>(ch % static_cast<int>(KeyMode::count));
+        x.keyOffset = static_cast<uint8_t>(1 + ch);
+        x.ownRoot = static_cast<uint8_t>(11 - ch);
+        x.ownScale = static_cast<uint8_t>(3 + ch * 4);
+        x.octave = static_cast<uint8_t>(ch % 8);
+        x.range = static_cast<uint8_t>(1 + ch % 4);
         e.setExpression(ch, x);
+
+        Rhythm withMode = e.getRhythm(ch);
+        withMode.mode = static_cast<NoteMode>(ch % static_cast<int>(NoteMode::count));
+        e.setRhythm(ch, withMode);
     }
+    e.setGlobalKey(Key{5, 11});
 }
 
 static bool sameSettings(const Engine& a, const Engine& b)
@@ -69,8 +80,63 @@ static bool sameSettings(const Engine& a, const Engine& b)
         if (xa.enabled != xb.enabled || xa.muted != xb.muted || xa.midiChannel != xb.midiChannel ||
             xa.velocity != xb.velocity || xa.gate != xb.gate || xa.probability != xb.probability)
             return false;
+        if (ra.mode != rb.mode || xa.keyMode != xb.keyMode || xa.keyOffset != xb.keyOffset ||
+            xa.ownRoot != xb.ownRoot || xa.ownScale != xb.ownScale || xa.octave != xb.octave ||
+            xa.range != xb.range)
+            return false;
     }
-    return true;
+    Key ka = a.getGlobalKey(), kb = b.getGlobalKey();
+    return ka.root == kb.root && ka.scale == kb.scale;
+}
+
+// A version 1 file, built by hand the way the first release wrote it.
+static void testLoadsVersion1()
+{
+    uint8_t v1[kSetV1FileSize] = {};
+    v1[0] = 'E';
+    v1[1] = 'U';
+    v1[2] = 'C';
+    v1[3] = 'S';
+    v1[4] = 1;
+    v1[5] = kChannels;
+    v1[6] = 4;
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        uint8_t* p = v1 + kSetV1HeaderSize + ch * kSetV1ChannelSize;
+        p[0] = 12;   // steps
+        p[1] = 5;    // pulses
+        p[2] = 1;    // rotation
+        p[3] = 4;    // 1/8
+        p[4] = 2;    // ping-pong
+        p[5] = 2;    // notes
+        p[6] = 50;
+        p[7] = 53;
+        p[22] = 1;   // enabled
+        p[24] = static_cast<uint8_t>(ch + 1);
+        p[25] = 80;
+        p[26] = 30;
+        p[27] = 90;
+        p[28] = 0xAA; // reserved in v1: must not be read as a mode
+    }
+    uint32_t crc = crc32(v1, kSetV1FileSize - 4);
+    v1[kSetV1FileSize - 4] = static_cast<uint8_t>(crc);
+    v1[kSetV1FileSize - 3] = static_cast<uint8_t>(crc >> 8);
+    v1[kSetV1FileSize - 2] = static_cast<uint8_t>(crc >> 16);
+    v1[kSetV1FileSize - 1] = static_cast<uint8_t>(crc >> 24);
+
+    Engine e = makeEngine();
+    uint8_t slot = 0;
+    CHECK(deserializeSet(e, v1, sizeof(v1), &slot));
+    CHECK(slot == 4);
+    Rhythm r = e.getRhythm(3);
+    Expression x = e.getExpression(3);
+    CHECK(r.steps == 12 && r.pulses == 5 && r.rotation == 1);
+    CHECK(r.division == Division::d1_8 && r.direction == NoteDirection::pingPong);
+    CHECK(r.noteCount == 2 && r.notes[0] == 50 && r.notes[1] == 53);
+    CHECK(x.enabled && x.midiChannel == 4 && x.velocity == 80);
+    // New fields keep their defaults.
+    CHECK(r.mode == NoteMode::seq);
+    CHECK(x.keyMode == KeyMode::follow && x.range == 2);
 }
 
 static void testCrcKnownValue()
@@ -85,7 +151,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 268);
+    CHECK(kSetFileSize == 340);
+    CHECK(kSetV1FileSize == 268);
 
     Engine b = makeEngine();
     uint8_t slot = 0;
@@ -159,6 +226,7 @@ int main()
 {
     testCrcKnownValue();
     testRoundTrip();
+    testLoadsVersion1();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

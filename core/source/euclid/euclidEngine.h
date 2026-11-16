@@ -48,16 +48,49 @@ enum class NoteDirection : uint8_t
     count
 };
 
+// Where a channel's notes come from: its own list (SEQ) or generated from
+// its key.
+enum class NoteMode : uint8_t
+{
+    seq = 0,
+    random,   // any note of the scale within the range
+    walk,     // moves up or down by up to two scale steps
+    arpUp,    // climbs the scale, wrapping at the top of the range
+    arpUpDown,
+    count
+};
+
+// Which key a generated channel uses.
+enum class KeyMode : uint8_t
+{
+    follow = 0, // the global key
+    offset,     // the global scale, root moved up by keyOffset semitones
+    own,        // its own root and scale
+    count
+};
+
+// Root 0-11 (C = 0) and a scale index from the stock scales.h table.
+struct Key
+{
+    uint8_t root = 0;
+    uint8_t scale = 1; // Minor
+};
+
 uint16_t divisionToMicroSteps(Division d);
 const char* divisionName(Division d);
+const char* noteModeName(NoteMode m);
+uint8_t scaleCount();
+const char* scaleName(uint8_t scale);
+const char* rootName(uint8_t root);
 
 // Euclidean pattern: true at index i if step i is a pulse, after rotation.
 // Rotation shifts the pattern later in time (a pulse on step 0 moves to
 // step `rotation`).
 bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index);
 
-// Rhythm settings: steps, pulses, rotation and division are queued to the
-// next bar. The notes and their order live here too but apply immediately.
+// Rhythm settings: steps, pulses, rotation, division and note mode are
+// queued to the next bar. The notes and their order live here too but apply
+// immediately.
 struct Rhythm
 {
     uint8_t steps = 16;
@@ -67,6 +100,7 @@ struct Rhythm
     uint8_t noteCount = 1;
     uint8_t notes[kMaxNotes] = {60};
     NoteDirection direction = NoteDirection::forward;
+    NoteMode mode = NoteMode::seq;
 };
 
 // Expression settings: applied immediately.
@@ -78,6 +112,14 @@ struct Expression
     uint8_t velocity = 100;  // 1-127
     uint8_t gate = 50;       // percent of the channel's step length, 1-100
     uint8_t probability = 100; // percent, 0-100
+
+    // Used by the generated note modes.
+    KeyMode keyMode = KeyMode::follow;
+    uint8_t keyOffset = 7; // semitones, 1-11 (KeyMode::offset)
+    uint8_t ownRoot = 0;   // 0-11 (KeyMode::own)
+    uint8_t ownScale = 2;  // Major (KeyMode::own)
+    uint8_t octave = 3;    // lowest octave, Tracker numbering (C3 = note 36)
+    uint8_t range = 2;     // octaves, 1-4
 };
 
 struct Output
@@ -116,6 +158,16 @@ class Engine
     // Applied immediately, also while playing.
     void setNotes(int ch, const uint8_t* notes, uint8_t count);
     void setDirection(int ch, NoteDirection d);
+    void setMode(int ch, NoteMode m); // queued to the next bar
+
+    // Global key, queued to the next bar.
+    Key getGlobalKey() const { return globalPending; }
+    Key getActiveGlobalKey() const { return globalActive; }
+    void setGlobalKey(const Key& k);
+    bool hasPendingGlobalKey() const { return globalDirty; }
+    // The key a channel generates from, given its settings and the pending
+    // global key.
+    Key getChannelKey(int ch) const;
 
     void setEnabled(int ch, bool enabled);
     void setMuted(int ch, bool muted);
@@ -149,6 +201,8 @@ class Engine
         uint8_t step = 0;             // 0 .. active.steps-1
         uint8_t noteIndex = 0;
         int8_t pingPongDir = 1;
+        int16_t degree = 0;    // position in the scale, generated modes
+        int8_t degreeDir = 1;
 
         bool noteOpen = false;
         uint8_t openNote = 0;
@@ -163,6 +217,8 @@ class Engine
     void closeNote(Channel& c);
     void triggerStep(Channel& c);
     uint8_t nextNote(Channel& c);
+    uint8_t nextGeneratedNote(Channel& c);
+    Key keyFor(const Channel& c, const Key& global) const;
     void markDirty(int ch);
     void applyNotesNow(Channel& c);
 
@@ -171,6 +227,9 @@ class Engine
     bool running = false;
     uint32_t barMicroStep = 0; // 0 .. kMicroStepsPerBar-1
     uint32_t changeCount = 0; // main loop only
+    Key globalActive;
+    Key globalPending;
+    bool globalDirty = false;
 };
 
 void loadDemoDefaults(Engine& e);
