@@ -13,11 +13,12 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
 
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
 
+// Each line must fit the 360 px panel in the 17 px font: about 34 characters.
 const char* const kNoteHelp[] = {
-    "Pads add a note, Shift + Delete clears",
-    "Encoder transposes, Shift: octave",
-    "Delete removes, Insert repeats",
-    "Arrows move the cursor",
+    "Pads: add a note",
+    "Encoder: transpose, Shift: octave",
+    "Delete: remove, Insert: repeat",
+    "Shift + Delete: clear all",
 };
 
 static_assert(cEuclidParams::paramCount <= strEuclidPanelData::kMaxRows, "too many rows");
