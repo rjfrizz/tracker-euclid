@@ -126,6 +126,10 @@ class Engine
 
     bool hasPendingChange(int ch) const;
 
+    // Goes up on every settings change, for autosave and for screens that
+    // need to notice changes made elsewhere (such as loading a set).
+    uint32_t getChangeCount() const { return changeCount; }
+
     // Playback position, for the UI.
     bool isRunning() const { return running; }
     uint8_t getCurrentStep(int ch) const;
@@ -166,6 +170,7 @@ class Engine
     Channel channels[kChannels];
     bool running = false;
     uint32_t barMicroStep = 0; // 0 .. kMicroStepsPerBar-1
+    uint32_t changeCount = 0; // main loop only
 };
 
 void loadDemoDefaults(Engine& e);

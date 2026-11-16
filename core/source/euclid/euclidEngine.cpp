@@ -296,6 +296,7 @@ uint8_t Engine::getCurrentStep(int ch) const
 
 void Engine::markDirty(int ch)
 {
+    changeCount++;
     Channel& c = channels[ch];
     clampRhythm(c.pending);
     // While stopped there's no bar to wait for.
@@ -372,6 +373,7 @@ void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
         c.pending.notes[i] = clampValue<uint8_t>(notes[i], 0, 127);
     c.pending.noteCount = count;
     applyNotesNow(c);
+    changeCount++;
     unlock();
 }
 
@@ -384,6 +386,7 @@ void Engine::setDirection(int ch, NoteDirection d)
     c.pending.direction = d;
     c.pingPongDir = 1;
     applyNotesNow(c);
+    changeCount++;
     unlock();
 }
 
@@ -403,6 +406,7 @@ void Engine::setExpression(int ch, const Expression& e)
     x.probability = clampValue<uint8_t>(x.probability, 0, 100);
     lock();
     channels[ch].expr = x;
+    changeCount++;
     unlock();
 }
 

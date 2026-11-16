@@ -1,10 +1,15 @@
 #include "euclidParams/euclidParams.h"
 
+#include "euclid/euclidPlatform.h"
+#include "euclid/euclidSets.h"
+
 #include "mtConfig.h"
 #include "mtMidi.h"
 #include "mtPadBoard.h"
 #include "mtPadsBacklight.h"
 #include "mtSequencer.h"
+
+#include <stdio.h>
 
 cEuclidParams euclidParams;
 static cEuclidParams* EP = &euclidParams;
@@ -19,6 +24,7 @@ static void functChannelButton(uint8_t button, uint8_t state);
 static void functSwitchModule(uint8_t button);
 static void functParamsView();
 static void functNotesView();
+static void functSetsView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -27,6 +33,22 @@ static constexpr uint8_t kAuditionVelocity = 100;
 
 void cEuclidParams::update()
 {
+    // Settings changed from outside this screen, such as loading a set or
+    // the working state restored at boot.
+    uint32_t changes = euclidEngine.getChangeCount();
+    if (changes != lastChangeCount)
+    {
+        lastChangeCount = changes;
+        if (view == View::params)
+            refreshParams();
+        else if (view == View::notes)
+            refreshNotes();
+        else
+            refreshSets();
+        refreshChannels();
+        refreshRing();
+    }
+
     bool running = euclidEngine.isRunning();
     int8_t playhead =
       running ? static_cast<int8_t>(euclidEngine.getCurrentStep(selectedChannel)) : -1;
@@ -56,7 +78,6 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
         heldPadNote[i] = -1;
 
     ip->setButtonObj(interfaceButtonPerformance, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonFile, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonConfig, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonMaster, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonSamplePlay, buttonPress, functSwitchModule);
@@ -68,6 +89,14 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
 
     ip->setButtonObj(interfaceButtonParams, buttonPress, functParamsView);
     ip->setButtonObj(interfaceButtonNote, buttonPress, functNotesView);
+    // File opens Sets here; the stock project screen is still reachable
+    // from the stock screens' File key.
+    ip->setButtonObj(interfaceButtonFile, buttonPress, functSetsView);
+
+    // The first time this screen opens the SD card is ready, so this is
+    // where the working state from before the last power-off comes back.
+    euclidSets::bootLoad();
+    lastChangeCount = euclidEngine.getChangeCount();
 
     lastPlayhead = -2;
     lastNextNote = -2;
@@ -112,8 +141,9 @@ void cEuclidParams::setDefaultScreenFunct()
         ip->setButtonObj(b, functChannelButton);
     }
 
-    // In the notes view Shift + encoder moves by octaves, so the stock
-    // Shift acceleration is turned off there.
+    // Outside the params view the encoder moves one item at a time (and in
+    // the notes view Shift means octaves), so the stock Shift acceleration
+    // is only on for params.
     ip->setPotObj(interfacePot0, functEncoder, view == View::params);
     ip->setPadsGlobal(functPads);
 }
@@ -311,6 +341,88 @@ void cEuclidParams::clearNotes()
     refreshFrame();
 }
 
+//==============================================================================================
+// Sets view
+
+void cEuclidParams::moveSetCursor(int8_t delta)
+{
+    int next = static_cast<int>(setCursor) + delta;
+    if (next < 0)
+        next = 0;
+    if (next >= euclid::kSetSlots)
+        next = euclid::kSetSlots - 1;
+    setCursor = static_cast<uint8_t>(next);
+    if (armedAction != SetAction::none)
+    {
+        armedAction = SetAction::none;
+        refreshChannels();
+    }
+    setStatus[0] = 0;
+    refreshSets();
+}
+
+void cEuclidParams::setSoftKey(uint8_t key)
+{
+    const uint8_t slot = setCursor + 1;
+
+    if (key == 7)
+    {
+        setView(viewBeforeSets);
+        setDefaultScreenFunct();
+        return;
+    }
+
+    if (key == 0)
+    {
+        // Saving over a set that's already there needs a second press.
+        if (euclidSets::exists(slot) && armedAction != SetAction::save)
+        {
+            armedAction = SetAction::save;
+            snprintf(setStatus, sizeof(setStatus), "Save over Set %d? Press again", slot);
+        }
+        else
+        {
+            armedAction = SetAction::none;
+            if (euclidSets::save(slot))
+                snprintf(setStatus, sizeof(setStatus), "Saved to Set %d", slot);
+            else
+                snprintf(setStatus, sizeof(setStatus), "Save failed: check SD card");
+        }
+    }
+    else if (key == 1)
+    {
+        if (!euclidSets::exists(slot))
+        {
+            armedAction = SetAction::none;
+            snprintf(setStatus, sizeof(setStatus), "Set %d is empty", slot);
+        }
+        else if (armedAction != SetAction::load)
+        {
+            // Loading replaces the working copy, so it needs a second press.
+            armedAction = SetAction::load;
+            snprintf(setStatus, sizeof(setStatus), "Load Set %d? Press again", slot);
+        }
+        else
+        {
+            armedAction = SetAction::none;
+            if (euclidSets::load(slot))
+                snprintf(setStatus, sizeof(setStatus), "Loaded Set %d%s", slot,
+                         euclidEngine.isRunning() ? ", from the next bar" : "");
+            else
+                snprintf(setStatus, sizeof(setStatus), "Couldn't load Set %d", slot);
+        }
+    }
+    else
+    {
+        armedAction = SetAction::none;
+        setStatus[0] = 0;
+    }
+
+    refreshSets();
+    refreshChannels();
+    refreshRing();
+}
+
 void cEuclidParams::duplicateNote()
 {
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
@@ -330,6 +442,11 @@ void cEuclidParams::duplicateNote()
 //==============================================================================================
 static void functEncoder(int16_t value)
 {
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->moveSetCursor(value > 0 ? 1 : -1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::notes)
     {
         int16_t step = value > 0 ? 1 : -1;
@@ -344,6 +461,11 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->moveSetCursor(-4);
+        return;
+    }
     if (EP->view == cEuclidParams::View::notes)
         EP->moveNoteCursor(-static_cast<int8_t>(cEuclidParams::kNoteColumns));
     else
@@ -352,6 +474,11 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->moveSetCursor(4);
+        return;
+    }
     if (EP->view == cEuclidParams::View::notes)
         EP->moveNoteCursor(cEuclidParams::kNoteColumns);
     else
@@ -360,6 +487,11 @@ static void functDown()
 
 static void functLeft()
 {
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->moveSetCursor(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::notes)
     {
         EP->moveNoteCursor(-1);
@@ -370,6 +502,11 @@ static void functLeft()
 
 static void functRight()
 {
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->moveSetCursor(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::notes)
     {
         EP->moveNoteCursor(1);
@@ -399,6 +536,16 @@ static void functParamsView()
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
+    EP->setDefaultScreenFunct();
+}
+
+static void functSetsView()
+{
+    if (EP->view == cEuclidParams::View::sets)
+        return;
+    EP->viewBeforeSets = EP->view;
+    EP->setStatus[0] = 0;
+    EP->setView(cEuclidParams::View::sets);
     EP->setDefaultScreenFunct();
 }
 
@@ -450,6 +597,12 @@ static void functChannelButton(uint8_t button, uint8_t state)
         return;
 
     uint8_t ch = button - interfaceButton0;
+
+    if (EP->view == cEuclidParams::View::sets)
+    {
+        EP->setSoftKey(ch);
+        return;
+    }
 
     if (EP->buttons->isButtonPressed(interfaceButtonShift))
     {

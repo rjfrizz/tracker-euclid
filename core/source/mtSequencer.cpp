@@ -79,6 +79,7 @@ void Sequencer::update()
 {
     reloadPatternAfterStop();
     updatePatternManagment();
+    euclidPlatformUpdate();
 }
 void Sequencer::initAfterReadConfig()
 {

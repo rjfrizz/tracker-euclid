@@ -7,8 +7,9 @@
 #include "euclidRingControl.h"
 
 // EUCLID home screen: the selected channel's ring on the left, the 8
-// channels along the bottom over the screen keys, and on the right either
-// the channel's settings (Params key) or its note list (Note key).
+// channels along the bottom over the screen keys, and on the right the
+// channel's settings (Params key), its note list (Note key) or the saved
+// sets (File key). On the sets view the screen keys become soft keys.
 class cEuclidParams : public ModuleBase
 {
   public:
@@ -31,6 +32,14 @@ class cEuclidParams : public ModuleBase
     {
         params,
         notes,
+        sets,
+    };
+
+    enum class SetAction : uint8_t
+    {
+        none,
+        save,
+        load,
     };
 
     static constexpr uint8_t kNoteColumns = 4;
@@ -57,6 +66,7 @@ class cEuclidParams : public ModuleBase
     void refreshFrame();
     void refreshTitle();
     void refreshNotes();
+    void refreshSets();
 
     void selectChannel(uint8_t ch);
     void moveFocus(int8_t delta);
@@ -71,11 +81,19 @@ class cEuclidParams : public ModuleBase
     void duplicateNote();
     void clearNotes();
 
+    // Sets view.
+    void moveSetCursor(int8_t delta);
+    void setSoftKey(uint8_t key);
+
     View view = View::params;
+    View viewBeforeSets = View::params;
     uint8_t selectedChannel = 0;
     uint8_t selectedParam = paramPulses;
     uint8_t noteCursor = 0;
     bool replaceNextNote = false;
+    uint8_t setCursor = 0; // 0-7 = slots 1-8
+    SetAction armedAction = SetAction::none;
+    uint32_t lastChangeCount = 0;
 
     hControl ring = -1;
     hControl panel = -1;
@@ -88,7 +106,9 @@ class cEuclidParams : public ModuleBase
     char ringText[16];
     char ringText2[32];
     char valueText[paramCount][12];
-    char noteHeaderText[32];
+    char noteHeaderText[40];
+    char setText[8][8];
+    char setStatus[40] = ""; // last save/load result, shown until the next action
     char channelText[8][6];
     char channelText2[8][12];
     char titleText[24];

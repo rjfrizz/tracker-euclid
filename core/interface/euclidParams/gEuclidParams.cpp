@@ -1,5 +1,7 @@
 #include "euclidParams/euclidParams.h"
 
+#include "euclid/euclidPlatform.h"
+#include "euclid/euclidSets.h"
 #include "mtStructs.h"
 
 #include <stdio.h>
@@ -20,6 +22,15 @@ const char* const kNoteHelp[] = {
     "Delete: remove, Insert: repeat",
     "Shift + Delete: clear all",
 };
+
+const char* const kSetsHelp[] = {
+    "Arrows or encoder: pick a set",
+    "Key 1: save, Key 2: load",
+    "Press twice to confirm",
+    "Your work also autosaves",
+};
+
+const char* const kSetSoftKeys[8] = { "Save", "Load", "", "", "", "", "", "Back" };
 
 static_assert(cEuclidParams::paramCount <= strEuclidPanelData::kMaxRows, "too many rows");
 static_assert(cEuclidParams::kNoteSlots <= strEuclidPanelData::kMaxCells, "too many cells");
@@ -79,10 +90,7 @@ void cEuclidParams::initDisplayControls()
     }
     panelData.rows = paramCount;
     panelData.columns = kNoteColumns;
-    panelData.cells = kNoteSlots;
     panelData.header = noteHeaderText;
-    for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
-        panelData.help[i] = kNoteHelp[i];
 }
 
 void cEuclidParams::showDefaultScreen()
@@ -98,27 +106,39 @@ void cEuclidParams::showDefaultScreen()
 void cEuclidParams::setView(View v)
 {
     view = v;
+    armedAction = SetAction::none;
     panelData.mode = view == View::params ? strEuclidPanelData::Mode::list
                                           : strEuclidPanelData::Mode::grid;
+    panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;
+    const char* const* help = view == View::sets ? kSetsHelp : kNoteHelp;
+    for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
+        panelData.help[i] = help[i];
+
     refreshTitle();
     if (view == View::params)
         refreshParams();
-    else
+    else if (view == View::notes)
         refreshNotes();
+    else
+        refreshSets();
+    refreshChannels();
     display.synchronizeRefresh();
 }
 
 void cEuclidParams::refreshTitle()
 {
-    snprintf(titleText, sizeof(titleText), "%s  Ch %d", view == View::params ? "Params" : "Notes",
-             selectedChannel + 1);
+    if (view == View::sets)
+        snprintf(titleText, sizeof(titleText), "Sets");
+    else
+        snprintf(titleText, sizeof(titleText), "%s  Ch %d",
+                 view == View::params ? "Params" : "Notes", selectedChannel + 1);
     titleBar->setTitle(titleText);
 }
 
 void cEuclidParams::refreshFrame()
 {
     panelData.focusRow = static_cast<int8_t>(selectedParam);
-    panelData.cursorCell = static_cast<int8_t>(noteCursor);
+    panelData.cursorCell = static_cast<int8_t>(view == View::sets ? setCursor : noteCursor);
     display.setControlData(panel, &panelData);
     display.refreshControl(panel);
 }
@@ -172,14 +192,47 @@ void cEuclidParams::refreshNotes()
         noteCursor = r.noteCount - 1;
 
     if (replaceNextNote)
-        snprintf(noteHeaderText, sizeof(noteHeaderText), "Cleared: tap pads to enter notes");
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "Cleared: tap pads to add");
     else
         snprintf(noteHeaderText, sizeof(noteHeaderText), "%d of %d notes", r.noteCount, kNoteSlots);
 
     for (uint8_t i = 0; i < kNoteSlots; i++)
         panelData.cellText[i] = i < r.noteCount ? mtNotes[r.notes[i] & 127] : nullptr;
     panelData.usedCells = r.noteCount;
+    panelData.dimCells = 0;
     panelData.playingCell = next;
+
+    refreshFrame();
+}
+
+void cEuclidParams::refreshSets()
+{
+    if (view != View::sets)
+        return;
+
+    uint8_t current = euclidSets::currentSlot();
+    uint16_t dim = 0;
+
+    for (uint8_t i = 0; i < euclid::kSetSlots; i++)
+    {
+        bool saved = euclidSets::exists(i + 1);
+        snprintf(setText[i], sizeof(setText[i]), saved ? "Set %d" : "%d", i + 1);
+        panelData.cellText[i] = setText[i];
+        if (!saved)
+            dim |= 1u << i;
+    }
+    panelData.usedCells = euclid::kSetSlots;
+    panelData.dimCells = dim;
+    // The set the working copy belongs to gets the filled background.
+    panelData.playingCell = current > 0 ? static_cast<int8_t>(current - 1) : -1;
+
+    if (setStatus[0] != 0)
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "%s", setStatus);
+    else if (current == 0)
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "Not saved to a set yet");
+    else
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "Working on Set %d%s", current,
+                 euclidSets::editedSinceSlot() ? " (edited)" : "");
 
     refreshFrame();
 }
@@ -187,6 +240,28 @@ void cEuclidParams::refreshNotes()
 void cEuclidParams::refreshChannels()
 {
     const Theme& theme = display.getTheme();
+
+    if (view == View::sets)
+    {
+        // Soft keys.
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            const char* label = kSetSoftKeys[i];
+            if (i == 0 && armedAction == SetAction::save)
+                label = "Save?";
+            if (i == 1 && armedAction == SetAction::load)
+                label = "Load?";
+            bool armed = (i == 0 && armedAction == SetAction::save) ||
+                         (i == 1 && armedAction == SetAction::load);
+
+            display.setControlColors(channelLabel[i], armed ? theme.performMutedTrackLabelsColors
+                                                            : theme.activeLabelsColors);
+            display.setControlText(channelLabel[i], label);
+            display.setControlText2(channelLabel[i], "");
+            display.refreshControl(channelLabel[i]);
+        }
+        return;
+    }
 
     for (uint8_t i = 0; i < 8; i++)
     {
