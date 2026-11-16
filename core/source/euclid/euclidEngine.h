@@ -12,8 +12,8 @@
 // Threading: onMicroStep(), start() and stop() run from the audio callback.
 // The setters below are called from the main loop and write to a channel's
 // "pending" settings, protected by the platform's interrupt guard. Rhythm
-// settings (steps, pulses, rotation, division, note sequence) take effect on
-// the next bar; everything else takes effect immediately.
+// settings (steps, pulses, rotation, division) take effect on the next bar;
+// everything else, including note edits, takes effect immediately.
 //
 // This file has no platform dependencies so the timing logic can be tested
 // on a host machine (see core/tests/euclid/).
@@ -56,7 +56,8 @@ const char* divisionName(Division d);
 // step `rotation`).
 bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index);
 
-// Rhythm settings: queued, applied on the next bar.
+// Rhythm settings: steps, pulses, rotation and division are queued to the
+// next bar. The notes and their order live here too but apply immediately.
 struct Rhythm
 {
     uint8_t steps = 16;
@@ -112,6 +113,7 @@ class Engine
     void setPulses(int ch, uint8_t pulses);
     void setRotation(int ch, uint8_t rotation);
     void setDivision(int ch, Division d);
+    // Applied immediately, also while playing.
     void setNotes(int ch, const uint8_t* notes, uint8_t count);
     void setDirection(int ch, NoteDirection d);
 
@@ -127,6 +129,8 @@ class Engine
     // Playback position, for the UI.
     bool isRunning() const { return running; }
     uint8_t getCurrentStep(int ch) const;
+    // Index of the note the next pulse will play.
+    uint8_t getNextNoteIndex(int ch) const;
     uint32_t getBarMicroStep() const { return barMicroStep; }
 
   private:
@@ -156,6 +160,7 @@ class Engine
     void triggerStep(Channel& c);
     uint8_t nextNote(Channel& c);
     void markDirty(int ch);
+    void applyNotesNow(Channel& c);
 
     Output out;
     Channel channels[kChannels];

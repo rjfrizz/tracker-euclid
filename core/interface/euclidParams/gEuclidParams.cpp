@@ -1,29 +1,37 @@
 #include "euclidParams/euclidParams.h"
 
-#include "euclid/euclidEngine.h"
+#include "mtStructs.h"
 
 #include <stdio.h>
 
 namespace
 {
-constexpr int16_t kListX = 430;
-constexpr int16_t kListW = 360;
-constexpr int16_t kListY = 40;
-constexpr int16_t kRowH = 40;
-
 const char* const kParamNames[cEuclidParams::paramCount] = {
-    "Steps", "Pulses", "Rotation", "Division", "Velocity", "Gate", "Chance", "MIDI channel", "Channel",
+    "Steps", "Pulses", "Rotation", "Division", "Note order",
+    "Velocity", "Gate", "Chance", "MIDI channel", "Channel",
 };
 
-uint16_t framePlaces[cEuclidParams::paramCount][4];
+const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
+
+const char* const kNoteHelp[] = {
+    "Pads add a note, Shift + Delete clears",
+    "Encoder transposes, Shift: octave",
+    "Delete removes, Insert repeats",
+    "Arrows move the cursor",
+};
+
+static_assert(cEuclidParams::paramCount <= strEuclidPanelData::kMaxRows, "too many rows");
+static_assert(cEuclidParams::kNoteSlots <= strEuclidPanelData::kMaxCells, "too many cells");
 } // namespace
 
+// Controls on this screen: ring, panel, 8 channel labels and the bar behind
+// them. The display has 65 slots shared with the title bar and popups, so
+// the lists are drawn inside the panel rather than as one label per row.
 void cEuclidParams::initDisplayControls()
 {
     const Theme& theme = display.getTheme();
-    strControlProperties prop;
 
-    // Ring, left half.
+    strControlProperties prop;
     prop.x = 10;
     prop.y = 32;
     prop.w = 400;
@@ -32,43 +40,15 @@ void cEuclidParams::initDisplayControls()
     prop.data = &ringData;
     ring = display.createControl<cEuclidRing>(&prop);
 
-    // Settings list, right half.
-    for (uint8_t i = 0; i < paramCount; i++)
-    {
-        int16_t y = kListY + i * kRowH;
+    strControlProperties pp;
+    pp.x = 430;
+    pp.y = 40;
+    pp.w = 360;
+    pp.h = 380;
+    pp.style = controlStyleShow;
+    pp.data = &panelData;
+    panel = display.createControl<cEuclidPanel>(&pp);
 
-        strControlProperties p;
-        p.colors = theme.activeLabelsColors;
-        p.style = controlStyleShow | controlStyleCenterY | controlStyleFont3;
-        p.x = kListX + 12;
-        p.y = y;
-        p.w = kListW / 2;
-        p.h = kRowH;
-        p.text = kParamNames[i];
-        paramName[i] = display.createControl<cLabel>(&p);
-
-        p.style = controlStyleShow | controlStyleCenterY | controlStyleRightX | controlStyleFont3;
-        p.x = kListX + kListW - 12;
-        p.text = valueText[i];
-        paramValue[i] = display.createControl<cLabel>(&p);
-
-        framePlaces[i][0] = kListX;
-        framePlaces[i][1] = y + 2;
-        framePlaces[i][2] = kListW;
-        framePlaces[i][3] = kRowH - 4;
-        frameData.places[i] = &framePlaces[i][0];
-    }
-    frameData.placesCount = paramCount;
-    frameData.startPlace = selectedParam;
-    frameData.multiSelActiveNum = 0;
-
-    strControlProperties fp;
-    fp.style = 0;
-    fp.value = selectedParam;
-    fp.data = &frameData;
-    frame = display.createControl<cFrame>(&fp);
-
-    // Channels over the 8 screen keys.
     for (uint8_t i = 0; i < 8; i++)
     {
         strControlProperties p;
@@ -90,31 +70,56 @@ void cEuclidParams::initDisplayControls()
     bg.y = 425;
     bg.h = 54;
     bgLabel = display.createControl<cBgLabel>(&bg);
+
+    for (uint8_t i = 0; i < paramCount; i++)
+    {
+        panelData.names[i] = kParamNames[i];
+        panelData.values[i] = valueText[i];
+    }
+    panelData.rows = paramCount;
+    panelData.columns = kNoteColumns;
+    panelData.cells = kNoteSlots;
+    panelData.header = noteHeaderText;
+    for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
+        panelData.help[i] = kNoteHelp[i];
 }
 
 void cEuclidParams::showDefaultScreen()
 {
     titleBar->show();
-    refreshTitle();
-    refreshParams();
+    setView(view);
     refreshChannels();
-    refreshFrame();
     refreshRing();
     display.refreshControl(bgLabel);
     display.synchronizeRefresh();
 }
 
+void cEuclidParams::setView(View v)
+{
+    view = v;
+    panelData.mode = view == View::params ? strEuclidPanelData::Mode::list
+                                          : strEuclidPanelData::Mode::grid;
+    refreshTitle();
+    if (view == View::params)
+        refreshParams();
+    else
+        refreshNotes();
+    display.synchronizeRefresh();
+}
+
 void cEuclidParams::refreshTitle()
 {
-    snprintf(titleText, sizeof(titleText), "Euclid  Ch %d", selectedChannel + 1);
+    snprintf(titleText, sizeof(titleText), "%s  Ch %d", view == View::params ? "Params" : "Notes",
+             selectedChannel + 1);
     titleBar->setTitle(titleText);
 }
 
 void cEuclidParams::refreshFrame()
 {
-    display.setControlValue(frame, selectedParam);
-    display.setControlShow(frame);
-    display.refreshControl(frame);
+    panelData.focusRow = static_cast<int8_t>(selectedParam);
+    panelData.cursorCell = static_cast<int8_t>(noteCursor);
+    display.setControlData(panel, &panelData);
+    display.refreshControl(panel);
 }
 
 void cEuclidParams::refreshParam(uint8_t param)
@@ -130,6 +135,9 @@ void cEuclidParams::refreshParam(uint8_t param)
         case paramPulses: snprintf(t, n, "%d", r.pulses); break;
         case paramRotation: snprintf(t, n, "%d", r.rotation); break;
         case paramDivision: snprintf(t, n, "%s", euclid::divisionName(r.division)); break;
+        case paramNoteOrder:
+            snprintf(t, n, "%s", kDirectionNames[static_cast<uint8_t>(r.direction) % 4]);
+            break;
         case paramVelocity: snprintf(t, n, "%d", x.velocity); break;
         case paramGate: snprintf(t, n, "%d%%", x.gate); break;
         case paramChance: snprintf(t, n, "%d%%", x.probability); break;
@@ -138,17 +146,41 @@ void cEuclidParams::refreshParam(uint8_t param)
         default: t[0] = 0; break;
     }
 
-    display.setControlText(paramValue[param], t);
-    display.refreshControl(paramValue[param]);
+    if (view == View::params)
+        refreshFrame();
 }
 
 void cEuclidParams::refreshParams()
 {
     for (uint8_t i = 0; i < paramCount; i++)
-    {
-        display.refreshControl(paramName[i]);
         refreshParam(i);
-    }
+}
+
+void cEuclidParams::refreshNotes()
+{
+    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
+    int8_t next = euclidEngine.isRunning()
+                    ? static_cast<int8_t>(euclidEngine.getNextNoteIndex(selectedChannel))
+                    : -1;
+    lastNextNote = next;
+
+    if (view != View::notes)
+        return;
+
+    if (noteCursor >= r.noteCount)
+        noteCursor = r.noteCount - 1;
+
+    if (replaceNextNote)
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "Cleared: tap pads to enter notes");
+    else
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "%d of %d notes", r.noteCount, kNoteSlots);
+
+    for (uint8_t i = 0; i < kNoteSlots; i++)
+        panelData.cellText[i] = i < r.noteCount ? mtNotes[r.notes[i] & 127] : nullptr;
+    panelData.usedCells = r.noteCount;
+    panelData.playingCell = next;
+
+    refreshFrame();
 }
 
 void cEuclidParams::refreshChannels()
@@ -192,7 +224,8 @@ void cEuclidParams::refreshRing()
     ringData.steps = active.steps;
     ringData.pulses = active.pulses;
     ringData.rotation = active.rotation;
-    ringData.playhead = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(selectedChannel)) : -1;
+    ringData.playhead =
+      running ? static_cast<int8_t>(euclidEngine.getCurrentStep(selectedChannel)) : -1;
     ringData.enabled = x.enabled;
     ringData.muted = x.muted;
 

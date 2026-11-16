@@ -254,8 +254,45 @@ static void testDivisions()
     e.stop();
 }
 
+static void testNoteEditsApplyImmediately()
+{
+    reset();
+    Engine e = makeEngine();
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    r.noteCount = 3;
+    r.notes[0] = 60;
+    r.notes[1] = 62;
+    r.notes[2] = 64;
+    e.setRhythm(0, r);
+    e.setEnabled(0, true);
+    e.start();
+    run(e, 48 * 2); // 60, 62; the next note would be index 2
+    CHECK(e.getNextNoteIndex(0) == 2);
+
+    // Shorten the list mid-bar: no pending change, and the index wraps.
+    const uint8_t two[] = {70, 72};
+    e.setNotes(0, two, 2);
+    CHECK(!e.hasPendingChange(0));
+    CHECK(e.getActiveRhythm(0).noteCount == 2);
+    CHECK(e.getNextNoteIndex(0) == 0);
+    run(e, 48 * 2); // 70, 72
+
+    e.setDirection(0, NoteDirection::backward);
+    run(e, 48 * 2); // from index 0 going backward: 70, 72
+
+    std::vector<uint8_t> notes;
+    for (auto& ev : events)
+        if (ev.on)
+            notes.push_back(ev.note);
+    CHECK((notes == std::vector<uint8_t>{60, 62, 70, 72, 70, 72}));
+    e.stop();
+}
+
 int main()
 {
+    testNoteEditsApplyImmediately();
     testPatterns();
     testTimingAndGate();
     testFullGateReleasesBeforeNextNote();

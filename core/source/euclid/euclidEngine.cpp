@@ -345,9 +345,20 @@ void Engine::setSteps(int ch, uint8_t steps)
 void Engine::setPulses(int ch, uint8_t pulses) { EUCLID_SET_RHYTHM(pulses, pulses) }
 void Engine::setRotation(int ch, uint8_t rotation) { EUCLID_SET_RHYTHM(rotation, rotation) }
 void Engine::setDivision(int ch, Division d) { EUCLID_SET_RHYTHM(division, d) }
-void Engine::setDirection(int ch, NoteDirection d) { EUCLID_SET_RHYTHM(direction, d) }
 
 #undef EUCLID_SET_RHYTHM
+
+// Copies the pending notes and order to the playing settings without
+// waiting for the bar, keeping the sequence position where it is.
+void Engine::applyNotesNow(Channel& c)
+{
+    for (uint8_t i = 0; i < kMaxNotes; i++)
+        c.active.notes[i] = c.pending.notes[i];
+    c.active.noteCount = c.pending.noteCount;
+    c.active.direction = c.pending.direction;
+    if (c.noteIndex >= c.active.noteCount)
+        c.noteIndex = 0;
+}
 
 void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
 {
@@ -356,12 +367,29 @@ void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
     if (count > kMaxNotes)
         count = kMaxNotes;
     lock();
-    Rhythm& p = channels[ch].pending;
+    Channel& c = channels[ch];
     for (uint8_t i = 0; i < count; i++)
-        p.notes[i] = notes[i];
-    p.noteCount = count;
-    markDirty(ch);
+        c.pending.notes[i] = clampValue<uint8_t>(notes[i], 0, 127);
+    c.pending.noteCount = count;
+    applyNotesNow(c);
     unlock();
+}
+
+void Engine::setDirection(int ch, NoteDirection d)
+{
+    if (!validChannel(ch) || d >= NoteDirection::count)
+        return;
+    lock();
+    Channel& c = channels[ch];
+    c.pending.direction = d;
+    c.pingPongDir = 1;
+    applyNotesNow(c);
+    unlock();
+}
+
+uint8_t Engine::getNextNoteIndex(int ch) const
+{
+    return validChannel(ch) ? channels[ch].noteIndex : 0;
 }
 
 void Engine::setExpression(int ch, const Expression& e)
