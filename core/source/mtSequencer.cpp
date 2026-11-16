@@ -11,6 +11,9 @@
 #include "mtStructs.h"
 #include "sampleRecorder/sampleRecorder.h"
 
+#include "euclid/euclidEngine.h"
+#include "euclid/euclidPlatform.h"
+
 #include "configEditor/configEditor.h"
 #include "core/songTimer.h"
 
@@ -68,6 +71,8 @@ void Sequencer::init()
     std::fill(
       std::begin(player.performance.trackLength), std::end(player.performance.trackLength), 8);
     liveRecHeldNotesCount = 0;
+
+    euclidPlatformInit();
 }
 
 void Sequencer::update()
@@ -243,6 +248,7 @@ AUDIO_CORE_RAM void Sequencer::tick_uStep(void)
 
         if (timerTicks % 12 == 1)
         {
+            euclidEngine.onMicroStep();
             inc_uStepGlobal();
             for (int trackIdx = 0; trackIdx < kAllTracks; trackIdx++)
             {
@@ -1327,6 +1333,8 @@ AUDIO_CORE_RAM void Sequencer::play(uint8_t fromPos)
     reset_actual_pos();
     resetChanceState();
 
+    euclidEngine.start();
+
     player.isStop = 0;
     player.isPlay = 1;
     timerTicks = 1;
@@ -1392,6 +1400,8 @@ void Sequencer::playSelection(bool looped) // potrzebuje aktualnego zaznaczenia
     player.uStep = 1;
 
     player.globalPos = player.loopSelection.firstStep;
+
+    euclidEngine.start();
 
     player.isStop = 0;
     player.isPlay = 1;
@@ -1558,6 +1568,7 @@ void Sequencer::stop(StopContext context)
 
     songTimer.stop();
     stopAllOpenNotes();
+    euclidEngine.stop();
     cancelFxes();
 
     player.isPlay = 0;
