@@ -325,10 +325,10 @@ static Engine makeGeneratedEngine(NoteMode mode, uint8_t (*below)(uint8_t) = zer
     return e;
 }
 
-static void testArpUpInCMajor()
+static void testScaleUpInCMajor()
 {
     reset();
-    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
     e.setGlobalKey(Key{0, 2}); // C major
     e.start();
     run(e, 48 * 8);
@@ -336,10 +336,10 @@ static void testArpUpInCMajor()
     e.stop();
 }
 
-static void testArpUpDownAndOffsetKey()
+static void testScaleUpDownAndOffsetKey()
 {
     reset();
-    Engine e = makeGeneratedEngine(NoteMode::arpUpDown);
+    Engine e = makeGeneratedEngine(NoteMode::scaleUpDown);
     Expression x = e.getExpression(0);
     x.keyMode = KeyMode::offset;
     x.keyOffset = 2; // D
@@ -403,7 +403,7 @@ static void testRandomAndWalkStayInKeyAndRange()
 static void testGlobalKeyWaitsForBar()
 {
     reset();
-    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
     e.setGlobalKey(Key{0, 2});
     e.start();
     e.setImmediate(true); // edits below behave as with Shift held
@@ -573,7 +573,7 @@ static void testMuteIsNeverStaged()
 static void testStagedGlobalKey()
 {
     reset();
-    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
     e.setGlobalKey(Key{0, 2});
     e.start();
     e.setGlobalKey(Key{5, 2}); // F major, staged
@@ -597,8 +597,8 @@ int main()
     testLaunchBeat();
     testMuteIsNeverStaged();
     testStagedGlobalKey();
-    testArpUpInCMajor();
-    testArpUpDownAndOffsetKey();
+    testScaleUpInCMajor();
+    testScaleUpDownAndOffsetKey();
     testRandomAndWalkStayInKeyAndRange();
     testGlobalKeyWaitsForBar();
     testNoteEditsApplyImmediately();

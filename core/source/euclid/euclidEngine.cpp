@@ -77,8 +77,8 @@ const char* noteModeName(NoteMode m)
         case NoteMode::seq: return "SEQ";
         case NoteMode::random: return "Random";
         case NoteMode::walk: return "Walk";
-        case NoteMode::arpUp: return "Arp up";
-        case NoteMode::arpUpDown: return "Arp up-down";
+        case NoteMode::scaleUp: return "Scale up";
+        case NoteMode::scaleUpDown: return "Scale up-down";
         default: return "?";
     }
 }
@@ -353,8 +353,8 @@ uint8_t Engine::nextGeneratedNote(Channel& c)
                 d = static_cast<int16_t>(2 * (range - 1) - d);
             break;
         }
-        case NoteMode::arpUp: break; // plays d, then moves up below
-        case NoteMode::arpUpDown: break;
+        case NoteMode::scaleUp: break; // plays d, then moves up below
+        case NoteMode::scaleUpDown: break;
         default: break;
     }
     if (d < 0)
@@ -364,12 +364,12 @@ uint8_t Engine::nextGeneratedNote(Channel& c)
 
     int note = 12 * c.expr.octave + key.root + 12 * (d / len) + intervals[d % len];
 
-    // The arps play the current degree, then move on.
-    if (c.active.mode == NoteMode::arpUp)
+    // The scale runs play the current degree, then move on.
+    if (c.active.mode == NoteMode::scaleUp)
     {
         d = static_cast<int16_t>((d + 1) % range);
     }
-    else if (c.active.mode == NoteMode::arpUpDown && range > 1)
+    else if (c.active.mode == NoteMode::scaleUpDown && range > 1)
     {
         if (d + c.degreeDir >= range || d + c.degreeDir < 0)
             c.degreeDir = static_cast<int8_t>(-c.degreeDir);

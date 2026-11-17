@@ -66,8 +66,8 @@ enum class NoteMode : uint8_t
     seq = 0,
     random,   // any note of the scale within the range
     walk,     // moves up or down by up to two scale steps
-    arpUp,    // climbs the scale, wrapping at the top of the range
-    arpUpDown,
+    scaleUp,    // climbs the scale, wrapping at the top of the range
+    scaleUpDown,
     count
 };
 
