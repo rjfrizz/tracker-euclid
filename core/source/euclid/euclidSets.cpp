@@ -88,6 +88,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[36] = static_cast<uint8_t>(x.transpose + 64);
         p[37] = r.homeRoot;
         p[38] = r.homeScale;
+        p[39] = engine.getName(ch);
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -179,11 +180,13 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             x.transpose = static_cast<int8_t>(static_cast<int>(p[36]) - 64);
             r.homeRoot = p[37];
             r.homeScale = p[38];
+            engine.setName(ch, p[39]);
         }
         else
         {
             r.homeRoot = fileKey.root;
             r.homeScale = fileKey.scale;
+            engine.setName(ch, 0);
         }
 
         // The engine clamps every field, so a hand-edited file can't put it

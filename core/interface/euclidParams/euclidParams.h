@@ -15,7 +15,8 @@ class cEuclidParams : public ModuleBase
   public:
     enum Param : uint8_t
     {
-        paramSteps = 0,
+        paramName = 0,
+        paramSteps,
         paramPulses,
         paramRotation,
         paramDivision,
@@ -169,7 +170,7 @@ class cEuclidParams : public ModuleBase
     char noteHeaderText[40];
     char setText[8][8];
     char setStatus[40] = ""; // last save/load result, shown until the next action
-    char channelText[8][6];
+    char channelText[8][12]; // "8 Counter"
     char channelText2[8][12];
     char titleText[48];
 

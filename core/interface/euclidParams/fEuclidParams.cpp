@@ -298,6 +298,9 @@ void cEuclidParams::changeParam(int16_t delta)
             euclidEngine.setMode(ch, static_cast<euclid::NoteMode>(m));
             break;
         }
+        case paramName:
+            setRowValue(paramName, clampInt(rowValue(paramName, false) + step, 0, euclid::channelNameCount() - 1));
+            return;
         case paramKey:
             // One row cycles Follow, +1 ... +11, Own (SEQ's or the generator's).
             setRowValue(paramKey, clampInt(rowValue(paramKey, false) + step, 0, 12));

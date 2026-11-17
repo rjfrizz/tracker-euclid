@@ -59,6 +59,26 @@ uint16_t launchToMicroSteps(Launch l)
     }
 }
 
+namespace
+{
+const char* const kChannelNames[] = {
+    nullptr, "Kick",  "Snare", "Clap",  "Hat",   "Open",  "Perc",  "Tom",   "Rim",
+    "Shaker", "Cymbal", "Bass", "Sub",  "Lead",  "Pad",   "Chord", "Arp",   "Keys",
+    "Pluck", "Bell",  "Stab",  "Drone", "Vox",   "Brass", "String", "Organ", "Synth",
+    "FX",    "Noise", "Riser", "Melody", "Counter", "Fill", "Loop",
+};
+} // namespace
+
+uint8_t channelNameCount()
+{
+    return sizeof(kChannelNames) / sizeof(kChannelNames[0]);
+}
+
+const char* channelName(uint8_t index)
+{
+    return index < channelNameCount() ? kChannelNames[index] : nullptr;
+}
+
 const char* launchName(Launch l)
 {
     switch (l)
@@ -125,6 +145,8 @@ void Engine::init(const Output& o)
     {
         c = Channel();
     }
+    for (uint8_t& n : names)
+        n = 0;
     globalStaged = Key();
     globalPending = Key();
     globalActive = Key();
@@ -855,6 +877,19 @@ void Engine::setMuted(int ch, bool muted)
     c.stagedExpr.muted = muted;
     changeCount++;
     unlock();
+}
+
+uint8_t Engine::getName(int ch) const
+{
+    return validChannel(ch) ? names[ch] : 0;
+}
+
+void Engine::setName(int ch, uint8_t index)
+{
+    if (!validChannel(ch))
+        return;
+    names[ch] = index < channelNameCount() ? index : 0;
+    changeCount++;
 }
 
 void Engine::setGlobalKey(const Key& k)

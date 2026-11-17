@@ -10,7 +10,7 @@
 namespace
 {
 const char* const kParamNames[cEuclidParams::paramCount] = {
-    "Steps",     "Pulses",   "Rotation", "Division", "Mode",   "Note order",
+    "Name",      "Steps",    "Pulses",   "Rotation", "Division", "Mode",   "Note order",
     "Key",       "Own root", "Own scale", "Octave",  "Range",  "Transpose", "Velocity",
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
@@ -175,6 +175,12 @@ void cEuclidParams::refreshParam(uint8_t param)
 
     switch (param)
     {
+        case paramName:
+        {
+            const char* name = euclid::channelName(euclidEngine.getName(selectedChannel));
+            snprintf(t, n, "%s", name != nullptr ? name : "-");
+            break;
+        }
         case paramSteps: snprintf(t, n, "%d", r.steps); break;
         case paramPulses: snprintf(t, n, "%d", r.pulses); break;
         case paramRotation: snprintf(t, n, "%d", r.rotation); break;
@@ -399,7 +405,11 @@ void cEuclidParams::refreshChannels()
         euclid::Rhythm r = euclidEngine.getRhythm(i);
         euclid::Expression x = euclidEngine.getExpression(i);
 
-        snprintf(channelText[i], sizeof(channelText[i]), "Ch %d", i + 1);
+        const char* name = euclid::channelName(euclidEngine.getName(i));
+        if (name != nullptr)
+            snprintf(channelText[i], sizeof(channelText[i]), "%d %s", i + 1, name);
+        else
+            snprintf(channelText[i], sizeof(channelText[i]), "Ch %d", i + 1);
         if (!x.enabled)
             snprintf(channelText2[i], sizeof(channelText2[i]), "off");
         else if (x.muted)

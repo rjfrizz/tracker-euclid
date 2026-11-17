@@ -59,6 +59,7 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
     switch (row)
     {
+        case paramName: return { PadMap::list, euclid::channelNameCount(), 0, 0 }; // pad 1 = no name
         case paramSteps: return { PadMap::list, euclid::kMaxSteps, 1, 0 };
         case paramPulses: return { PadMap::list, static_cast<uint8_t>(r.steps + 1), 0, 0 };
         case paramRotation: return { PadMap::list, r.steps, 0, 0 };
@@ -102,6 +103,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
 
     switch (row)
     {
+        case paramName: return euclidEngine.getName(ch); // not staged: live == staged
         case paramSteps: return r.steps;
         case paramPulses: return r.pulses;
         case paramRotation: return r.rotation;
@@ -157,6 +159,7 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
 
     switch (row)
     {
+        case paramName: euclidEngine.setName(ch, static_cast<uint8_t>(clampInt(v, 0, euclid::channelNameCount() - 1))); break;
         case paramSteps: euclidEngine.setSteps(ch, static_cast<uint8_t>(clampInt(v, 1, euclid::kMaxSteps))); break;
         case paramPulses: euclidEngine.setPulses(ch, static_cast<uint8_t>(clampInt(v, 0, r.steps))); break;
         case paramRotation: euclidEngine.setRotation(ch, static_cast<uint8_t>(clampInt(v, 0, r.steps - 1))); break;

@@ -67,6 +67,8 @@ static void fill(Engine& e)
         e.setRhythm(ch, withMode);
     }
     e.setGlobalKey(Key{5, 11});
+    for (int ch = 0; ch < kChannels; ch++)
+        e.setName(ch, static_cast<uint8_t>(ch * 4));
 }
 
 static bool sameSettings(const Engine& a, const Engine& b)
@@ -90,6 +92,9 @@ static bool sameSettings(const Engine& a, const Engine& b)
             ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale)
             return false;
     }
+    for (int ch = 0; ch < kChannels; ch++)
+        if (a.getName(ch) != b.getName(ch))
+            return false;
     Key ka = a.getGlobalKey(), kb = b.getGlobalKey();
     return ka.root == kb.root && ka.scale == kb.scale;
 }

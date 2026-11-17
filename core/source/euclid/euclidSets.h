@@ -24,7 +24,8 @@
 //        22 enabled, muted, midiChannel, velocity, gate, probability
 //        28 mode, keyMode, keyOffset, ownRoot, ownScale, octave, range
 //        35 seqKeyMode, transpose + 64, homeRoot, homeScale
-//        39 reserved (0)
+//        39 name (euclid::channelName index; 0 = none, which is also what
+//           earlier version 3 files hold here)
 //   336 CRC-32 (little-endian) of bytes 0-335
 //
 // Older files still load, and the fields they don't have get defaults:

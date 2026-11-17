@@ -157,6 +157,11 @@ enum class Launch : uint8_t
     count
 };
 
+// Channel names, shown on the screen keys. 0 is no name ("Ch 1"). Stored in
+// set files by index, so only add names at the end.
+uint8_t channelNameCount();
+const char* channelName(uint8_t index); // nullptr for 0
+
 uint16_t launchToMicroSteps(Launch l);
 const char* launchName(Launch l);
 
@@ -222,6 +227,10 @@ class Engine
 
     // Mute bypasses staging: it's a performance control.
     void setMuted(int ch, bool muted);
+
+    // A channel's name (channelName() index). Just a label: never staged.
+    uint8_t getName(int ch) const;
+    void setName(int ch, uint8_t index);
 
     // While true, every edit is committed as it's made (Shift held).
     void setImmediate(bool immediate) { immediateEdits = immediate; }
@@ -305,6 +314,8 @@ class Engine
     Launch launch = Launch::bar;
     uint32_t launchCounter = 0; // micro-steps since start, wraps every 4 bars
     uint32_t changeCount = 0;   // main loop only
+
+    uint8_t names[kChannels] = {};
 
     Key globalStaged;
     Key globalPending;
