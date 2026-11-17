@@ -71,12 +71,16 @@ enum class NoteMode : uint8_t
     count
 };
 
-// Which key a generated channel uses.
+// Which key a channel follows.
+//   Generated modes: follow = the global key, offset = the global scale with
+//   the root keyOffset semitones up, own = ownRoot and ownScale.
+//   SEQ: own = the list exactly as entered; follow and offset move the list
+//   from its home key to that key and snap stray notes into the scale.
 enum class KeyMode : uint8_t
 {
-    follow = 0, // the global key
-    offset,     // the global scale, root moved up by keyOffset semitones
-    own,        // its own root and scale
+    follow = 0,
+    offset,
+    own,
     count
 };
 
@@ -111,6 +115,11 @@ struct Rhythm
     uint8_t notes[kMaxNotes] = {60};
     NoteDirection direction = NoteDirection::forward;
     NoteMode mode = NoteMode::seq;
+
+    // The global key when the note list was last edited: what a following
+    // SEQ channel transposes from.
+    uint8_t homeRoot = 0;
+    uint8_t homeScale = 1; // Minor
 };
 
 // Expression settings: how the channel's notes are played.
@@ -123,14 +132,19 @@ struct Expression
     uint8_t gate = 50;       // percent of the channel's step length, 1-100
     uint8_t probability = 100; // percent, 0-100
 
-    // Used by the generated note modes.
-    KeyMode keyMode = KeyMode::follow;
-    uint8_t keyOffset = 7; // semitones, 1-11 (KeyMode::offset)
-    uint8_t ownRoot = 0;   // 0-11 (KeyMode::own)
-    uint8_t ownScale = 2;  // Major (KeyMode::own)
+    // Key. Generated modes and SEQ each have their own key mode, so
+    // switching Mode doesn't change how a channel follows the key.
+    KeyMode keyMode = KeyMode::follow; // generated modes
+    KeyMode seqKeyMode = KeyMode::own; // SEQ
+    uint8_t keyOffset = 7; // semitones, 1-11 (KeyMode::offset, both)
+    uint8_t ownRoot = 0;   // 0-11 (KeyMode::own, generated)
+    uint8_t ownScale = 2;  // Major (KeyMode::own, generated)
     uint8_t octave = 3;    // lowest octave, Tracker numbering (C3 = note 36)
     uint8_t range = 2;     // octaves, 1-4
+    int8_t transpose = 0;  // semitones, -24 to +24, every mode, after the key
 };
+
+constexpr int kMaxTranspose = 24;
 
 // When committed changes start playing. Stored in set files, so the
 // values must not change.
@@ -175,7 +189,8 @@ class Engine
     Rhythm getRhythm(int ch) const;
     Expression getExpression(int ch) const;
     Key getGlobalKey() const { return globalStaged; }
-    // The key a channel generates from, from its staged settings.
+    // The key a channel plays in, from its staged settings. For a SEQ
+    // channel set to Own it's the list's home key.
     Key getChannelKey(int ch) const;
 
     // Committed settings (playing, or waiting for the launch point).
@@ -274,6 +289,8 @@ class Engine
     uint8_t nextNote(Channel& c);
     uint8_t nextGeneratedNote(Channel& c);
     Key keyFor(const Expression& x, const Key& global) const;
+    Key seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const;
+    uint8_t seqNote(const Channel& c, uint8_t listNote) const;
 
     // After an edit to channel ch's staged settings; call with the lock held.
     void edited(int ch);

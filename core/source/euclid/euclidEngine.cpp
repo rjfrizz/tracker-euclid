@@ -157,6 +157,9 @@ void Engine::clampRhythm(Rhythm& r) const
         r.direction = NoteDirection::forward;
     if (r.mode >= NoteMode::count)
         r.mode = NoteMode::seq;
+    r.homeRoot = static_cast<uint8_t>(r.homeRoot % 12);
+    if (r.homeScale > MAX_SCALE)
+        r.homeScale = 0;
 }
 
 Expression Engine::clampExpression(const Expression& e) const
@@ -173,6 +176,9 @@ Expression Engine::clampExpression(const Expression& e) const
     x.ownScale = clampValue<uint8_t>(x.ownScale, 0, MAX_SCALE);
     x.octave = clampValue<uint8_t>(x.octave, 0, 8);
     x.range = clampValue<uint8_t>(x.range, 1, 4);
+    if (x.seqKeyMode >= KeyMode::count)
+        x.seqKeyMode = KeyMode::own;
+    x.transpose = clampValue<int8_t>(x.transpose, -kMaxTranspose, kMaxTranspose);
     return x;
 }
 
@@ -187,7 +193,8 @@ bool rhythmRestarts(const Rhythm& a, const Rhythm& b)
 
 bool sameNotes(const Rhythm& a, const Rhythm& b)
 {
-    if (a.noteCount != b.noteCount || a.direction != b.direction)
+    if (a.noteCount != b.noteCount || a.direction != b.direction || a.homeRoot != b.homeRoot ||
+        a.homeScale != b.homeScale)
         return false;
     for (uint8_t i = 0; i < a.noteCount; i++)
         if (a.notes[i] != b.notes[i])
@@ -206,7 +213,8 @@ bool sameExpression(const Expression& a, const Expression& b)
     return a.enabled == b.enabled && a.midiChannel == b.midiChannel && a.velocity == b.velocity &&
            a.gate == b.gate && a.probability == b.probability && a.keyMode == b.keyMode &&
            a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot && a.ownScale == b.ownScale &&
-           a.octave == b.octave && a.range == b.range;
+           a.octave == b.octave && a.range == b.range && a.seqKeyMode == b.seqKeyMode &&
+           a.transpose == b.transpose;
 }
 
 // Key settings change which notes are generated, so like rhythm they wait
@@ -214,7 +222,8 @@ bool sameExpression(const Expression& a, const Expression& b)
 bool sameKeySettings(const Expression& a, const Expression& b)
 {
     return a.keyMode == b.keyMode && a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot &&
-           a.ownScale == b.ownScale && a.octave == b.octave && a.range == b.range;
+           a.ownScale == b.ownScale && a.octave == b.octave && a.range == b.range &&
+           a.seqKeyMode == b.seqKeyMode && a.transpose == b.transpose;
 }
 
 void copyKeySettings(Expression& to, const Expression& from)
@@ -225,6 +234,8 @@ void copyKeySettings(Expression& to, const Expression& from)
     to.ownScale = from.ownScale;
     to.octave = from.octave;
     to.range = from.range;
+    to.seqKeyMode = from.seqKeyMode;
+    to.transpose = from.transpose;
 }
 
 bool sameKey(const Key& a, const Key& b)
@@ -320,7 +331,10 @@ Key Engine::getChannelKey(int ch) const
 {
     if (!validChannel(ch))
         return globalStaged;
-    return keyFor(channels[ch].stagedExpr, globalStaged);
+    const Channel& c = channels[ch];
+    if (c.staged.mode == NoteMode::seq)
+        return seqKeyFor(c.stagedExpr, c.staged, globalStaged);
+    return keyFor(c.stagedExpr, globalStaged);
 }
 
 uint8_t Engine::nextGeneratedNote(Channel& c)
@@ -376,6 +390,62 @@ uint8_t Engine::nextGeneratedNote(Channel& c)
         d = static_cast<int16_t>(d + c.degreeDir);
     }
 
+    note += c.expr.transpose;
+    return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
+}
+
+Key Engine::seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const
+{
+    Key k = global;
+    switch (x.seqKeyMode)
+    {
+        case KeyMode::offset: k.root = static_cast<uint8_t>((global.root + x.keyOffset) % 12); break;
+        case KeyMode::own:
+            k.root = r.homeRoot;
+            k.scale = r.homeScale;
+            break;
+        default: break;
+    }
+    return k;
+}
+
+namespace
+{
+bool noteInScale(int note, const Key& k)
+{
+    const uint16_t mask = scaleDef[k.scale <= MAX_SCALE ? k.scale : 0] | 1u;
+    return (mask >> ((note - k.root + 120) % 12)) & 1u;
+}
+
+// The nearest note in the key; on a tie, the lower one.
+int snapToKey(int note, const Key& k)
+{
+    for (int d = 0; d < 12; d++)
+    {
+        if (noteInScale(note - d, k))
+            return note - d;
+        if (noteInScale(note + d, k))
+            return note + d;
+    }
+    return note;
+}
+} // namespace
+
+// A SEQ list note as played: moved from the list's home key to the key the
+// channel follows (the shorter way round, so a melody moves at most a
+// tritone), snapped into that key's scale, then transposed.
+uint8_t Engine::seqNote(const Channel& c, uint8_t listNote) const
+{
+    int note = listNote;
+    if (c.expr.seqKeyMode != KeyMode::own)
+    {
+        const Key target = seqKeyFor(c.expr, c.active, globalActive);
+        int shift = (target.root - c.active.homeRoot + 12) % 12;
+        if (shift > 6)
+            shift -= 12;
+        note = snapToKey(note + shift, target);
+    }
+    note += c.expr.transpose;
     return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
 }
 
@@ -387,7 +457,7 @@ uint8_t Engine::nextNote(Channel& c)
     const Rhythm& r = c.active;
     uint8_t count = r.noteCount;
     if (count <= 1)
-        return r.notes[0];
+        return seqNote(c, r.notes[0]);
 
     if (c.noteIndex >= count)
         c.noteIndex = 0;
@@ -416,7 +486,7 @@ uint8_t Engine::nextNote(Channel& c)
             break;
         default: c.noteIndex = 0; break;
     }
-    return note;
+    return seqNote(c, note);
 }
 
 void Engine::triggerStep(Channel& c)
@@ -633,6 +703,8 @@ void Engine::commitLocked(int ch, bool immediate)
             c.pingPongDir = 1;
         c.active.noteCount = c.staged.noteCount;
         c.active.direction = c.staged.direction;
+        c.active.homeRoot = c.staged.homeRoot;
+        c.active.homeScale = c.staged.homeScale;
         if (c.noteIndex >= c.active.noteCount)
             c.noteIndex = 0;
 
@@ -765,6 +837,9 @@ void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
     for (uint8_t i = 0; i < count; i++)
         r.notes[i] = notes[i];
     r.noteCount = count;
+    // The list is entered against the global key as it stands now.
+    r.homeRoot = globalStaged.root;
+    r.homeScale = globalStaged.scale;
     edited(ch);
     unlock();
 }

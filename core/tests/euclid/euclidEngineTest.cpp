@@ -589,8 +589,96 @@ static void testStagedGlobalKey()
     e.stop();
 }
 
+// A SEQ channel with every step a pulse and the given list, entered while
+// the global key is `home`.
+static Engine makeSeqEngine(Key home, std::vector<uint8_t> notes)
+{
+    Engine e = makeEngine();
+    e.setGlobalKey(home);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    e.setNotes(0, notes.data(), static_cast<uint8_t>(notes.size()));
+    e.setEnabled(0, true);
+    return e;
+}
+
+static std::vector<uint8_t> playSeq(Engine& e, int pulses)
+{
+    reset();
+    e.start();
+    run(e, 48 * pulses);
+    e.stop();
+    return playedNotes();
+}
+
+static void testSeqOwnIgnoresGlobalKey()
+{
+    Engine e = makeSeqEngine(Key{0, 1}, {36, 39, 43});
+    e.setGlobalKey(Key{5, 2}); // F major: an Own list doesn't care
+    CHECK((playSeq(e, 3) == std::vector<uint8_t>{36, 39, 43}));
+    CHECK(e.getRhythm(0).homeRoot == 0 && e.getRhythm(0).homeScale == 1);
+}
+
+static void testSeqFollowMovesWithTheRoot()
+{
+    Engine e = makeSeqEngine(Key{0, 1}, {36, 39, 43}); // C Eb G in C minor
+    Expression x = e.getExpression(0);
+    x.seqKeyMode = KeyMode::follow;
+    e.setExpression(0, x);
+    e.setGlobalKey(Key{5, 1}); // F minor: up a fourth
+    CHECK((playSeq(e, 3) == std::vector<uint8_t>{41, 44, 48}));
+    e.setGlobalKey(Key{7, 1}); // G minor: the short way round is down a fourth
+    CHECK((playSeq(e, 3) == std::vector<uint8_t>{31, 34, 38}));
+}
+
+static void testSeqFollowSnapsToTheScale()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {36, 40, 43}); // C E G in C major
+    Expression x = e.getExpression(0);
+    x.seqKeyMode = KeyMode::follow;
+    e.setExpression(0, x);
+    e.setGlobalKey(Key{0, 1}); // C minor: E has no place, the lower neighbour Eb wins
+    CHECK((playSeq(e, 3) == std::vector<uint8_t>{36, 39, 43}));
+}
+
+static void testSeqOffsetAndTranspose()
+{
+    Engine e = makeSeqEngine(Key{0, 1}, {36});
+    Expression x = e.getExpression(0);
+    x.seqKeyMode = KeyMode::offset;
+    x.keyOffset = 3; // Eb minor
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 1) == std::vector<uint8_t>{39}));
+
+    x.seqKeyMode = KeyMode::own;
+    x.transpose = -5;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 1) == std::vector<uint8_t>{31}));
+}
+
+static void testTransposeGeneratedMode()
+{
+    reset();
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
+    e.setGlobalKey(Key{0, 2});
+    Expression x = e.getExpression(0);
+    x.transpose = 12;
+    e.setExpression(0, x);
+    e.start();
+    run(e, 48 * 3);
+    CHECK((playedNotes() == std::vector<uint8_t>{48, 50, 52}));
+    e.stop();
+}
+
 int main()
 {
+    testSeqOwnIgnoresGlobalKey();
+    testSeqFollowMovesWithTheRoot();
+    testSeqFollowSnapsToTheScale();
+    testSeqOffsetAndTranspose();
+    testTransposeGeneratedMode();
     testStagedChangesWaitForCommit();
     testImmediateExpressionPlaysNow();
     testCommitOneChannel();

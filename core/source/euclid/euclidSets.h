@@ -8,9 +8,9 @@
 // Sets: everything the 8 channels are doing, plus the global key, stored as
 // a small binary file.
 //
-// Layout (version 2, 340 bytes):
+// Layout (version 3, 340 bytes):
 //   0  'E' 'U' 'C' 'S'
-//   4  version (2)
+//   4  version (3)
 //   5  channel count (8)
 //   6  slot this state was last saved to or loaded from (1-8, 0 = none)
 //   7  global root (0-11)
@@ -23,11 +23,15 @@
 //        6 notes[16]
 //        22 enabled, muted, midiChannel, velocity, gate, probability
 //        28 mode, keyMode, keyOffset, ownRoot, ownScale, octave, range
-//        35 reserved (5 bytes of 0)
+//        35 seqKeyMode, transpose + 64, homeRoot, homeScale
+//        39 reserved (0)
 //   336 CRC-32 (little-endian) of bytes 0-335
 //
-// Version 1 files (268 bytes: an 8-byte header, 32-byte records without the
-// key fields, CRC at 264) still load; the newer fields get their defaults.
+// Older files still load, and the fields they don't have get defaults:
+//   version 2 (340 bytes): no bytes 35-38; SEQ lists are Own, untransposed,
+//     with the file's global key as their home key.
+//   version 1 (268 bytes: an 8-byte header, 32-byte records without the key
+//     fields, CRC at 264): also no global key, launch or bytes 28-38.
 //
 // Records are written field by field rather than as raw structs, so the
 // format doesn't change with compiler padding or struct edits.
@@ -35,7 +39,7 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 2;
+constexpr uint8_t kSetVersion = 3;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
 constexpr size_t kSetChannelSize = 40;

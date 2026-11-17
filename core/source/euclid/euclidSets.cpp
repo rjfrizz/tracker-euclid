@@ -84,6 +84,10 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[32] = x.ownScale;
         p[33] = x.octave;
         p[34] = x.range;
+        p[35] = static_cast<uint8_t>(x.seqKeyMode);
+        p[36] = static_cast<uint8_t>(x.transpose + 64);
+        p[37] = r.homeRoot;
+        p[38] = r.homeScale;
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -108,7 +112,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         channelSize = kSetV1ChannelSize;
         fileSize = kSetV1FileSize;
     }
-    else if (version == 2)
+    else if (version == 2 || version == 3)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -126,11 +130,13 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         return false;
 
     // Everything is checked; from here on the engine is changed.
+    Key fileKey; // version 1 files have none: the default
     if (version >= 2)
     {
         Key key;
         key.root = buf[7];
         key.scale = buf[8];
+        fileKey = key;
         engine.setGlobalKey(key);
         engine.setLaunch(enumOr(buf[9], Launch::count, Launch::bar));
     }
@@ -166,6 +172,18 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             x.ownScale = p[32];
             x.octave = p[33];
             x.range = p[34];
+        }
+        if (version >= 3)
+        {
+            x.seqKeyMode = enumOr(p[35], KeyMode::count, KeyMode::own);
+            x.transpose = static_cast<int8_t>(static_cast<int>(p[36]) - 64);
+            r.homeRoot = p[37];
+            r.homeScale = p[38];
+        }
+        else
+        {
+            r.homeRoot = fileKey.root;
+            r.homeScale = fileKey.scale;
         }
 
         // The engine clamps every field, so a hand-edited file can't put it

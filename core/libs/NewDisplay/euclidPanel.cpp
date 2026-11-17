@@ -122,11 +122,11 @@ void cEuclidPanel::drawList()
         if (i == data->focusRow)
             drawOutline(posX, y + 2, width, kRowH - 4, theme.frameColors[0]);
 
-        bool dim = data->dimRows & (1u << i);
+        bool dim = data->dimRows & (1ul << i);
         API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
         if (data->names[i] != nullptr)
             API_CMD_TEXT(posX + kPad, cy, fonts[kFontBold].handle, OPT_CENTERY, data->names[i]);
-        if (data->stagedRows & (1u << i))
+        if (data->stagedRows & (1ul << i))
             API_COLOR(theme.orange);
         if (data->values[i] != nullptr)
             API_CMD_TEXT(posX + width - kPad, cy, fonts[kFontBold].handle, OPT_CENTERY | OPT_RIGHTX,

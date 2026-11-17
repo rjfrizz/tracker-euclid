@@ -8,7 +8,7 @@
 // list of name/value rows (settings) or a grid of cells (the note list).
 struct strEuclidPanelData
 {
-    static constexpr uint8_t kMaxRows = 16;
+    static constexpr uint8_t kMaxRows = 20;
     static constexpr uint8_t kMaxCells = 16;
     static constexpr uint8_t kMaxHelpLines = 4;
 
@@ -23,8 +23,8 @@ struct strEuclidPanelData
     const char* names[kMaxRows] = {};
     const char* values[kMaxRows] = {};
     int8_t focusRow = -1;
-    uint16_t dimRows = 0;    // bit per row: setting doesn't apply right now
-    uint16_t stagedRows = 0; // bit per row: edited, waiting for Rec
+    uint32_t dimRows = 0;    // bit per row: setting doesn't apply right now
+    uint32_t stagedRows = 0; // bit per row: edited, waiting for Rec
     // The list scrolls to keep the focused row in view; firstRow is the
     // top visible row and is kept up to date by the control.
     uint8_t firstRow = 0;

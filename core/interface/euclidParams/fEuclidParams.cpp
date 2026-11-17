@@ -299,24 +299,12 @@ void cEuclidParams::changeParam(int16_t delta)
             break;
         }
         case paramKey:
-        {
-            // One row cycles Follow, +1 ... +11, Own.
-            int index = x.keyMode == euclid::KeyMode::follow   ? 0
-                        : x.keyMode == euclid::KeyMode::offset ? x.keyOffset
-                                                               : 12;
-            index = clampInt(index + step, 0, 12);
-            if (index == 0)
-                x.keyMode = euclid::KeyMode::follow;
-            else if (index == 12)
-                x.keyMode = euclid::KeyMode::own;
-            else
-            {
-                x.keyMode = euclid::KeyMode::offset;
-                x.keyOffset = static_cast<uint8_t>(index);
-            }
-            euclidEngine.setExpression(ch, x);
-            break;
-        }
+            // One row cycles Follow, +1 ... +11, Own (SEQ's or the generator's).
+            setRowValue(paramKey, clampInt(rowValue(paramKey, false) + step, 0, 12));
+            return;
+        case paramTranspose:
+            setRowValue(paramTranspose, rowValue(paramTranspose, false) + delta);
+            return;
         case paramOwnRoot:
             x.ownRoot = static_cast<uint8_t>((x.ownRoot + 12 + step) % 12);
             euclidEngine.setExpression(ch, x);

@@ -11,7 +11,7 @@ namespace
 {
 const char* const kParamNames[cEuclidParams::paramCount] = {
     "Steps",     "Pulses",   "Rotation", "Division", "Mode",   "Note order",
-    "Key",       "Own root", "Own scale", "Octave",  "Range",  "Velocity",
+    "Key",       "Own root", "Own scale", "Octave",  "Range",  "Transpose", "Velocity",
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
 
@@ -184,12 +184,22 @@ void cEuclidParams::refreshParam(uint8_t param)
             snprintf(t, n, "%s", kDirectionNames[static_cast<uint8_t>(r.direction) % 4]);
             break;
         case paramKey:
-            if (x.keyMode == euclid::KeyMode::follow)
+        {
+            // SEQ and the generated modes each have their own key mode.
+            euclid::KeyMode m = r.mode == euclid::NoteMode::seq ? x.seqKeyMode : x.keyMode;
+            if (m == euclid::KeyMode::follow)
                 snprintf(t, n, "Follow");
-            else if (x.keyMode == euclid::KeyMode::offset)
+            else if (m == euclid::KeyMode::offset)
                 snprintf(t, n, "+%d", x.keyOffset);
             else
                 snprintf(t, n, "Own");
+            break;
+        }
+        case paramTranspose:
+            if (x.transpose == 0)
+                snprintf(t, n, "0");
+            else
+                snprintf(t, n, "%+d", x.transpose);
             break;
         case paramOwnRoot: snprintf(t, n, "%s", euclid::rootName(x.ownRoot)); break;
         case paramOwnScale: snprintf(t, n, "%s", euclid::scaleName(x.ownScale)); break;
@@ -212,36 +222,37 @@ void cEuclidParams::refreshParam(uint8_t param)
 }
 
 // Rows whose staged value differs from the committed one: waiting for Rec.
-uint16_t cEuclidParams::stagedRowMask() const
+uint32_t cEuclidParams::stagedRowMask() const
 {
-    uint16_t mask = 0;
+    uint32_t mask = 0;
     const uint8_t rows = view == View::global ? globalCount : (view == View::params ? paramCount : 0);
     for (uint8_t row = 0; row < rows; row++)
     {
         int staged = rowValue(row, false);
         if (staged >= 0 && staged != rowValue(row, true))
-            mask |= 1u << row;
+            mask |= 1ul << row;
     }
     return mask;
 }
 
 // Rows that don't apply to the channel's current settings are dimmed.
-uint16_t cEuclidParams::paramDimMask() const
+uint32_t cEuclidParams::paramDimMask() const
 {
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
     euclid::Expression x = euclidEngine.getExpression(selectedChannel);
-    uint16_t dim = 0;
+    uint32_t dim = 0;
 
     if (r.mode == euclid::NoteMode::seq)
     {
-        dim |= (1u << paramKey) | (1u << paramOwnRoot) | (1u << paramOwnScale) |
-               (1u << paramOctave) | (1u << paramRange);
+        // SEQ uses Key (Own, Follow, +N) but not the generator's settings.
+        dim |= (1ul << paramOwnRoot) | (1ul << paramOwnScale) | (1ul << paramOctave) |
+               (1ul << paramRange);
     }
     else
     {
-        dim |= 1u << paramNoteOrder;
+        dim |= 1ul << paramNoteOrder;
         if (x.keyMode != euclid::KeyMode::own)
-            dim |= (1u << paramOwnRoot) | (1u << paramOwnScale);
+            dim |= (1ul << paramOwnRoot) | (1ul << paramOwnScale);
     }
     return dim;
 }
@@ -310,6 +321,9 @@ void cEuclidParams::refreshNotes()
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Edited: Rec to apply");
     else if (replaceNextNote)
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Cleared: tap pads to add");
+    else if (euclidEngine.getExpression(selectedChannel).seqKeyMode != euclid::KeyMode::own)
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "%d notes, home %s %s", r.noteCount,
+                 euclid::rootName(r.homeRoot), euclid::scaleName(r.homeScale));
     else
         snprintf(noteHeaderText, sizeof(noteHeaderText), "%d of %d notes", r.noteCount, kNoteSlots);
 
@@ -462,7 +476,7 @@ void cEuclidParams::refreshRing()
         snprintf(ringText2, sizeof(ringText2), "muted");
         ringData.centerText2 = ringText2;
     }
-    else if (staged.mode != euclid::NoteMode::seq)
+    else if (staged.mode != euclid::NoteMode::seq || x.seqKeyMode != euclid::KeyMode::own)
     {
         euclid::Key k = euclidEngine.getChannelKey(ch);
         snprintf(ringText2, sizeof(ringText2), "%s  %s %s", euclid::noteModeName(staged.mode),

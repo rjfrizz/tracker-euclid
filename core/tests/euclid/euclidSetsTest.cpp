@@ -56,10 +56,14 @@ static void fill(Engine& e)
         x.ownScale = static_cast<uint8_t>(3 + ch * 4);
         x.octave = static_cast<uint8_t>(ch % 8);
         x.range = static_cast<uint8_t>(1 + ch % 4);
+        x.seqKeyMode = static_cast<KeyMode>((ch + 1) % static_cast<int>(KeyMode::count));
+        x.transpose = static_cast<int8_t>(ch * 6 - 24);
         e.setExpression(ch, x);
 
         Rhythm withMode = e.getRhythm(ch);
         withMode.mode = static_cast<NoteMode>(ch % static_cast<int>(NoteMode::count));
+        withMode.homeRoot = static_cast<uint8_t>((ch * 5) % 12);
+        withMode.homeScale = static_cast<uint8_t>(ch * 3);
         e.setRhythm(ch, withMode);
     }
     e.setGlobalKey(Key{5, 11});
@@ -82,11 +86,40 @@ static bool sameSettings(const Engine& a, const Engine& b)
             return false;
         if (ra.mode != rb.mode || xa.keyMode != xb.keyMode || xa.keyOffset != xb.keyOffset ||
             xa.ownRoot != xb.ownRoot || xa.ownScale != xb.ownScale || xa.octave != xb.octave ||
-            xa.range != xb.range)
+            xa.range != xb.range || xa.seqKeyMode != xb.seqKeyMode || xa.transpose != xb.transpose ||
+            ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale)
             return false;
     }
     Key ka = a.getGlobalKey(), kb = b.getGlobalKey();
     return ka.root == kb.root && ka.scale == kb.scale;
+}
+
+// A version 2 file: this release's layout with version 2 and bytes 35-38
+// zeroed, as version 2 wrote them.
+static void testLoadsVersion2()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t buf[kSetFileSize];
+    serializeSet(a, 2, buf, sizeof(buf));
+    buf[4] = 2;
+    for (int ch = 0; ch < kChannels; ch++)
+        for (int i = 35; i <= 38; i++)
+            buf[kSetHeaderSize + ch * kSetChannelSize + i] = 0;
+    uint32_t crc = crc32(buf, kSetFileSize - 4);
+    for (int i = 0; i < 4; i++)
+        buf[kSetFileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, buf, sizeof(buf)));
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        CHECK(b.getExpression(ch).seqKeyMode == KeyMode::own);
+        CHECK(b.getExpression(ch).transpose == 0);
+        // Home key: the file's global key.
+        CHECK(b.getRhythm(ch).homeRoot == 5 && b.getRhythm(ch).homeScale == 11);
+        CHECK(b.getRhythm(ch).steps == a.getRhythm(ch).steps);
+    }
 }
 
 // A version 1 file, built by hand the way the first release wrote it.
@@ -227,6 +260,7 @@ int main()
     testCrcKnownValue();
     testRoundTrip();
     testLoadsVersion1();
+    testLoadsVersion2();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

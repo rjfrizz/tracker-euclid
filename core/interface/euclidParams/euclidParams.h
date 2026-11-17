@@ -26,6 +26,7 @@ class cEuclidParams : public ModuleBase
         paramOwnScale,
         paramOctave,
         paramRange,
+        paramTranspose,
         paramVelocity,
         paramGate,
         paramChance,
@@ -85,8 +86,8 @@ class cEuclidParams : public ModuleBase
     void refreshSets();
     void refreshGlobal();
     void refreshPads();
-    uint16_t paramDimMask() const;
-    uint16_t stagedRowMask() const;
+    uint32_t paramDimMask() const;
+    uint32_t stagedRowMask() const;
 
     // Pads as a selector for the row in focus.
     struct PadMap

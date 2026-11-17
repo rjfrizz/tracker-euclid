@@ -28,13 +28,15 @@ int clampInt(int v, int lo, int hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-int keyIndex(const euclid::Expression& x)
+// 0 = Follow, 1-11 = +N, 12 = Own, for SEQ's key mode or the generator's.
+int keyIndex(const euclid::Expression& x, bool seq)
 {
-    if (x.keyMode == euclid::KeyMode::follow)
+    euclid::KeyMode m = seq ? x.seqKeyMode : x.keyMode;
+    if (m == euclid::KeyMode::follow)
         return 0;
-    if (x.keyMode == euclid::KeyMode::offset)
+    if (m == euclid::KeyMode::offset)
         return x.keyOffset;
-    return 12; // Own
+    return 12;
 }
 } // namespace
 
@@ -68,6 +70,7 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         case paramOwnScale: return { PadMap::list, euclid::scaleCount(), 0, 0 };
         case paramOctave: return { PadMap::list, 9, 0, 0 };
         case paramRange: return { PadMap::list, 4, 1, 0 };
+        case paramTranspose: return { PadMap::list, kPads, -euclid::kMaxTranspose, 0 }; // -24 ... +23
         case paramVelocity: return { PadMap::level, kPads, 1, 127 };
         case paramGate: return { PadMap::level, kPads, 1, 100 };
         case paramChance: return { PadMap::level, kPads, 0, 100 };
@@ -105,11 +108,12 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         case paramDivision: return static_cast<int>(r.division);
         case paramMode: return static_cast<int>(r.mode);
         case paramNoteOrder: return static_cast<int>(r.direction);
-        case paramKey: return keyIndex(x);
+        case paramKey: return keyIndex(x, r.mode == euclid::NoteMode::seq);
         case paramOwnRoot: return x.ownRoot;
         case paramOwnScale: return x.ownScale;
         case paramOctave: return x.octave;
         case paramRange: return x.range;
+        case paramTranspose: return x.transpose;
         case paramVelocity: return x.velocity;
         case paramGate: return x.gate;
         case paramChance: return x.probability;
@@ -171,13 +175,14 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
         case paramKey:
         {
             int k = clampInt(v, 0, 12);
+            euclid::KeyMode& m = r.mode == euclid::NoteMode::seq ? x.seqKeyMode : x.keyMode;
             if (k == 0)
-                x.keyMode = euclid::KeyMode::follow;
+                m = euclid::KeyMode::follow;
             else if (k == 12)
-                x.keyMode = euclid::KeyMode::own;
+                m = euclid::KeyMode::own;
             else
             {
-                x.keyMode = euclid::KeyMode::offset;
+                m = euclid::KeyMode::offset;
                 x.keyOffset = static_cast<uint8_t>(k);
             }
             euclidEngine.setExpression(ch, x);
@@ -197,6 +202,10 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
             break;
         case paramRange:
             x.range = static_cast<uint8_t>(clampInt(v, 1, 4));
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramTranspose:
+            x.transpose = static_cast<int8_t>(clampInt(v, -euclid::kMaxTranspose, euclid::kMaxTranspose));
             euclidEngine.setExpression(ch, x);
             break;
         case paramVelocity: euclidEngine.setVelocity(ch, static_cast<uint8_t>(clampInt(v, 1, 127))); break;
