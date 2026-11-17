@@ -166,6 +166,7 @@ static void testBarQueuedChange()
     e.setRhythm(0, r);
     e.setEnabled(0, true);
     e.start();
+    e.setImmediate(true); // edits below behave as with Shift held
     run(e, 100); // mid-bar
     e.setPulses(0, 8);
     CHECK(e.hasPendingChange(0));
@@ -269,6 +270,7 @@ static void testNoteEditsApplyImmediately()
     e.setRhythm(0, r);
     e.setEnabled(0, true);
     e.start();
+    e.setImmediate(true); // edits below behave as with Shift held
     run(e, 48 * 2); // 60, 62; the next note would be index 2
     CHECK(e.getNextNoteIndex(0) == 2);
 
@@ -404,6 +406,7 @@ static void testGlobalKeyWaitsForBar()
     Engine e = makeGeneratedEngine(NoteMode::arpUp);
     e.setGlobalKey(Key{0, 2});
     e.start();
+    e.setImmediate(true); // edits below behave as with Shift held
     run(e, 100);
     e.setGlobalKey(Key{7, 2}); // G major
     CHECK(e.hasPendingGlobalKey());
@@ -417,8 +420,183 @@ static void testGlobalKeyWaitsForBar()
     e.stop();
 }
 
+static Engine makeFourOnTheFloor()
+{
+    Engine e = makeEngine();
+    Rhythm r;
+    r.steps = 16;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    Expression x;
+    x.enabled = true;
+    x.velocity = 100;
+    e.setExpression(0, x);
+    return e;
+}
+
+static void testStagedChangesWaitForCommit()
+{
+    reset();
+    Engine e = makeFourOnTheFloor();
+    e.start();
+    run(e, 100);
+
+    e.setPulses(0, 8);
+    e.setVelocity(0, 40);
+    CHECK(e.hasStagedChange(0));
+    CHECK(e.hasAnyStagedChange());
+    CHECK(!e.hasPendingChange(0));
+    CHECK(e.getRhythm(0).pulses == 8);     // the screen shows the staged value
+    CHECK(e.getLiveRhythm(0).pulses == 4); // nothing committed yet
+
+    // Two bar lines pass and nothing staged is heard.
+    run(e, kMicroStepsPerBar * 2 - 100);
+    CHECK(onTicks(1).size() == 8);
+
+    // Commit mid-bar: it lands on the next bar line.
+    run(e, 50);
+    e.commitAll();
+    CHECK(!e.hasStagedChange(0));
+    CHECK(e.hasPendingChange(0));
+    run(e, kMicroStepsPerBar - 50); // to the end of bar 3, still 4 pulses
+    CHECK(onTicks(1).size() == 12);
+    run(e, kMicroStepsPerBar); // bar 4 has 8
+    CHECK(onTicks(1).size() == 20);
+    CHECK(!e.hasPendingChange(0));
+    e.stop();
+}
+
+static uint8_t lastVelocity = 0;
+static void onNoteVel(uint8_t n, uint8_t v, uint8_t ch)
+{
+    lastVelocity = v;
+    onNote(n, v, ch);
+}
+
+static void testImmediateExpressionPlaysNow()
+{
+    reset();
+    Output o;
+    o.noteOn = onNoteVel;
+    o.noteOff = offNote;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine e;
+    e.init(o);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    Expression x;
+    x.enabled = true;
+    x.velocity = 100;
+    e.setExpression(0, x);
+    e.start();
+    run(e, 48); // one note at 100
+    CHECK(lastVelocity == 100);
+
+    e.setImmediate(true);
+    e.setVelocity(0, 30); // Shift held: plays from the next note, not the bar
+    e.setImmediate(false);
+    CHECK(!e.hasStagedChange(0));
+    CHECK(!e.hasPendingChange(0));
+    run(e, 48);
+    CHECK(lastVelocity == 30);
+
+    // Key settings committed immediately still wait for the launch point.
+    e.setImmediate(true);
+    Expression k = e.getExpression(0);
+    k.octave = 5;
+    e.setExpression(0, k);
+    e.setImmediate(false);
+    CHECK(e.hasPendingChange(0));
+    CHECK(e.getLiveExpression(0).octave == 5);
+    e.stop();
+}
+
+static void testCommitOneChannel()
+{
+    reset();
+    Engine e = makeFourOnTheFloor();
+    Rhythm r = e.getRhythm(0);
+    e.setRhythm(1, r);
+    Expression x = e.getExpression(0);
+    x.midiChannel = 2;
+    e.setExpression(1, x);
+    e.start();
+    e.setPulses(0, 2);
+    e.setPulses(1, 3);
+    e.commit(1);
+    CHECK(e.hasStagedChange(0));
+    CHECK(!e.hasStagedChange(1));
+    CHECK(e.hasPendingChange(1));
+    run(e, kMicroStepsPerBar + 1);
+    CHECK(e.getActiveRhythm(1).pulses == 3);
+    CHECK(e.getActiveRhythm(0).pulses == 4);
+    e.stop();
+}
+
+static void testLaunchBeat()
+{
+    reset();
+    Engine e = makeFourOnTheFloor();
+    e.setLaunch(Launch::beat);
+    e.start();
+    run(e, 10);
+    e.setPulses(0, 16);
+    e.commitAll();
+    run(e, 192 - 10); // to the end of beat 1
+    CHECK(e.hasPendingChange(0));
+    run(e, 1); // beat 2 starts
+    CHECK(!e.hasPendingChange(0));
+    CHECK(e.getActiveRhythm(0).pulses == 16);
+    e.stop();
+}
+
+static void testMuteIsNeverStaged()
+{
+    reset();
+    Engine e = makeFourOnTheFloor();
+    e.start();
+    e.setVelocity(0, 50); // something staged
+    e.setMuted(0, true);
+    CHECK(e.getLiveExpression(0).muted);
+    run(e, kMicroStepsPerBar);
+    CHECK(onTicks(1).empty()); // muted at once
+    e.commitAll();             // committing doesn't undo the mute
+    run(e, kMicroStepsPerBar * 2);
+    CHECK(onTicks(1).empty());
+    CHECK(e.getExpression(0).muted);
+    e.stop();
+}
+
+static void testStagedGlobalKey()
+{
+    reset();
+    Engine e = makeGeneratedEngine(NoteMode::arpUp);
+    e.setGlobalKey(Key{0, 2});
+    e.start();
+    e.setGlobalKey(Key{5, 2}); // F major, staged
+    CHECK(e.hasStagedGlobalKey());
+    CHECK(!e.hasPendingGlobalKey());
+    run(e, kMicroStepsPerBar * 2);
+    CHECK(e.getActiveGlobalKey().root == 0);
+    e.commitAll();
+    CHECK(e.hasPendingGlobalKey());
+    CHECK(!e.hasStagedGlobalKey());
+    run(e, kMicroStepsPerBar + 1);
+    CHECK(e.getActiveGlobalKey().root == 5);
+    e.stop();
+}
+
 int main()
 {
+    testStagedChangesWaitForCommit();
+    testImmediateExpressionPlaysNow();
+    testCommitOneChannel();
+    testLaunchBeat();
+    testMuteIsNeverStaged();
+    testStagedGlobalKey();
     testArpUpInCMajor();
     testArpUpDownAndOffsetKey();
     testRandomAndWalkStayInKeyAndRange();

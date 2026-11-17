@@ -48,6 +48,28 @@ const char* divisionName(Division d)
     }
 }
 
+uint16_t launchToMicroSteps(Launch l)
+{
+    switch (l)
+    {
+        case Launch::beat: return kMicroStepsPerBar / 4;
+        case Launch::twoBars: return kMicroStepsPerBar * 2;
+        case Launch::fourBars: return kMicroStepsPerBar * 4;
+        default: return kMicroStepsPerBar;
+    }
+}
+
+const char* launchName(Launch l)
+{
+    switch (l)
+    {
+        case Launch::beat: return "Beat";
+        case Launch::twoBars: return "2 bars";
+        case Launch::fourBars: return "4 bars";
+        default: return "Bar";
+    }
+}
+
 const char* noteModeName(NoteMode m)
 {
     switch (m)
@@ -96,11 +118,17 @@ void Engine::init(const Output& o)
 {
     out = o;
     running = false;
-    barMicroStep = 0;
+    immediateEdits = false;
+    launch = Launch::bar;
+    launchCounter = 0;
     for (Channel& c : channels)
     {
         c = Channel();
     }
+    globalStaged = Key();
+    globalPending = Key();
+    globalActive = Key();
+    globalDirty = false;
 }
 
 void Engine::lock() const
@@ -131,6 +159,80 @@ void Engine::clampRhythm(Rhythm& r) const
         r.mode = NoteMode::seq;
 }
 
+Expression Engine::clampExpression(const Expression& e) const
+{
+    Expression x = e;
+    x.midiChannel = clampValue<uint8_t>(x.midiChannel, 1, 16);
+    x.velocity = clampValue<uint8_t>(x.velocity, 1, 127);
+    x.gate = clampValue<uint8_t>(x.gate, 1, 100);
+    x.probability = clampValue<uint8_t>(x.probability, 0, 100);
+    if (x.keyMode >= KeyMode::count)
+        x.keyMode = KeyMode::follow;
+    x.keyOffset = clampValue<uint8_t>(x.keyOffset, 1, 11);
+    x.ownRoot = static_cast<uint8_t>(x.ownRoot % 12);
+    x.ownScale = clampValue<uint8_t>(x.ownScale, 0, MAX_SCALE);
+    x.octave = clampValue<uint8_t>(x.octave, 0, 8);
+    x.range = clampValue<uint8_t>(x.range, 1, 4);
+    return x;
+}
+
+namespace
+{
+// Changes that restart a channel when they start playing.
+bool rhythmRestarts(const Rhythm& a, const Rhythm& b)
+{
+    return a.steps != b.steps || a.pulses != b.pulses || a.rotation != b.rotation ||
+           a.division != b.division || a.mode != b.mode;
+}
+
+bool sameNotes(const Rhythm& a, const Rhythm& b)
+{
+    if (a.noteCount != b.noteCount || a.direction != b.direction)
+        return false;
+    for (uint8_t i = 0; i < a.noteCount; i++)
+        if (a.notes[i] != b.notes[i])
+            return false;
+    return true;
+}
+
+bool sameRhythm(const Rhythm& a, const Rhythm& b)
+{
+    return !rhythmRestarts(a, b) && sameNotes(a, b);
+}
+
+// Mute is left out: it never goes through staging.
+bool sameExpression(const Expression& a, const Expression& b)
+{
+    return a.enabled == b.enabled && a.midiChannel == b.midiChannel && a.velocity == b.velocity &&
+           a.gate == b.gate && a.probability == b.probability && a.keyMode == b.keyMode &&
+           a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot && a.ownScale == b.ownScale &&
+           a.octave == b.octave && a.range == b.range;
+}
+
+// Key settings change which notes are generated, so like rhythm they wait
+// for the launch point even when committed immediately.
+bool sameKeySettings(const Expression& a, const Expression& b)
+{
+    return a.keyMode == b.keyMode && a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot &&
+           a.ownScale == b.ownScale && a.octave == b.octave && a.range == b.range;
+}
+
+void copyKeySettings(Expression& to, const Expression& from)
+{
+    to.keyMode = from.keyMode;
+    to.keyOffset = from.keyOffset;
+    to.ownRoot = from.ownRoot;
+    to.ownScale = from.ownScale;
+    to.octave = from.octave;
+    to.range = from.range;
+}
+
+bool sameKey(const Key& a, const Key& b)
+{
+    return a.root == b.root && a.scale == b.scale;
+}
+} // namespace
+
 void Engine::resetChannelPosition(Channel& c)
 {
     c.microStepInStep = 0;
@@ -151,6 +253,27 @@ void Engine::closeNote(Channel& c)
     c.gateRemaining = 0;
 }
 
+// Committed settings start playing.
+void Engine::applyPending(Channel& c)
+{
+    bool restart = rhythmRestarts(c.active, c.pending);
+    c.active = c.pending;
+    bool muted = c.expr.muted;
+    c.expr = c.pendingExpr;
+    c.expr.muted = muted;
+    c.pendingDirty = false;
+
+    if (restart)
+    {
+        closeNote(c);
+        resetChannelPosition(c);
+    }
+    else if (c.noteIndex >= c.active.noteCount)
+    {
+        c.noteIndex = 0;
+    }
+}
+
 void Engine::start()
 {
     if (globalDirty)
@@ -162,13 +285,10 @@ void Engine::start()
     {
         closeNote(c);
         if (c.pendingDirty)
-        {
-            c.active = c.pending;
-            c.pendingDirty = false;
-        }
+            applyPending(c);
         resetChannelPosition(c);
     }
-    barMicroStep = 0;
+    launchCounter = 0;
     running = true;
 }
 
@@ -181,15 +301,15 @@ void Engine::stop()
     }
 }
 
-Key Engine::keyFor(const Channel& c, const Key& global) const
+Key Engine::keyFor(const Expression& x, const Key& global) const
 {
     Key k = global;
-    switch (c.expr.keyMode)
+    switch (x.keyMode)
     {
-        case KeyMode::offset: k.root = static_cast<uint8_t>((global.root + c.expr.keyOffset) % 12); break;
+        case KeyMode::offset: k.root = static_cast<uint8_t>((global.root + x.keyOffset) % 12); break;
         case KeyMode::own:
-            k.root = c.expr.ownRoot;
-            k.scale = c.expr.ownScale;
+            k.root = x.ownRoot;
+            k.scale = x.ownScale;
             break;
         default: break;
     }
@@ -199,13 +319,13 @@ Key Engine::keyFor(const Channel& c, const Key& global) const
 Key Engine::getChannelKey(int ch) const
 {
     if (!validChannel(ch))
-        return globalPending;
-    return keyFor(channels[ch], globalPending);
+        return globalStaged;
+    return keyFor(channels[ch].stagedExpr, globalStaged);
 }
 
 uint8_t Engine::nextGeneratedNote(Channel& c)
 {
-    const Key key = keyFor(c, globalActive);
+    const Key key = keyFor(c.expr, globalActive);
 
     // Semitone offsets of the scale's notes above the root, from the stock
     // 12-bit masks (bit n set = n semitones above the root is in the scale).
@@ -339,9 +459,9 @@ void Engine::onMicroStep()
     if (!running)
         return;
 
-    bool barStart = barMicroStep == 0;
+    const bool launchPoint = launchCounter % launchToMicroSteps(launch) == 0;
 
-    if (barStart && globalDirty)
+    if (launchPoint && globalDirty)
     {
         globalActive = globalPending;
         globalDirty = false;
@@ -359,13 +479,8 @@ void Engine::onMicroStep()
                 closeNote(c);
         }
 
-        if (barStart && c.pendingDirty)
-        {
-            c.active = c.pending;
-            c.pendingDirty = false;
-            closeNote(c);
-            resetChannelPosition(c);
-        }
+        if (launchPoint && c.pendingDirty)
+            applyPending(c);
 
         if (c.microStepInStep == 0)
             triggerStep(c);
@@ -380,19 +495,51 @@ void Engine::onMicroStep()
         }
     }
 
-    barMicroStep++;
-    if (barMicroStep >= kMicroStepsPerBar)
-        barMicroStep = 0;
+    launchCounter++;
+    if (launchCounter >= static_cast<uint32_t>(kMicroStepsPerBar) * 4)
+        launchCounter = 0;
 }
+
+//------------------------------------------------------------------------------
+// Reading settings
 
 Rhythm Engine::getRhythm(int ch) const
 {
     if (!validChannel(ch))
         return Rhythm();
+    return channels[ch].staged;
+}
+
+Expression Engine::getExpression(int ch) const
+{
+    if (!validChannel(ch))
+        return Expression();
+    Expression x = channels[ch].stagedExpr;
+    x.muted = channels[ch].expr.muted;
+    return x;
+}
+
+Rhythm Engine::getLiveRhythm(int ch) const
+{
+    if (!validChannel(ch))
+        return Rhythm();
     lock();
-    Rhythm r = channels[ch].pending;
+    const Channel& c = channels[ch];
+    Rhythm r = c.pendingDirty ? c.pending : c.active;
     unlock();
     return r;
+}
+
+Expression Engine::getLiveExpression(int ch) const
+{
+    if (!validChannel(ch))
+        return Expression();
+    lock();
+    const Channel& c = channels[ch];
+    Expression x = c.pendingDirty ? c.pendingExpr : c.expr;
+    x.muted = c.expr.muted;
+    unlock();
+    return x;
 }
 
 Rhythm Engine::getActiveRhythm(int ch) const
@@ -405,11 +552,32 @@ Rhythm Engine::getActiveRhythm(int ch) const
     return r;
 }
 
-Expression Engine::getExpression(int ch) const
+bool Engine::hasStagedChange(int ch) const
 {
     if (!validChannel(ch))
-        return Expression();
-    return channels[ch].expr;
+        return false;
+    lock();
+    const Channel& c = channels[ch];
+    const Rhythm& liveR = c.pendingDirty ? c.pending : c.active;
+    const Expression& liveX = c.pendingDirty ? c.pendingExpr : c.expr;
+    bool staged = !sameRhythm(c.staged, liveR) || !sameExpression(c.stagedExpr, liveX);
+    unlock();
+    return staged;
+}
+
+bool Engine::hasStagedGlobalKey() const
+{
+    return !sameKey(globalStaged, getLiveGlobalKey());
+}
+
+bool Engine::hasAnyStagedChange() const
+{
+    if (hasStagedGlobalKey())
+        return true;
+    for (int ch = 0; ch < kChannels; ch++)
+        if (hasStagedChange(ch))
+            return true;
+    return false;
 }
 
 bool Engine::hasPendingChange(int ch) const
@@ -422,72 +590,169 @@ uint8_t Engine::getCurrentStep(int ch) const
     return validChannel(ch) ? channels[ch].step : 0;
 }
 
-void Engine::markDirty(int ch)
+uint8_t Engine::getNextNoteIndex(int ch) const
 {
-    changeCount++;
+    return validChannel(ch) ? channels[ch].noteIndex : 0;
+}
+
+//------------------------------------------------------------------------------
+// Committing
+
+// Sends channel ch's staged settings on. Immediate commits (Shift held)
+// play the parts that can change mid-bar straight away; everything else
+// waits for the launch point. Call with the lock held.
+void Engine::commitLocked(int ch, bool immediate)
+{
     Channel& c = channels[ch];
-    clampRhythm(c.pending);
-    // While stopped there's no bar to wait for.
+    clampRhythm(c.staged);
+
     if (!running)
     {
-        c.active = c.pending;
+        // Nothing playing, so there's nothing to wait for.
+        c.pending = c.staged;
+        c.pendingExpr = c.stagedExpr;
+        c.pendingExpr.muted = c.expr.muted;
+        c.active = c.staged;
+        bool muted = c.expr.muted;
+        c.expr = c.stagedExpr;
+        c.expr.muted = muted;
         c.pendingDirty = false;
         resetChannelPosition(c);
+        return;
+    }
+
+    c.pending = c.staged;
+    c.pendingExpr = c.stagedExpr;
+
+    if (immediate)
+    {
+        // Notes, velocity, gate, chance, MIDI channel and on/off play now.
+        for (uint8_t i = 0; i < kMaxNotes; i++)
+            c.active.notes[i] = c.staged.notes[i];
+        if (c.active.direction != c.staged.direction)
+            c.pingPongDir = 1;
+        c.active.noteCount = c.staged.noteCount;
+        c.active.direction = c.staged.direction;
+        if (c.noteIndex >= c.active.noteCount)
+            c.noteIndex = 0;
+
+        Expression now = c.stagedExpr;
+        copyKeySettings(now, c.expr); // key settings wait for the launch point
+        now.muted = c.expr.muted;
+        c.expr = now;
+    }
+
+    c.pendingDirty = rhythmRestarts(c.active, c.pending) || !sameNotes(c.active, c.pending) ||
+                     !sameExpression(c.expr, c.pendingExpr) || !sameKeySettings(c.expr, c.pendingExpr);
+}
+
+void Engine::commitGlobalLocked()
+{
+    globalPending = globalStaged;
+    if (!running)
+    {
+        globalActive = globalStaged;
+        globalDirty = false;
     }
     else
     {
-        c.pendingDirty = true;
+        globalDirty = !sameKey(globalPending, globalActive);
     }
 }
+
+void Engine::commit(int ch)
+{
+    if (!validChannel(ch))
+        return;
+    lock();
+    commitLocked(ch, false);
+    changeCount++;
+    unlock();
+}
+
+void Engine::commitAll()
+{
+    lock();
+    for (int ch = 0; ch < kChannels; ch++)
+        commitLocked(ch, false);
+    commitGlobalLocked();
+    changeCount++;
+    unlock();
+}
+
+void Engine::edited(int ch)
+{
+    changeCount++;
+    Channel& c = channels[ch];
+    clampRhythm(c.staged);
+    c.stagedExpr = clampExpression(c.stagedExpr);
+    if (!running || immediateEdits)
+        commitLocked(ch, true);
+}
+
+void Engine::setLaunch(Launch l)
+{
+    if (l >= Launch::count)
+        l = Launch::bar;
+    launch = l;
+    changeCount++;
+}
+
+//------------------------------------------------------------------------------
+// Edits
 
 void Engine::setRhythm(int ch, const Rhythm& r)
 {
     if (!validChannel(ch))
         return;
     lock();
-    channels[ch].pending = r;
-    markDirty(ch);
+    channels[ch].staged = r;
+    edited(ch);
     unlock();
 }
 
-#define EUCLID_SET_RHYTHM(field, value)                                                            \
-    if (!validChannel(ch))                                                                         \
-        return;                                                                                    \
-    lock();                                                                                        \
-    channels[ch].pending.field = (value);                                                          \
-    markDirty(ch);                                                                                 \
-    unlock();
-
-void Engine::setSteps(int ch, uint8_t steps)
+void Engine::setExpression(int ch, const Expression& e)
 {
     if (!validChannel(ch))
         return;
     lock();
-    Rhythm& p = channels[ch].pending;
-    p.steps = clampValue<uint8_t>(steps, 1, kMaxSteps);
-    if (p.pulses > p.steps)
-        p.pulses = p.steps;
-    markDirty(ch);
+    channels[ch].stagedExpr = e;
+    edited(ch);
+    // Mute is handled by setMuted, never through staging.
     unlock();
 }
 
-void Engine::setPulses(int ch, uint8_t pulses) { EUCLID_SET_RHYTHM(pulses, pulses) }
-void Engine::setRotation(int ch, uint8_t rotation) { EUCLID_SET_RHYTHM(rotation, rotation) }
-void Engine::setDivision(int ch, Division d) { EUCLID_SET_RHYTHM(division, d) }
+#define EUCLID_EDIT(layer, statement)                                                              \
+    if (!validChannel(ch))                                                                         \
+        return;                                                                                    \
+    lock();                                                                                        \
+    {                                                                                              \
+        auto& v = channels[ch].layer;                                                              \
+        statement;                                                                                 \
+    }                                                                                              \
+    edited(ch);                                                                                    \
+    unlock();
 
-#undef EUCLID_SET_RHYTHM
-
-// Copies the pending notes and order to the playing settings without
-// waiting for the bar, keeping the sequence position where it is.
-void Engine::applyNotesNow(Channel& c)
+void Engine::setSteps(int ch, uint8_t steps)
 {
-    for (uint8_t i = 0; i < kMaxNotes; i++)
-        c.active.notes[i] = c.pending.notes[i];
-    c.active.noteCount = c.pending.noteCount;
-    c.active.direction = c.pending.direction;
-    if (c.noteIndex >= c.active.noteCount)
-        c.noteIndex = 0;
+    EUCLID_EDIT(staged, {
+        v.steps = clampValue<uint8_t>(steps, 1, kMaxSteps);
+        if (v.pulses > v.steps)
+            v.pulses = v.steps;
+    })
 }
+void Engine::setPulses(int ch, uint8_t pulses) { EUCLID_EDIT(staged, v.pulses = pulses) }
+void Engine::setRotation(int ch, uint8_t rotation) { EUCLID_EDIT(staged, v.rotation = rotation) }
+void Engine::setDivision(int ch, Division d) { EUCLID_EDIT(staged, v.division = d) }
+void Engine::setMode(int ch, NoteMode m) { EUCLID_EDIT(staged, v.mode = m) }
+void Engine::setDirection(int ch, NoteDirection d) { EUCLID_EDIT(staged, v.direction = d) }
+void Engine::setEnabled(int ch, bool enabled) { EUCLID_EDIT(stagedExpr, v.enabled = enabled) }
+void Engine::setMidiChannel(int ch, uint8_t c) { EUCLID_EDIT(stagedExpr, v.midiChannel = c) }
+void Engine::setVelocity(int ch, uint8_t velocity) { EUCLID_EDIT(stagedExpr, v.velocity = velocity) }
+void Engine::setGate(int ch, uint8_t gate) { EUCLID_EDIT(stagedExpr, v.gate = gate) }
+void Engine::setProbability(int ch, uint8_t p) { EUCLID_EDIT(stagedExpr, v.probability = p) }
+
+#undef EUCLID_EDIT
 
 void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
 {
@@ -496,125 +761,36 @@ void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
     if (count > kMaxNotes)
         count = kMaxNotes;
     lock();
-    Channel& c = channels[ch];
+    Rhythm& r = channels[ch].staged;
     for (uint8_t i = 0; i < count; i++)
-        c.pending.notes[i] = clampValue<uint8_t>(notes[i], 0, 127);
-    c.pending.noteCount = count;
-    applyNotesNow(c);
-    changeCount++;
+        r.notes[i] = notes[i];
+    r.noteCount = count;
+    edited(ch);
     unlock();
 }
 
-void Engine::setDirection(int ch, NoteDirection d)
-{
-    if (!validChannel(ch) || d >= NoteDirection::count)
-        return;
-    lock();
-    Channel& c = channels[ch];
-    c.pending.direction = d;
-    c.pingPongDir = 1;
-    applyNotesNow(c);
-    changeCount++;
-    unlock();
-}
-
-void Engine::setMode(int ch, NoteMode m)
+void Engine::setMuted(int ch, bool muted)
 {
     if (!validChannel(ch))
         return;
     lock();
-    channels[ch].pending.mode = m;
-    markDirty(ch);
+    Channel& c = channels[ch];
+    c.expr.muted = muted;
+    c.pendingExpr.muted = muted;
+    c.stagedExpr.muted = muted;
+    changeCount++;
     unlock();
 }
 
 void Engine::setGlobalKey(const Key& k)
 {
-    Key x;
-    x.root = static_cast<uint8_t>(k.root % 12);
-    x.scale = k.scale <= MAX_SCALE ? k.scale : 0;
     lock();
-    globalPending = x;
-    if (!running)
-    {
-        globalActive = x;
-        globalDirty = false;
-    }
-    else
-    {
-        globalDirty = globalPending.root != globalActive.root || globalPending.scale != globalActive.scale;
-    }
+    globalStaged.root = static_cast<uint8_t>(k.root % 12);
+    globalStaged.scale = k.scale <= MAX_SCALE ? k.scale : 0;
+    if (!running || immediateEdits)
+        commitGlobalLocked();
     changeCount++;
     unlock();
-}
-
-uint8_t Engine::getNextNoteIndex(int ch) const
-{
-    return validChannel(ch) ? channels[ch].noteIndex : 0;
-}
-
-void Engine::setExpression(int ch, const Expression& e)
-{
-    if (!validChannel(ch))
-        return;
-    Expression x = e;
-    x.midiChannel = clampValue<uint8_t>(x.midiChannel, 1, 16);
-    x.velocity = clampValue<uint8_t>(x.velocity, 1, 127);
-    x.gate = clampValue<uint8_t>(x.gate, 1, 100);
-    x.probability = clampValue<uint8_t>(x.probability, 0, 100);
-    if (x.keyMode >= KeyMode::count)
-        x.keyMode = KeyMode::follow;
-    x.keyOffset = clampValue<uint8_t>(x.keyOffset, 1, 11);
-    x.ownRoot = static_cast<uint8_t>(x.ownRoot % 12);
-    x.ownScale = clampValue<uint8_t>(x.ownScale, 0, MAX_SCALE);
-    x.octave = clampValue<uint8_t>(x.octave, 0, 8);
-    x.range = clampValue<uint8_t>(x.range, 1, 4);
-    lock();
-    channels[ch].expr = x;
-    changeCount++;
-    unlock();
-}
-
-void Engine::setEnabled(int ch, bool enabled)
-{
-    Expression e = getExpression(ch);
-    e.enabled = enabled;
-    setExpression(ch, e);
-}
-
-void Engine::setMuted(int ch, bool muted)
-{
-    Expression e = getExpression(ch);
-    e.muted = muted;
-    setExpression(ch, e);
-}
-
-void Engine::setMidiChannel(int ch, uint8_t midiChannel)
-{
-    Expression e = getExpression(ch);
-    e.midiChannel = midiChannel;
-    setExpression(ch, e);
-}
-
-void Engine::setVelocity(int ch, uint8_t velocity)
-{
-    Expression e = getExpression(ch);
-    e.velocity = velocity;
-    setExpression(ch, e);
-}
-
-void Engine::setGate(int ch, uint8_t gate)
-{
-    Expression e = getExpression(ch);
-    e.gate = gate;
-    setExpression(ch, e);
-}
-
-void Engine::setProbability(int ch, uint8_t probability)
-{
-    Expression e = getExpression(ch);
-    e.probability = probability;
-    setExpression(ch, e);
 }
 
 // Until there's a UI, the engine boots with a playable demo so the build can

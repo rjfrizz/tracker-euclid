@@ -31,8 +31,20 @@ static void functGlobalView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
+static void functRec(uint8_t button, uint8_t state);
 
 static constexpr uint8_t kAuditionVelocity = 100;
+
+// Edits made while Shift is held skip staging and go live (see the engine's
+// file comment for what that means for rhythm and key changes).
+namespace
+{
+struct ShiftEdits
+{
+    ShiftEdits() { euclidEngine.setImmediate(EP->buttons->isButtonPressed(interfaceButtonShift)); }
+    ~ShiftEdits() { euclidEngine.setImmediate(false); }
+};
+} // namespace
 
 void cEuclidParams::update()
 {
@@ -50,8 +62,26 @@ void cEuclidParams::update()
             refreshSets();
         else
             refreshGlobal();
+        refreshTitle();
         refreshChannels();
         refreshRing();
+        refreshPads();
+    }
+
+    // Committed changes landing at the launch point change what's "live",
+    // which moves the bright pad and clears the arrows.
+    uint16_t pendingMask = euclidEngine.hasPendingGlobalKey() ? 0x100 : 0;
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+        if (euclidEngine.hasPendingChange(ch))
+            pendingMask |= 1u << ch;
+    if (pendingMask != lastPendingMask)
+    {
+        lastPendingMask = pendingMask;
+        if (view == View::params)
+            refreshParams();
+        else if (view == View::global)
+            refreshGlobal();
+        refreshPads();
     }
 
     // Tempo can change outside this screen (external clock, other screens),
@@ -140,7 +170,8 @@ void cEuclidParams::stop()
     }
 
     mtPadBoard.releaseAllInstruments();
-    padsBacklight.clearGlobalPads(1, 1, 1);
+    stopPadBlinks();
+    padsBacklight.clearGlobalPads(1, 1, 0);
 }
 
 void cEuclidParams::setDefaultScreenFunct()
@@ -149,6 +180,7 @@ void cEuclidParams::setDefaultScreenFunct()
     ip->clearAllPots();
 
     ip->setButtonObj(interfaceButtonPlay, buttonPress, functPlayAction);
+    ip->setButtonObj(interfaceButtonRec, functRec);
 
     ip->setButtonObj(interfaceButtonUp, buttonPress, functUp);
     ip->setButtonObj(interfaceButtonDown, buttonPress, functDown);
@@ -162,10 +194,9 @@ void cEuclidParams::setDefaultScreenFunct()
         ip->setButtonObj(b, functChannelButton);
     }
 
-    // Outside the params view the encoder moves one item at a time (and in
-    // the notes view Shift means octaves), so the stock Shift acceleration
-    // is only on for params.
-    ip->setPotObj(interfacePot0, functEncoder, view == View::params);
+    // Shift means "apply now" here (and octaves on the Note page), so the
+    // stock Shift acceleration is off.
+    ip->setPotObj(interfacePot0, functEncoder, false);
     ip->setPadsGlobal(functPads);
 }
 
@@ -184,6 +215,7 @@ void cEuclidParams::selectChannel(uint8_t ch)
     refreshFrame();
     refreshChannels();
     refreshRing();
+    refreshPads();
     display.synchronizeRefresh();
 }
 
@@ -196,6 +228,7 @@ void cEuclidParams::moveFocus(int8_t delta)
         next = paramCount - 1;
     selectedParam = static_cast<uint8_t>(next);
     refreshFrame();
+    refreshPads();
 }
 
 void cEuclidParams::moveNoteCursor(int8_t delta)
@@ -337,8 +370,10 @@ void cEuclidParams::changeParam(int16_t delta)
     }
     if (selectedParam == paramMode || selectedParam == paramKey)
         refreshParams(); // which rows apply has changed
+    refreshTitle();
     refreshChannels();
     refreshRing();
+    refreshPads();
 }
 
 //==============================================================================================
@@ -438,9 +473,44 @@ void cEuclidParams::changeGlobal(int16_t delta)
             k.scale = static_cast<uint8_t>(clampInt(k.scale + step, 0, euclid::scaleCount() - 1));
             euclidEngine.setGlobalKey(k);
             break;
+        case globalLaunch:
+            euclidEngine.setLaunch(static_cast<euclid::Launch>(clampInt(
+              static_cast<int>(euclidEngine.getLaunch()) + step, 0, static_cast<int>(euclid::Launch::count) - 1)));
+            break;
         default: return;
     }
     refreshGlobal();
+    refreshTitle();
+    refreshPads();
+}
+
+//==============================================================================================
+// Committing
+
+void cEuclidParams::commitAll()
+{
+    euclidEngine.commitAll();
+    refreshAfterCommit();
+}
+
+void cEuclidParams::commitChannel(uint8_t ch)
+{
+    euclidEngine.commit(ch);
+    refreshAfterCommit();
+}
+
+void cEuclidParams::refreshAfterCommit()
+{
+    refreshTitle();
+    if (view == View::params)
+        refreshParams();
+    else if (view == View::notes)
+        refreshNotes();
+    else if (view == View::global)
+        refreshGlobal();
+    refreshChannels();
+    refreshRing();
+    refreshPads();
 }
 
 //==============================================================================================
@@ -461,6 +531,7 @@ void cEuclidParams::moveSetCursor(int8_t delta)
     }
     setStatus[0] = 0;
     refreshSets();
+    refreshPads();
 }
 
 void cEuclidParams::setSoftKey(uint8_t key)
@@ -544,6 +615,7 @@ void cEuclidParams::duplicateNote()
 //==============================================================================================
 static void functEncoder(int16_t value)
 {
+    ShiftEdits shift;
     if (EP->view == cEuclidParams::View::global)
     {
         EP->changeGlobal(value);
@@ -573,6 +645,7 @@ static void functUp()
         if (EP->selectedGlobal > 0)
             EP->selectedGlobal--;
         EP->refreshFrame();
+        EP->refreshPads();
         return;
     }
     if (EP->view == cEuclidParams::View::sets)
@@ -593,6 +666,7 @@ static void functDown()
         if (EP->selectedGlobal + 1 < cEuclidParams::globalCount)
             EP->selectedGlobal++;
         EP->refreshFrame();
+        EP->refreshPads();
         return;
     }
     if (EP->view == cEuclidParams::View::sets)
@@ -640,6 +714,7 @@ static void functDelete()
 {
     if (EP->view != cEuclidParams::View::notes)
         return;
+    ShiftEdits shift;
     if (EP->buttons->isButtonPressed(interfaceButtonShift))
         EP->clearNotes();
     else
@@ -648,6 +723,7 @@ static void functDelete()
 
 static void functInsert()
 {
+    ShiftEdits shift;
     if (EP->view == cEuclidParams::View::notes)
         EP->duplicateNote();
 }
@@ -695,6 +771,13 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
+        // On a setting with fixed choices the pads pick the value.
+        {
+            ShiftEdits shift;
+            if (EP->padSelect(pad))
+                return;
+        }
+
         uint8_t note = mtPadBoard.getNoteFromPad(pad);
 
         // Let the pad be heard on the channel's MIDI output.
@@ -706,7 +789,10 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
         EP->heldPadChannel[pad] = x.midiChannel;
 
         if (EP->view == cEuclidParams::View::notes)
+        {
+            ShiftEdits shift;
             EP->addNote(note);
+        }
     }
     else if (state == buttonRelease)
     {
@@ -726,6 +812,14 @@ static void functChannelButton(uint8_t button, uint8_t state)
         return;
 
     uint8_t ch = button - interfaceButton0;
+
+    // Rec held + a channel key commits just that channel.
+    if (EP->recHeld)
+    {
+        EP->recCommittedChannel = true;
+        EP->commitChannel(ch);
+        return;
+    }
 
     if (EP->view == cEuclidParams::View::sets)
     {
@@ -758,6 +852,26 @@ static void functPlayAction()
     else
     {
         sequencer.stop();
+    }
+}
+
+// Rec commits everything staged when it's released, unless a channel key
+// was pressed while it was held (that committed just the channel). Shift +
+// Rec is kept for freeze.
+static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
+{
+    if (state == buttonPress)
+    {
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+            return;
+        EP->recHeld = true;
+        EP->recCommittedChannel = false;
+    }
+    else if (state == buttonRelease)
+    {
+        if (EP->recHeld && !EP->recCommittedChannel)
+            EP->commitAll();
+        EP->recHeld = false;
     }
 }
 

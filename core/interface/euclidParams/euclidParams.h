@@ -47,6 +47,7 @@ class cEuclidParams : public ModuleBase
         globalTempo = 0,
         globalRoot,
         globalScale,
+        globalLaunch,
         globalCount
     };
 
@@ -83,7 +84,41 @@ class cEuclidParams : public ModuleBase
     void refreshNotes();
     void refreshSets();
     void refreshGlobal();
+    void refreshPads();
     uint16_t paramDimMask() const;
+    uint16_t stagedRowMask() const;
+
+    // Pads as a selector for the row in focus.
+    struct PadMap
+    {
+        enum Kind : uint8_t
+        {
+            none,
+            list,     // pad n = the n-th choice
+            keyboard, // column of 12 = note (or key offset), any row
+            level,    // all 48 pads spread across the value range
+        } kind;
+        uint8_t count;
+        int minValue;
+        int maxValue;
+    };
+    PadMap padMapFor(uint8_t row) const;
+    int rowValue(uint8_t row, bool live) const;
+    void setRowValue(uint8_t row, int value);
+    int valueToPad(const PadMap& m, int value) const;
+    int padToValue(const PadMap& m, uint8_t pad) const;
+    bool padSelect(uint8_t pad);
+    void stopPadBlinks();
+    void blinkPad(uint8_t pad, uint8_t level);
+    uint64_t blinkingPads = 0;
+
+    // Rec commits staged changes; Rec held + a channel key commits one.
+    void commitAll();
+    void commitChannel(uint8_t ch);
+    void refreshAfterCommit();
+    bool recHeld = false;
+    bool recCommittedChannel = false;
+    uint16_t lastPendingMask = 0;
 
     void selectChannel(uint8_t ch);
     void moveFocus(int8_t delta);
@@ -135,7 +170,7 @@ class cEuclidParams : public ModuleBase
     char setStatus[40] = ""; // last save/load result, shown until the next action
     char channelText[8][6];
     char channelText2[8][12];
-    char titleText[24];
+    char titleText[48];
 
     int8_t lastPlayhead = -2;
     bool lastPending = false;

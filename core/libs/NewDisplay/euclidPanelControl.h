@@ -23,7 +23,8 @@ struct strEuclidPanelData
     const char* names[kMaxRows] = {};
     const char* values[kMaxRows] = {};
     int8_t focusRow = -1;
-    uint16_t dimRows = 0; // bit per row: setting doesn't apply right now
+    uint16_t dimRows = 0;    // bit per row: setting doesn't apply right now
+    uint16_t stagedRows = 0; // bit per row: edited, waiting for Rec
     // The list scrolls to keep the focused row in view; firstRow is the
     // top visible row and is kept up to date by the control.
     uint8_t firstRow = 0;

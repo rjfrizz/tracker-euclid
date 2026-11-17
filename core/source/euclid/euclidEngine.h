@@ -9,11 +9,22 @@
 // sequencer is playing, so it follows the Tracker's tempo, external sync,
 // MIDI clock output and transport.
 //
+// Settings live in three layers per channel:
+//   staged    - what the screen edits and shows
+//   committed - sent by commit() (the Rec key) or an immediate edit (Shift
+//               held), waiting for the next launch point
+//   playing   - what is heard now
+// Edits go to the staged layer. commit() moves staged settings to the
+// committed layer, and they start playing at the next launch point (a beat,
+// a bar, 2 bars or 4 bars). With setImmediate(true), each edit is committed
+// as it's made: rhythm, key and mode changes still wait for the launch point
+// so the timing stays tight, while velocity, gate, chance, MIDI channel and
+// note edits play straight away. While stopped every edit applies at once.
+// Mute is never staged.
+//
 // Threading: onMicroStep(), start() and stop() run from the audio callback.
-// The setters below are called from the main loop and write to a channel's
-// "pending" settings, protected by the platform's interrupt guard. Rhythm
-// settings (steps, pulses, rotation, division) take effect on the next bar;
-// everything else, including note edits, takes effect immediately.
+// Everything else is called from the main loop, protected by the platform's
+// interrupt guard.
 //
 // This file has no platform dependencies so the timing logic can be tested
 // on a host machine (see core/tests/euclid/).
@@ -88,9 +99,8 @@ const char* rootName(uint8_t root);
 // step `rotation`).
 bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index);
 
-// Rhythm settings: steps, pulses, rotation, division and note mode are
-// queued to the next bar. The notes and their order live here too but apply
-// immediately.
+// Rhythm settings. A change to steps, pulses, rotation, division or mode
+// restarts the channel when it starts playing; note edits don't.
 struct Rhythm
 {
     uint8_t steps = 16;
@@ -103,7 +113,7 @@ struct Rhythm
     NoteMode mode = NoteMode::seq;
 };
 
-// Expression settings: applied immediately.
+// Expression settings: how the channel's notes are played.
 struct Expression
 {
     bool enabled = false;
@@ -121,6 +131,20 @@ struct Expression
     uint8_t octave = 3;    // lowest octave, Tracker numbering (C3 = note 36)
     uint8_t range = 2;     // octaves, 1-4
 };
+
+// When committed changes start playing. Stored in set files, so the
+// values must not change.
+enum class Launch : uint8_t
+{
+    bar = 0,
+    beat,
+    twoBars,
+    fourBars,
+    count
+};
+
+uint16_t launchToMicroSteps(Launch l);
+const char* launchName(Launch l);
 
 struct Output
 {
@@ -144,39 +168,64 @@ class Engine
     void stop();
     void onMicroStep();
 
-    // Main-loop API.
-    Rhythm getRhythm(int ch) const;        // pending (what the UI shows)
-    Rhythm getActiveRhythm(int ch) const;  // what is playing now
+    //--------------------------------------------------------------------------
+    // Main-loop API
+
+    // Staged settings: what the screen shows and edits.
+    Rhythm getRhythm(int ch) const;
     Expression getExpression(int ch) const;
+    Key getGlobalKey() const { return globalStaged; }
+    // The key a channel generates from, from its staged settings.
+    Key getChannelKey(int ch) const;
+
+    // Committed settings (playing, or waiting for the launch point).
+    Rhythm getLiveRhythm(int ch) const;
+    Expression getLiveExpression(int ch) const;
+    Key getLiveGlobalKey() const { return globalDirty ? globalPending : globalActive; }
+
+    // What is playing right now.
+    Rhythm getActiveRhythm(int ch) const;
+    Key getActiveGlobalKey() const { return globalActive; }
+
+    // Edits. They change the staged settings; see the file comment for when
+    // they're heard.
     void setRhythm(int ch, const Rhythm& r);
     void setExpression(int ch, const Expression& e);
-
     void setSteps(int ch, uint8_t steps);
     void setPulses(int ch, uint8_t pulses);
     void setRotation(int ch, uint8_t rotation);
     void setDivision(int ch, Division d);
-    // Applied immediately, also while playing.
+    void setMode(int ch, NoteMode m);
     void setNotes(int ch, const uint8_t* notes, uint8_t count);
     void setDirection(int ch, NoteDirection d);
-    void setMode(int ch, NoteMode m); // queued to the next bar
-
-    // Global key, queued to the next bar.
-    Key getGlobalKey() const { return globalPending; }
-    Key getActiveGlobalKey() const { return globalActive; }
-    void setGlobalKey(const Key& k);
-    bool hasPendingGlobalKey() const { return globalDirty; }
-    // The key a channel generates from, given its settings and the pending
-    // global key.
-    Key getChannelKey(int ch) const;
-
     void setEnabled(int ch, bool enabled);
-    void setMuted(int ch, bool muted);
     void setMidiChannel(int ch, uint8_t midiChannel);
     void setVelocity(int ch, uint8_t velocity);
     void setGate(int ch, uint8_t gate);
     void setProbability(int ch, uint8_t probability);
+    void setGlobalKey(const Key& k);
 
+    // Mute bypasses staging: it's a performance control.
+    void setMuted(int ch, bool muted);
+
+    // While true, every edit is committed as it's made (Shift held).
+    void setImmediate(bool immediate) { immediateEdits = immediate; }
+
+    // Staged edits that haven't been committed.
+    bool hasStagedChange(int ch) const;
+    bool hasStagedGlobalKey() const;
+    bool hasAnyStagedChange() const;
+
+    // Sends staged settings to play from the next launch point.
+    void commit(int ch);
+    void commitAll(); // all channels and the global key
+
+    // Committed changes waiting for the launch point.
     bool hasPendingChange(int ch) const;
+    bool hasPendingGlobalKey() const { return globalDirty; }
+
+    Launch getLaunch() const { return launch; }
+    void setLaunch(Launch l);
 
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
@@ -187,21 +236,26 @@ class Engine
     uint8_t getCurrentStep(int ch) const;
     // Index of the note the next pulse will play.
     uint8_t getNextNoteIndex(int ch) const;
-    uint32_t getBarMicroStep() const { return barMicroStep; }
+    uint32_t getBarMicroStep() const { return launchCounter % kMicroStepsPerBar; }
 
   private:
     struct Channel
     {
-        Rhythm active;
+        Rhythm staged;
+        Expression stagedExpr;
+
         Rhythm pending;
-        Expression expr;
+        Expression pendingExpr;
         bool pendingDirty = false;
+
+        Rhythm active;
+        Expression expr;
 
         uint16_t microStepInStep = 0; // 0 .. stepLength-1
         uint8_t step = 0;             // 0 .. active.steps-1
         uint8_t noteIndex = 0;
         int8_t pingPongDir = 1;
-        int16_t degree = 0;    // position in the scale, generated modes
+        int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
 
         bool noteOpen = false;
@@ -213,22 +267,31 @@ class Engine
     void lock() const;
     void unlock() const;
     void clampRhythm(Rhythm& r) const;
+    Expression clampExpression(const Expression& e) const;
     void resetChannelPosition(Channel& c);
     void closeNote(Channel& c);
     void triggerStep(Channel& c);
     uint8_t nextNote(Channel& c);
     uint8_t nextGeneratedNote(Channel& c);
-    Key keyFor(const Channel& c, const Key& global) const;
-    void markDirty(int ch);
-    void applyNotesNow(Channel& c);
+    Key keyFor(const Expression& x, const Key& global) const;
+
+    // After an edit to channel ch's staged settings; call with the lock held.
+    void edited(int ch);
+    void commitLocked(int ch, bool immediate);
+    void commitGlobalLocked();
+    void applyPending(Channel& c);
 
     Output out;
     Channel channels[kChannels];
     bool running = false;
-    uint32_t barMicroStep = 0; // 0 .. kMicroStepsPerBar-1
-    uint32_t changeCount = 0; // main loop only
-    Key globalActive;
+    bool immediateEdits = false;
+    Launch launch = Launch::bar;
+    uint32_t launchCounter = 0; // micro-steps since start, wraps every 4 bars
+    uint32_t changeCount = 0;   // main loop only
+
+    Key globalStaged;
     Key globalPending;
+    Key globalActive;
     bool globalDirty = false;
 };
 

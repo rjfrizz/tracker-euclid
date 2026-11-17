@@ -15,7 +15,9 @@
 //   6  slot this state was last saved to or loaded from (1-8, 0 = none)
 //   7  global root (0-11)
 //   8  global scale (stock scales.h index)
-//   9  reserved (7 bytes of 0)
+//   9  launch point (euclid::Launch; 0 = bar, so older version 2 files load
+//      with the default)
+//   10 reserved (6 bytes of 0)
 //   16 8 channel records of 40 bytes:
 //        0 steps, pulses, rotation, division, direction, noteCount
 //        6 notes[16]
@@ -46,13 +48,14 @@ constexpr size_t kSetV1FileSize = kSetV1HeaderSize + kChannels * kSetV1ChannelSi
 
 uint32_t crc32(const uint8_t* data, size_t length);
 
-// Writes the engine's settings (the pending ones, which is what the screen
-// shows) into buf. Returns the number of bytes written, or 0 if buf is too
+// Writes the engine's staged settings (what the screen shows, including edits
+// not yet committed) into buf. Returns the number of bytes written, or 0 if buf is too
 // small.
 size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t bufLen);
 
 // Checks a set file (version 1 or 2) and, if it's valid, applies it to the
-// engine. While playing, rhythm changes wait for the next bar as usual.
+// engine and commits it, so while playing it starts at the next launch
+// point.
 // Returns false and leaves the engine alone if the data is the wrong size,
 // version or CRC.
 bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slotOut = nullptr);

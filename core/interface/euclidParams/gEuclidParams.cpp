@@ -15,7 +15,7 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
 
-const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale" };
+const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch" };
 
 
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
@@ -129,6 +129,7 @@ void cEuclidParams::setView(View v)
     }
     panelData.firstRow = 0;
     panelData.dimRows = 0;
+    panelData.stagedRows = 0;
 
     refreshTitle();
     if (view == View::params)
@@ -140,18 +141,20 @@ void cEuclidParams::setView(View v)
     else
         refreshGlobal();
     refreshChannels();
+    refreshPads();
     display.synchronizeRefresh();
 }
 
 void cEuclidParams::refreshTitle()
 {
+    const char* hint = euclidEngine.hasAnyStagedChange() ? "   -  Rec to apply" : "";
     if (view == View::sets)
-        snprintf(titleText, sizeof(titleText), "Sets");
+        snprintf(titleText, sizeof(titleText), "Sets%s", hint);
     else if (view == View::global)
-        snprintf(titleText, sizeof(titleText), "Global");
+        snprintf(titleText, sizeof(titleText), "Global%s", hint);
     else
-        snprintf(titleText, sizeof(titleText), "%s  Ch %d",
-                 view == View::params ? "Params" : "Notes", selectedChannel + 1);
+        snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
+                 view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);
     titleBar->setTitle(titleText);
 }
 
@@ -203,8 +206,23 @@ void cEuclidParams::refreshParam(uint8_t param)
     if (view == View::params)
     {
         panelData.dimRows = paramDimMask();
+        panelData.stagedRows = stagedRowMask();
         refreshFrame();
     }
+}
+
+// Rows whose staged value differs from the committed one: waiting for Rec.
+uint16_t cEuclidParams::stagedRowMask() const
+{
+    uint16_t mask = 0;
+    const uint8_t rows = view == View::global ? globalCount : (view == View::params ? paramCount : 0);
+    for (uint8_t row = 0; row < rows; row++)
+    {
+        int staged = rowValue(row, false);
+        if (staged >= 0 && staged != rowValue(row, true))
+            mask |= 1u << row;
+    }
+    return mask;
 }
 
 // Rows that don't apply to the channel's current settings are dimmed.
@@ -240,8 +258,8 @@ void cEuclidParams::refreshGlobal()
         return;
 
     euclid::Key k = euclidEngine.getGlobalKey();
+    euclid::Key live = euclidEngine.getLiveGlobalKey();
     euclid::Key active = euclidEngine.getActiveGlobalKey();
-    bool pending = euclidEngine.hasPendingGlobalKey();
 
     if (sequencer.isSetInternalClock())
         snprintf(globalText[globalTempo], sizeof(globalText[globalTempo]), "%d BPM",
@@ -250,16 +268,20 @@ void cEuclidParams::refreshGlobal()
         snprintf(globalText[globalTempo], sizeof(globalText[globalTempo]), "Ext %d",
                  static_cast<int>(sequencer.getCurrentTempo() + 0.5f));
 
-    // While a change waits for the bar, show it with an arrow.
-    if (pending && k.root != active.root)
+    // A staged value is drawn in orange (stagedRowMask). A committed one
+    // waiting for the launch point is shown with an arrow from what's playing.
+    if (k.root == live.root && live.root != active.root)
         snprintf(globalText[globalRoot], sizeof(globalText[globalRoot]), "%s > %s",
-                 euclid::rootName(active.root), euclid::rootName(k.root));
+                 euclid::rootName(active.root), euclid::rootName(live.root));
     else
         snprintf(globalText[globalRoot], sizeof(globalText[globalRoot]), "%s", euclid::rootName(k.root));
     snprintf(globalText[globalScale], sizeof(globalText[globalScale]), "%s%s",
-             pending && k.scale != active.scale ? "> " : "", euclid::scaleName(k.scale));
+             k.scale == live.scale && live.scale != active.scale ? "> " : "", euclid::scaleName(k.scale));
+    snprintf(globalText[globalLaunch], sizeof(globalText[globalLaunch]), "%s",
+             euclid::launchName(euclidEngine.getLaunch()));
 
     panelData.dimRows = sequencer.isSetInternalClock() ? 0 : (1u << globalTempo);
+    panelData.stagedRows = stagedRowMask();
     refreshFrame();
 }
 
@@ -277,8 +299,15 @@ void cEuclidParams::refreshNotes()
     if (noteCursor >= r.noteCount)
         noteCursor = r.noteCount - 1;
 
+    euclid::Rhythm live = euclidEngine.getLiveRhythm(selectedChannel);
+    bool notesStaged = live.noteCount != r.noteCount;
+    for (uint8_t i = 0; i < r.noteCount && !notesStaged; i++)
+        notesStaged = live.notes[i] != r.notes[i];
+
     if (r.mode != euclid::NoteMode::seq)
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Used when Mode is SEQ");
+    else if (notesStaged)
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "Edited: Rec to apply");
     else if (replaceNextNote)
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Cleared: tap pads to add");
     else
@@ -362,7 +391,8 @@ void cEuclidParams::refreshChannels()
         else if (x.muted)
             snprintf(channelText2[i], sizeof(channelText2[i]), "mute");
         else
-            snprintf(channelText2[i], sizeof(channelText2[i]), "%d/%d", r.pulses, r.steps);
+            snprintf(channelText2[i], sizeof(channelText2[i]), "%d/%d%s", r.pulses, r.steps,
+                     euclidEngine.hasStagedChange(i) ? " *" : "");
 
         const uint32_t* colors = theme.inactiveLabelsColors;
         if (x.enabled && x.muted)
@@ -379,31 +409,47 @@ void cEuclidParams::refreshChannels()
 
 void cEuclidParams::refreshRing()
 {
-    euclid::Rhythm active = euclidEngine.getActiveRhythm(selectedChannel);
-    euclid::Rhythm pending = euclidEngine.getRhythm(selectedChannel);
-    euclid::Expression x = euclidEngine.getExpression(selectedChannel);
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm active = euclidEngine.getActiveRhythm(ch);
+    euclid::Rhythm live = euclidEngine.getLiveRhythm(ch);
+    euclid::Rhythm staged = euclidEngine.getRhythm(ch);
+    euclid::Expression x = euclidEngine.getExpression(ch);
     bool running = euclidEngine.isRunning();
-    bool hasPending = euclidEngine.hasPendingChange(selectedChannel);
+    bool hasPending = euclidEngine.hasPendingChange(ch);
+    bool hasStaged = euclidEngine.hasStagedChange(ch);
 
     ringData.steps = active.steps;
     ringData.pulses = active.pulses;
     ringData.rotation = active.rotation;
-    ringData.playhead =
-      running ? static_cast<int8_t>(euclidEngine.getCurrentStep(selectedChannel)) : -1;
+    ringData.playhead = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(ch)) : -1;
     ringData.enabled = x.enabled;
     ringData.muted = x.muted;
 
-    ringData.hasPending = hasPending;
-    ringData.pendingSteps = pending.steps;
-    ringData.pendingPulses = pending.pulses;
-    ringData.pendingRotation = pending.rotation;
+    // Inner ring: the rhythm waiting for Rec, or the one waiting for the
+    // launch point, when it differs from what's playing.
+    const euclid::Rhythm& next = hasStaged ? staged : live;
+    ringData.hasPending = next.steps != active.steps || next.pulses != active.pulses ||
+                          next.rotation != active.rotation;
+    ringData.pendingSteps = next.steps;
+    ringData.pendingPulses = next.pulses;
+    ringData.pendingRotation = next.rotation;
 
     snprintf(ringText, sizeof(ringText), "E(%d,%d)", active.pulses, active.steps);
     ringData.centerText = ringText;
 
-    if (hasPending)
+    if (hasStaged)
     {
-        snprintf(ringText2, sizeof(ringText2), "next bar: E(%d,%d)", pending.pulses, pending.steps);
+        if (ringData.hasPending)
+            snprintf(ringText2, sizeof(ringText2), "Rec: E(%d,%d)", staged.pulses, staged.steps);
+        else
+            snprintf(ringText2, sizeof(ringText2), "Rec to apply");
+        ringData.centerText2 = ringText2;
+    }
+    else if (hasPending)
+    {
+        snprintf(ringText2, sizeof(ringText2), "next %s: E(%d,%d)",
+                 euclidEngine.getLaunch() == euclid::Launch::beat ? "beat" : "bar", live.pulses,
+                 live.steps);
         ringData.centerText2 = ringText2;
     }
     else if (!x.enabled)
@@ -416,10 +462,10 @@ void cEuclidParams::refreshRing()
         snprintf(ringText2, sizeof(ringText2), "muted");
         ringData.centerText2 = ringText2;
     }
-    else if (pending.mode != euclid::NoteMode::seq)
+    else if (staged.mode != euclid::NoteMode::seq)
     {
-        euclid::Key k = euclidEngine.getChannelKey(selectedChannel);
-        snprintf(ringText2, sizeof(ringText2), "%s  %s %s", euclid::noteModeName(pending.mode),
+        euclid::Key k = euclidEngine.getChannelKey(ch);
+        snprintf(ringText2, sizeof(ringText2), "%s  %s %s", euclid::noteModeName(staged.mode),
                  euclid::rootName(k.root), euclid::scaleName(k.scale));
         ringData.centerText2 = ringText2;
     }

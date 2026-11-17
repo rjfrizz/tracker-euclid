@@ -126,6 +126,8 @@ void cEuclidPanel::drawList()
         API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
         if (data->names[i] != nullptr)
             API_CMD_TEXT(posX + kPad, cy, fonts[kFontBold].handle, OPT_CENTERY, data->names[i]);
+        if (data->stagedRows & (1u << i))
+            API_COLOR(theme.orange);
         if (data->values[i] != nullptr)
             API_CMD_TEXT(posX + width - kPad, cy, fonts[kFontBold].handle, OPT_CENTERY | OPT_RIGHTX,
                          data->values[i]);

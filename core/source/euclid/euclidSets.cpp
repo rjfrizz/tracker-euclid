@@ -55,6 +55,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
     buf[6] = slot <= kSetSlots ? slot : 0;
     buf[7] = key.root;
     buf[8] = key.scale;
+    buf[9] = static_cast<uint8_t>(engine.getLaunch());
 
     for (int ch = 0; ch < kChannels; ch++)
     {
@@ -131,6 +132,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         key.root = buf[7];
         key.scale = buf[8];
         engine.setGlobalKey(key);
+        engine.setLaunch(enumOr(buf[9], Launch::count, Launch::bar));
     }
 
     for (int ch = 0; ch < kChannels; ch++)
@@ -171,6 +173,9 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         engine.setRhythm(ch, r);
         engine.setExpression(ch, x);
     }
+
+    // A loaded set replaces what's playing as a whole, at the launch point.
+    engine.commitAll();
 
     if (slotOut != nullptr)
         *slotOut = buf[6] <= kSetSlots ? buf[6] : 0;
