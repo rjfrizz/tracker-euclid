@@ -818,11 +818,20 @@ static void functChannelButton(uint8_t button, uint8_t state)
     if (EP->buttons->isButtonPressed(interfaceButtonShift))
     {
         EP->toggleMute(ch);
+        return;
     }
-    else
+
+    // From the Global page a channel key opens that channel's Params.
+    if (EP->view == cEuclidParams::View::global)
     {
-        EP->selectChannel(ch);
+        EP->selectedChannel = ch;
+        EP->setView(cEuclidParams::View::params);
+        EP->setDefaultScreenFunct();
+        EP->refreshRing();
+        return;
     }
+
+    EP->selectChannel(ch);
 }
 
 static void functPlayAction()
