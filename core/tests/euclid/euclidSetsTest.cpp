@@ -58,12 +58,15 @@ static void fill(Engine& e)
         x.range = static_cast<uint8_t>(1 + ch % 4);
         x.seqKeyMode = static_cast<KeyMode>((ch + 1) % static_cast<int>(KeyMode::count));
         x.transpose = static_cast<int8_t>(ch * 6 - 24);
+        x.chord = static_cast<ChordType>(ch % static_cast<int>(ChordType::count));
+        x.chordChance = static_cast<uint8_t>(30 + ch * 10);
         e.setExpression(ch, x);
 
         Rhythm withMode = e.getRhythm(ch);
         withMode.mode = static_cast<NoteMode>(ch % static_cast<int>(NoteMode::count));
         withMode.homeRoot = static_cast<uint8_t>((ch * 5) % 12);
         withMode.homeScale = static_cast<uint8_t>(ch * 3);
+        withMode.tieMask = static_cast<uint16_t>((0b0110u << ch) & ((1u << withMode.noteCount) - 1) & ~1u);
         e.setRhythm(ch, withMode);
     }
     e.setGlobalKey(Key{5, 11});
@@ -89,7 +92,8 @@ static bool sameSettings(const Engine& a, const Engine& b)
         if (ra.mode != rb.mode || xa.keyMode != xb.keyMode || xa.keyOffset != xb.keyOffset ||
             xa.ownRoot != xb.ownRoot || xa.ownScale != xb.ownScale || xa.octave != xb.octave ||
             xa.range != xb.range || xa.seqKeyMode != xb.seqKeyMode || xa.transpose != xb.transpose ||
-            ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale)
+            ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale || ra.tieMask != rb.tieMask ||
+            xa.chord != xb.chord || xa.chordChance != xb.chordChance)
             return false;
     }
     for (int ch = 0; ch < kChannels; ch++)
@@ -101,19 +105,55 @@ static bool sameSettings(const Engine& a, const Engine& b)
 
 // A version 2 file: this release's layout with version 2 and bytes 35-38
 // zeroed, as version 2 wrote them.
+// Converts this release's file to the 40-byte records of versions 2 and 3.
+static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
+{
+    std::memcpy(v3, v4, kSetHeaderSize);
+    v3[4] = version;
+    for (int ch = 0; ch < kChannels; ch++)
+        std::memcpy(v3 + kSetHeaderSize + ch * kSetV3ChannelSize, v4 + kSetHeaderSize + ch * kSetChannelSize,
+                    kSetV3ChannelSize);
+    uint32_t crc = crc32(v3, kSetV3FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v3[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+}
+
+static void testLoadsVersion3()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t v4[kSetFileSize];
+    serializeSet(a, 2, v4, sizeof(v4));
+    uint8_t v3[kSetV3FileSize];
+    toVersion3Layout(v4, v3, 3);
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, v3, sizeof(v3)));
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        CHECK(b.getName(ch) == a.getName(ch));
+        CHECK(b.getExpression(ch).transpose == a.getExpression(ch).transpose);
+        CHECK(b.getExpression(ch).chord == ChordType::single); // no chords in version 3
+        CHECK(b.getRhythm(ch).tieMask == 0);
+    }
+}
+
+// A version 2 file: the 40-byte layout with version 2 and bytes 35-39
+// zeroed, as version 2 wrote them.
 static void testLoadsVersion2()
 {
     Engine a = makeEngine();
     fill(a);
-    uint8_t buf[kSetFileSize];
-    serializeSet(a, 2, buf, sizeof(buf));
-    buf[4] = 2;
+    uint8_t v4[kSetFileSize];
+    serializeSet(a, 2, v4, sizeof(v4));
+    uint8_t buf[kSetV3FileSize];
+    toVersion3Layout(v4, buf, 2);
     for (int ch = 0; ch < kChannels; ch++)
-        for (int i = 35; i <= 38; i++)
-            buf[kSetHeaderSize + ch * kSetChannelSize + i] = 0;
-    uint32_t crc = crc32(buf, kSetFileSize - 4);
+        for (int i = 35; i <= 39; i++)
+            buf[kSetHeaderSize + ch * kSetV3ChannelSize + i] = 0;
+    uint32_t crc = crc32(buf, kSetV3FileSize - 4);
     for (int i = 0; i < 4; i++)
-        buf[kSetFileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+        buf[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
 
     Engine b = makeEngine();
     CHECK(deserializeSet(b, buf, sizeof(buf)));
@@ -124,6 +164,7 @@ static void testLoadsVersion2()
         // Home key: the file's global key.
         CHECK(b.getRhythm(ch).homeRoot == 5 && b.getRhythm(ch).homeScale == 11);
         CHECK(b.getRhythm(ch).steps == a.getRhythm(ch).steps);
+        CHECK(b.getName(ch) == 0);
     }
 }
 
@@ -189,7 +230,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 340);
+    CHECK(kSetFileSize == 404);
+    CHECK(kSetV3FileSize == 340);
     CHECK(kSetV1FileSize == 268);
 
     Engine b = makeEngine();
@@ -266,6 +308,7 @@ int main()
     testRoundTrip();
     testLoadsVersion1();
     testLoadsVersion2();
+    testLoadsVersion3();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

@@ -65,9 +65,84 @@ const char* const kChannelNames[] = {
     nullptr, "Kick",  "Snare", "Clap",  "Hat",   "Open",  "Perc",  "Tom",   "Rim",
     "Shaker", "Cymbal", "Bass", "Sub",  "Lead",  "Pad",   "Chord", "Arp",   "Keys",
     "Pluck", "Bell",  "Stab",  "Drone", "Vox",   "Brass", "String", "Organ", "Synth",
-    "FX",    "Noise", "Riser", "Melody", "Counter", "Fill", "Loop",
+    "FX",    "Noise", "Riser", "Melody", "Counter", "Fill", "Loop", "Wind",
 };
 } // namespace
+
+const char* chordTypeName(ChordType t)
+{
+    switch (t)
+    {
+        case ChordType::single: return "Single";
+        case ChordType::triad: return "Triad";
+        case ChordType::seventh: return "7th";
+        case ChordType::ninth: return "9th";
+        case ChordType::sus2: return "Sus2";
+        case ChordType::sus4: return "Sus4";
+        case ChordType::power: return "Power";
+        case ChordType::quartal: return "Quartal";
+        default: return "?";
+    }
+}
+
+uint8_t chordSteps(ChordType t, uint8_t* steps)
+{
+    static const uint8_t kTriad[] = { 0, 2, 4 };
+    static const uint8_t kSeventh[] = { 0, 2, 4, 6 };
+    static const uint8_t kNinth[] = { 0, 2, 4, 6, 8 };
+    static const uint8_t kSus2[] = { 0, 1, 4 };
+    static const uint8_t kSus4[] = { 0, 3, 4 };
+    static const uint8_t kPower[] = { 0, 4 };
+    static const uint8_t kQuartal[] = { 0, 3, 6 };
+
+    const uint8_t* src = nullptr;
+    uint8_t n = 1;
+    switch (t)
+    {
+        case ChordType::triad: src = kTriad; n = sizeof(kTriad); break;
+        case ChordType::seventh: src = kSeventh; n = sizeof(kSeventh); break;
+        case ChordType::ninth: src = kNinth; n = sizeof(kNinth); break;
+        case ChordType::sus2: src = kSus2; n = sizeof(kSus2); break;
+        case ChordType::sus4: src = kSus4; n = sizeof(kSus4); break;
+        case ChordType::power: src = kPower; n = sizeof(kPower); break;
+        case ChordType::quartal: src = kQuartal; n = sizeof(kQuartal); break;
+        default: break;
+    }
+    for (uint8_t i = 0; i < n; i++)
+        steps[i] = src != nullptr ? src[i] : 0;
+    return n;
+}
+
+uint8_t entryCount(const Rhythm& r)
+{
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < r.noteCount; i++)
+        if (i == 0 || !(r.tieMask & (1u << i)))
+            count++;
+    return count;
+}
+
+uint8_t entryStart(const Rhythm& r, uint8_t entry)
+{
+    uint8_t e = 0;
+    for (uint8_t i = 0; i < r.noteCount; i++)
+    {
+        if (i > 0 && !(r.tieMask & (1u << i)))
+            e++;
+        if (e == entry)
+            return i;
+    }
+    return 0;
+}
+
+uint8_t entryLength(const Rhythm& r, uint8_t entry)
+{
+    uint8_t start = entryStart(r, entry);
+    uint8_t n = 1;
+    while (start + n < r.noteCount && (r.tieMask & (1u << (start + n))))
+        n++;
+    return n;
+}
 
 uint8_t channelNameCount()
 {
@@ -99,6 +174,8 @@ const char* noteModeName(NoteMode m)
         case NoteMode::walk: return "Walk";
         case NoteMode::scaleUp: return "Scale up";
         case NoteMode::scaleUpDown: return "Scale up-down";
+        case NoteMode::arpUp: return "Arp up";
+        case NoteMode::arpUpDown: return "Arp up-down";
         default: return "?";
     }
 }
@@ -179,6 +256,7 @@ void Engine::clampRhythm(Rhythm& r) const
         r.direction = NoteDirection::forward;
     if (r.mode >= NoteMode::count)
         r.mode = NoteMode::seq;
+    r.tieMask &= static_cast<uint16_t>(((1u << r.noteCount) - 1) & ~1u);
     r.homeRoot = static_cast<uint8_t>(r.homeRoot % 12);
     if (r.homeScale > MAX_SCALE)
         r.homeScale = 0;
@@ -201,6 +279,9 @@ Expression Engine::clampExpression(const Expression& e) const
     if (x.seqKeyMode >= KeyMode::count)
         x.seqKeyMode = KeyMode::own;
     x.transpose = clampValue<int8_t>(x.transpose, -kMaxTranspose, kMaxTranspose);
+    if (x.chord >= ChordType::count)
+        x.chord = ChordType::single;
+    x.chordChance = clampValue<uint8_t>(x.chordChance, 0, 100);
     return x;
 }
 
@@ -216,7 +297,7 @@ bool rhythmRestarts(const Rhythm& a, const Rhythm& b)
 bool sameNotes(const Rhythm& a, const Rhythm& b)
 {
     if (a.noteCount != b.noteCount || a.direction != b.direction || a.homeRoot != b.homeRoot ||
-        a.homeScale != b.homeScale)
+        a.homeScale != b.homeScale || a.tieMask != b.tieMask)
         return false;
     for (uint8_t i = 0; i < a.noteCount; i++)
         if (a.notes[i] != b.notes[i])
@@ -236,7 +317,7 @@ bool sameExpression(const Expression& a, const Expression& b)
            a.gate == b.gate && a.probability == b.probability && a.keyMode == b.keyMode &&
            a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot && a.ownScale == b.ownScale &&
            a.octave == b.octave && a.range == b.range && a.seqKeyMode == b.seqKeyMode &&
-           a.transpose == b.transpose;
+           a.transpose == b.transpose && a.chord == b.chord && a.chordChance == b.chordChance;
 }
 
 // Key settings change which notes are generated, so like rhythm they wait
@@ -278,11 +359,12 @@ void Engine::resetChannelPosition(Channel& c)
 
 void Engine::closeNote(Channel& c)
 {
-    if (!c.noteOpen)
+    if (c.openCount == 0)
         return;
     if (out.noteOff)
-        out.noteOff(c.openNote, c.openMidiChannel);
-    c.noteOpen = false;
+        for (uint8_t i = 0; i < c.openCount; i++)
+            out.noteOff(c.openNotes[i], c.openMidiChannel);
+    c.openCount = 0;
     c.gateRemaining = 0;
 }
 
@@ -301,7 +383,7 @@ void Engine::applyPending(Channel& c)
         closeNote(c);
         resetChannelPosition(c);
     }
-    else if (c.noteIndex >= c.active.noteCount)
+    else if (c.noteIndex >= entryCount(c.active))
     {
         c.noteIndex = 0;
     }
@@ -359,22 +441,62 @@ Key Engine::getChannelKey(int ch) const
     return keyFor(c.stagedExpr, globalStaged);
 }
 
-uint8_t Engine::nextGeneratedNote(Channel& c)
+namespace
 {
-    const Key key = keyFor(c.expr, globalActive);
-
-    // Semitone offsets of the scale's notes above the root, from the stock
-    // 12-bit masks (bit n set = n semitones above the root is in the scale).
-    uint8_t intervals[12];
+// Semitone offsets of a scale's notes above its root, from the stock 12-bit
+// masks (bit n set = n semitones above the root is in the scale).
+uint8_t scaleIntervals(const Key& key, uint8_t* intervals)
+{
     uint8_t len = 0;
     const uint16_t mask = scaleDef[key.scale <= MAX_SCALE ? key.scale : 0] | 1u;
     for (uint8_t n = 0; n < 12; n++)
         if (mask & (1u << n))
             intervals[len++] = n;
+    return len;
+}
+} // namespace
 
+uint8_t Engine::nextGeneratedNotes(Channel& c, uint8_t* notes)
+{
+    const Key key = keyFor(c.expr, globalActive);
+    uint8_t intervals[12];
+    const uint8_t len = scaleIntervals(key, intervals);
     const int16_t range = static_cast<int16_t>(len * c.expr.range);
-    int16_t& d = c.degree;
 
+    auto noteFor = [&](int degree) {
+        int note = 12 * c.expr.octave + key.root + 12 * (degree / len) + intervals[degree % len] +
+                   c.expr.transpose;
+        return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
+    };
+
+    uint8_t steps[kMaxVoices];
+
+    // Arps: step through the chord's tones in every octave of the range.
+    if (c.active.mode == NoteMode::arpUp || c.active.mode == NoteMode::arpUpDown)
+    {
+        ChordType t = c.expr.chord == ChordType::single ? ChordType::triad : c.expr.chord;
+        const uint8_t perOctave = chordSteps(t, steps);
+        const int16_t tones = static_cast<int16_t>(perOctave * c.expr.range);
+        int16_t& i = c.degree;
+        if (i < 0 || i >= tones)
+            i = 0;
+
+        // A chord's steps can reach past the octave (a 9th): degrees keep
+        // counting up the scale, so that still lands on the right note.
+        notes[0] = noteFor(steps[i % perOctave] + len * (i / perOctave));
+
+        if (c.active.mode == NoteMode::arpUp)
+            i = static_cast<int16_t>((i + 1) % tones);
+        else if (tones > 1)
+        {
+            if (i + c.degreeDir >= tones || i + c.degreeDir < 0)
+                c.degreeDir = static_cast<int8_t>(-c.degreeDir);
+            i = static_cast<int16_t>(i + c.degreeDir);
+        }
+        return 1;
+    }
+
+    int16_t& d = c.degree;
     switch (c.active.mode)
     {
         case NoteMode::random: d = out.randomBelow ? out.randomBelow(static_cast<uint8_t>(range)) : 0; break;
@@ -389,18 +511,15 @@ uint8_t Engine::nextGeneratedNote(Channel& c)
                 d = static_cast<int16_t>(2 * (range - 1) - d);
             break;
         }
-        case NoteMode::scaleUp: break; // plays d, then moves up below
-        case NoteMode::scaleUpDown: break;
-        default: break;
+        default: break; // the scale runs play d, then move on below
     }
     if (d < 0)
         d = 0;
     if (d >= range)
         d = static_cast<int16_t>(range - 1);
 
-    int note = 12 * c.expr.octave + key.root + 12 * (d / len) + intervals[d % len];
+    const int16_t played = d;
 
-    // The scale runs play the current degree, then move on.
     if (c.active.mode == NoteMode::scaleUp)
     {
         d = static_cast<int16_t>((d + 1) % range);
@@ -412,8 +531,14 @@ uint8_t Engine::nextGeneratedNote(Channel& c)
         d = static_cast<int16_t>(d + c.degreeDir);
     }
 
-    note += c.expr.transpose;
-    return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
+    // A chord stacks scale steps on the chosen note; chord tones may reach
+    // above the range.
+    const uint8_t count = rollChord(c) ? chordSteps(c.expr.chord, steps) : 1;
+    if (count == 1)
+        steps[0] = 0;
+    for (uint8_t k = 0; k < count; k++)
+        notes[k] = noteFor(played + steps[k]);
+    return count;
 }
 
 Key Engine::seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const
@@ -471,44 +596,98 @@ uint8_t Engine::seqNote(const Channel& c, uint8_t listNote) const
     return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
 }
 
-uint8_t Engine::nextNote(Channel& c)
+bool Engine::rollChord(const Channel& c)
 {
-    if (c.active.mode != NoteMode::seq)
-        return nextGeneratedNote(c);
+    if (c.expr.chord == ChordType::single)
+        return false;
+    if (c.expr.chordChance >= 100)
+        return true;
+    uint8_t roll = out.randomPercent ? out.randomPercent() : 0;
+    return roll < c.expr.chordChance;
+}
 
+namespace
+{
+// `steps` scale notes above `note` in the key (if `note` isn't in the scale
+// the count starts from it anyway).
+int stepUpInKey(int note, uint8_t steps, const Key& k)
+{
+    for (uint8_t s = 0; s < steps; s++)
+    {
+        do
+            note++;
+        while (note < 127 && !noteInScale(note, k));
+    }
+    return note;
+}
+} // namespace
+
+uint8_t Engine::nextSeqNotes(Channel& c, uint8_t* notes)
+{
     const Rhythm& r = c.active;
-    uint8_t count = r.noteCount;
-    if (count <= 1)
-        return seqNote(c, r.notes[0]);
+    const uint8_t count = entryCount(r);
 
     if (c.noteIndex >= count)
         c.noteIndex = 0;
+    const uint8_t entry = c.noteIndex;
 
-    uint8_t note = r.notes[c.noteIndex];
-
-    switch (r.direction)
+    if (count > 1)
     {
-        case NoteDirection::forward: c.noteIndex = (c.noteIndex + 1) % count; break;
-        case NoteDirection::backward:
-            c.noteIndex = c.noteIndex == 0 ? count - 1 : c.noteIndex - 1;
-            break;
-        case NoteDirection::pingPong:
+        switch (r.direction)
         {
-            int next = c.noteIndex + c.pingPongDir;
-            if (next >= count || next < 0)
+            case NoteDirection::forward: c.noteIndex = (c.noteIndex + 1) % count; break;
+            case NoteDirection::backward:
+                c.noteIndex = c.noteIndex == 0 ? count - 1 : c.noteIndex - 1;
+                break;
+            case NoteDirection::pingPong:
             {
-                c.pingPongDir = -c.pingPongDir;
-                next = c.noteIndex + c.pingPongDir;
+                int next = c.noteIndex + c.pingPongDir;
+                if (next >= count || next < 0)
+                {
+                    c.pingPongDir = -c.pingPongDir;
+                    next = c.noteIndex + c.pingPongDir;
+                }
+                c.noteIndex = static_cast<uint8_t>(next);
+                break;
             }
-            c.noteIndex = static_cast<uint8_t>(next);
-            break;
+            case NoteDirection::random:
+                c.noteIndex = out.randomBelow ? out.randomBelow(count) : 0;
+                break;
+            default: c.noteIndex = 0; break;
         }
-        case NoteDirection::random:
-            c.noteIndex = out.randomBelow ? out.randomBelow(count) : 0;
-            break;
-        default: c.noteIndex = 0; break;
     }
-    return seqNote(c, note);
+
+    const uint8_t start = entryStart(r, entry);
+    const uint8_t length = entryLength(r, entry);
+
+    // An entry entered as a chord plays as entered.
+    if (length > 1)
+    {
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < length && n < kMaxVoices; i++)
+            notes[n++] = seqNote(c, r.notes[start + i]);
+        return n;
+    }
+
+    // A single note can have the Chord setting stacked on it, in the key
+    // the channel plays in.
+    notes[0] = seqNote(c, r.notes[start]);
+    if (!rollChord(c))
+        return 1;
+
+    const Key key = seqKeyFor(c.expr, r, globalActive);
+    uint8_t steps[kMaxVoices];
+    const uint8_t tones = chordSteps(c.expr.chord, steps);
+    for (uint8_t k = 1; k < tones; k++)
+        notes[k] = static_cast<uint8_t>(clampValue<int>(stepUpInKey(notes[0], steps[k], key), 0, 127));
+    return tones;
+}
+
+uint8_t Engine::nextNotes(Channel& c, uint8_t* notes)
+{
+    if (c.active.mode == NoteMode::seq)
+        return nextSeqNotes(c, notes);
+    return nextGeneratedNotes(c, notes);
 }
 
 void Engine::triggerStep(Channel& c)
@@ -519,7 +698,8 @@ void Engine::triggerStep(Channel& c)
 
     // The note sequence advances on every pulse, even muted or skipped ones,
     // so muting a channel doesn't shift where its melody lands.
-    uint8_t note = nextNote(c);
+    uint8_t notes[kMaxVoices];
+    uint8_t count = nextNotes(c, notes);
 
     if (!c.expr.enabled || c.expr.muted)
         return;
@@ -538,11 +718,19 @@ void Engine::triggerStep(Channel& c)
     if (gate < 1)
         gate = 1;
 
-    if (out.noteOn)
-        out.noteOn(note, c.expr.velocity, c.expr.midiChannel);
-    c.noteOpen = true;
-    c.openNote = note;
     c.openMidiChannel = c.expr.midiChannel;
+    for (uint8_t i = 0; i < count; i++)
+    {
+        // The same note twice in a chord would cut itself off.
+        bool repeat = false;
+        for (uint8_t j = 0; j < c.openCount; j++)
+            repeat |= c.openNotes[j] == notes[i];
+        if (repeat)
+            continue;
+        if (out.noteOn)
+            out.noteOn(notes[i], c.expr.velocity, c.expr.midiChannel);
+        c.openNotes[c.openCount++] = notes[i];
+    }
     c.gateRemaining = gate;
 }
 
@@ -563,7 +751,7 @@ void Engine::onMicroStep()
     {
         // Gates count down first, so a note that ends exactly where the
         // next one starts is released before the new note-on.
-        if (c.noteOpen)
+        if (c.openCount > 0)
         {
             if (c.gateRemaining > 0)
                 c.gateRemaining--;
@@ -727,7 +915,8 @@ void Engine::commitLocked(int ch, bool immediate)
         c.active.direction = c.staged.direction;
         c.active.homeRoot = c.staged.homeRoot;
         c.active.homeScale = c.staged.homeScale;
-        if (c.noteIndex >= c.active.noteCount)
+        c.active.tieMask = c.staged.tieMask;
+        if (c.noteIndex >= entryCount(c.active))
             c.noteIndex = 0;
 
         Expression now = c.stagedExpr;
@@ -848,7 +1037,7 @@ void Engine::setProbability(int ch, uint8_t p) { EUCLID_EDIT(stagedExpr, v.proba
 
 #undef EUCLID_EDIT
 
-void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
+void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count, uint16_t tieMask)
 {
     if (!validChannel(ch) || notes == nullptr || count == 0)
         return;
@@ -859,6 +1048,7 @@ void Engine::setNotes(int ch, const uint8_t* notes, uint8_t count)
     for (uint8_t i = 0; i < count; i++)
         r.notes[i] = notes[i];
     r.noteCount = count;
+    r.tieMask = tieMask;
     // The list is entered against the global key as it stands now.
     r.homeRoot = globalStaged.root;
     r.homeScale = globalStaged.scale;

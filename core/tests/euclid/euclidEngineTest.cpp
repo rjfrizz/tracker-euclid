@@ -672,8 +672,82 @@ static void testTransposeGeneratedMode()
     e.stop();
 }
 
+static Engine makeChordEngine(NoteMode mode, ChordType chord, uint8_t range, Key key)
+{
+    Engine e = makeGeneratedEngine(mode);
+    e.setGlobalKey(key);
+    Expression x = e.getExpression(0);
+    x.chord = chord;
+    x.range = range;
+    e.setExpression(0, x);
+    return e;
+}
+
+static std::vector<uint8_t> playFor(Engine& e, int pulses)
+{
+    reset();
+    e.start();
+    run(e, 48 * pulses);
+    e.stop();
+    return playedNotes();
+}
+
+static void testScaleUpWithTriads()
+{
+    Engine e = makeChordEngine(NoteMode::scaleUp, ChordType::triad, 1, Key{0, 2});
+    CHECK((playFor(e, 2) == std::vector<uint8_t>{36, 40, 43, 38, 41, 45})); // C E G, then D F A
+
+    int ons = 0, offs = 0;
+    for (auto& ev : events)
+        (ev.on ? ons : offs)++;
+    CHECK(ons == offs); // every chord note released
+}
+
+static void testArps()
+{
+    Engine up = makeChordEngine(NoteMode::arpUp, ChordType::single, 2, Key{0, 1}); // single = triad
+    CHECK((playFor(up, 7) == std::vector<uint8_t>{36, 39, 43, 48, 51, 55, 36}));
+
+    Engine power = makeChordEngine(NoteMode::arpUpDown, ChordType::power, 1, Key{0, 1});
+    CHECK((playFor(power, 4) == std::vector<uint8_t>{36, 43, 36, 43}));
+
+    Engine ninth = makeChordEngine(NoteMode::arpUp, ChordType::ninth, 1, Key{0, 2});
+    CHECK((playFor(ninth, 6) == std::vector<uint8_t>{36, 40, 43, 47, 50, 36}));
+}
+
+static void testChordChance()
+{
+    Engine e = makeChordEngine(NoteMode::scaleUp, ChordType::triad, 1, Key{0, 2});
+    Expression x = e.getExpression(0);
+    x.chordChance = 0; // the stub's roll is 0, so only 0% skips the chord
+    e.setExpression(0, x);
+    CHECK((playFor(e, 2) == std::vector<uint8_t>{36, 38}));
+}
+
+static void testSeqChordEntries()
+{
+    // C E G tied into one entry, then a single D.
+    Engine e = makeSeqEngine(Key{0, 2}, {36});
+    const uint8_t notes[] = {36, 40, 43, 50};
+    e.setNotes(0, notes, 4, (1u << 1) | (1u << 2));
+    Rhythm r = e.getRhythm(0);
+    CHECK(entryCount(r) == 2);
+    CHECK(entryStart(r, 1) == 3 && entryLength(r, 0) == 3 && entryLength(r, 1) == 1);
+    CHECK((playSeq(e, 3) == std::vector<uint8_t>{36, 40, 43, 50, 36, 40, 43}));
+
+    // The Chord setting stacks on single entries only.
+    Expression x = e.getExpression(0);
+    x.chord = ChordType::seventh;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 2) == std::vector<uint8_t>{36, 40, 43, 50, 53, 57, 60})); // D F A C
+}
+
 int main()
 {
+    testScaleUpWithTriads();
+    testArps();
+    testChordChance();
+    testSeqChordEntries();
     testSeqOwnIgnoresGlobalKey();
     testSeqFollowMovesWithTheRoot();
     testSeqFollowSnapsToTheScale();

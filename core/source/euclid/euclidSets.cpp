@@ -89,6 +89,10 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[37] = r.homeRoot;
         p[38] = r.homeScale;
         p[39] = engine.getName(ch);
+        p[40] = static_cast<uint8_t>(r.tieMask);
+        p[41] = static_cast<uint8_t>(r.tieMask >> 8);
+        p[42] = static_cast<uint8_t>(x.chord);
+        p[43] = x.chordChance;
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -114,6 +118,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV1FileSize;
     }
     else if (version == 2 || version == 3)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV3ChannelSize;
+        fileSize = kSetV3FileSize;
+    }
+    else if (version == 4)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -187,6 +197,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             r.homeRoot = fileKey.root;
             r.homeScale = fileKey.scale;
             engine.setName(ch, 0);
+        }
+        if (version >= 4)
+        {
+            r.tieMask = static_cast<uint16_t>(p[40] | (p[41] << 8));
+            x.chord = enumOr(p[42], ChordType::count, ChordType::single);
+            x.chordChance = p[43];
         }
 
         // The engine clamps every field, so a hand-edited file can't put it

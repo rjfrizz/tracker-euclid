@@ -65,6 +65,8 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         case paramRotation: return { PadMap::list, r.steps, 0, 0 };
         case paramDivision: return { PadMap::list, static_cast<uint8_t>(euclid::Division::count), 0, 0 };
         case paramMode: return { PadMap::list, static_cast<uint8_t>(euclid::NoteMode::count), 0, 0 };
+        case paramChord: return { PadMap::list, static_cast<uint8_t>(euclid::ChordType::count), 0, 0 };
+        case paramChordChance: return { PadMap::level, kPads, 0, 100 };
         case paramNoteOrder: return { PadMap::list, static_cast<uint8_t>(euclid::NoteDirection::count), 0, 0 };
         case paramKey: return { PadMap::keyboard, 12, 0, 11 }; // column 0 = Follow, then +1 ... +11
         case paramOwnRoot: return { PadMap::keyboard, 12, 0, 11 };
@@ -109,6 +111,8 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         case paramRotation: return r.rotation;
         case paramDivision: return static_cast<int>(r.division);
         case paramMode: return static_cast<int>(r.mode);
+        case paramChord: return static_cast<int>(x.chord);
+        case paramChordChance: return x.chordChance;
         case paramNoteOrder: return static_cast<int>(r.direction);
         case paramKey: return keyIndex(x, r.mode == euclid::NoteMode::seq);
         case paramOwnRoot: return x.ownRoot;
@@ -170,6 +174,15 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
         case paramMode:
             euclidEngine.setMode(ch, static_cast<euclid::NoteMode>(
                                        clampInt(v, 0, static_cast<int>(euclid::NoteMode::count) - 1)));
+            break;
+        case paramChord:
+            x.chord = static_cast<euclid::ChordType>(
+              clampInt(v, 0, static_cast<int>(euclid::ChordType::count) - 1));
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramChordChance:
+            x.chordChance = static_cast<uint8_t>(clampInt(v, 0, 100));
+            euclidEngine.setExpression(ch, x);
             break;
         case paramNoteOrder:
             euclidEngine.setDirection(ch, static_cast<euclid::NoteDirection>(

@@ -34,7 +34,9 @@ namespace euclid
 
 constexpr int kChannels = 8;
 constexpr int kMaxSteps = 32;
-constexpr int kMaxNotes = 16;
+constexpr int kMaxNotes = 16;      // notes in a SEQ list, shared by its entries
+constexpr int kMaxVoices = 6;      // notes a channel can play at once
+constexpr int kMaxEntryNotes = 6;  // notes in one SEQ chord entry
 constexpr int kMicroStepsPerStep = 48; // one 1/16 note
 constexpr int kStepsPerBar = 16;       // 4/4
 constexpr int kMicroStepsPerBar = kMicroStepsPerStep * kStepsPerBar;
@@ -68,8 +70,29 @@ enum class NoteMode : uint8_t
     walk,     // moves up or down by up to two scale steps
     scaleUp,    // climbs the scale, wrapping at the top of the range
     scaleUpDown,
+    arpUp,      // climbs the chord's tones across the range
+    arpUpDown,
     count
 };
+
+// Chords, as scale steps stacked on the note played, so they follow the
+// channel's scale. Stored in set files, so only add at the end.
+enum class ChordType : uint8_t
+{
+    single = 0,
+    triad,   // 1 3 5
+    seventh, // 1 3 5 7
+    ninth,   // 1 3 5 7 9
+    sus2,    // 1 2 5
+    sus4,    // 1 4 5
+    power,   // 1 5
+    quartal, // stacked 4ths
+    count
+};
+
+const char* chordTypeName(ChordType t);
+// Scale steps above the note for each tone, the first always 0.
+uint8_t chordSteps(ChordType t, uint8_t* steps);
 
 // Which key a channel follows.
 //   Generated modes: follow = the global key, offset = the global scale with
@@ -105,6 +128,10 @@ bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index);
 
 // Rhythm settings. A change to steps, pulses, rotation, division or mode
 // restarts the channel when it starts playing; note edits don't.
+//
+// The SEQ list is notes[0 .. noteCount-1] split into entries: bit i of
+// tieMask set means note i is played together with note i - 1, so a chord
+// entry is a run of tied notes. Entries play in order, one per pulse.
 struct Rhythm
 {
     uint8_t steps = 16;
@@ -113,6 +140,7 @@ struct Rhythm
     Division division = Division::d1_16;
     uint8_t noteCount = 1;
     uint8_t notes[kMaxNotes] = {60};
+    uint16_t tieMask = 0;
     NoteDirection direction = NoteDirection::forward;
     NoteMode mode = NoteMode::seq;
 
@@ -142,7 +170,17 @@ struct Expression
     uint8_t octave = 3;    // lowest octave, Tracker numbering (C3 = note 36)
     uint8_t range = 2;     // octaves, 1-4
     int8_t transpose = 0;  // semitones, -24 to +24, every mode, after the key
+
+    // Chords, every mode. Arps use the chord's tones (Single counts as a
+    // triad) and ignore chordChance.
+    ChordType chord = ChordType::single;
+    uint8_t chordChance = 100; // percent of pulses that play the chord
 };
+
+// SEQ list entries.
+uint8_t entryCount(const Rhythm& r);
+uint8_t entryStart(const Rhythm& r, uint8_t entry);
+uint8_t entryLength(const Rhythm& r, uint8_t entry);
 
 constexpr int kMaxTranspose = 24;
 
@@ -216,7 +254,7 @@ class Engine
     void setRotation(int ch, uint8_t rotation);
     void setDivision(int ch, Division d);
     void setMode(int ch, NoteMode m);
-    void setNotes(int ch, const uint8_t* notes, uint8_t count);
+    void setNotes(int ch, const uint8_t* notes, uint8_t count, uint16_t tieMask = 0);
     void setDirection(int ch, NoteDirection d);
     void setEnabled(int ch, bool enabled);
     void setMidiChannel(int ch, uint8_t midiChannel);
@@ -258,7 +296,7 @@ class Engine
     // Playback position, for the UI.
     bool isRunning() const { return running; }
     uint8_t getCurrentStep(int ch) const;
-    // Index of the note the next pulse will play.
+    // Index of the SEQ entry the next pulse will play.
     uint8_t getNextNoteIndex(int ch) const;
     uint32_t getBarMicroStep() const { return launchCounter % kMicroStepsPerBar; }
 
@@ -282,8 +320,8 @@ class Engine
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
 
-        bool noteOpen = false;
-        uint8_t openNote = 0;
+        uint8_t openCount = 0; // notes sounding
+        uint8_t openNotes[kMaxVoices] = {};
         uint8_t openMidiChannel = 1;
         uint16_t gateRemaining = 0;
     };
@@ -295,8 +333,10 @@ class Engine
     void resetChannelPosition(Channel& c);
     void closeNote(Channel& c);
     void triggerStep(Channel& c);
-    uint8_t nextNote(Channel& c);
-    uint8_t nextGeneratedNote(Channel& c);
+    uint8_t nextNotes(Channel& c, uint8_t* notes);
+    uint8_t nextSeqNotes(Channel& c, uint8_t* notes);
+    uint8_t nextGeneratedNotes(Channel& c, uint8_t* notes);
+    bool rollChord(const Channel& c);
     Key keyFor(const Expression& x, const Key& global) const;
     Key seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const;
     uint8_t seqNote(const Channel& c, uint8_t listNote) const;

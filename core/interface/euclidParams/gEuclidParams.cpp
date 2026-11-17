@@ -10,7 +10,7 @@
 namespace
 {
 const char* const kParamNames[cEuclidParams::paramCount] = {
-    "Name",      "Steps",    "Pulses",   "Rotation", "Division", "Mode",   "Note order",
+    "Name",      "Steps",    "Pulses",   "Rotation", "Division", "Mode",   "Chord",  "Chord chance", "Note order",
     "Key",       "Own root", "Own scale", "Octave",  "Range",  "Transpose", "Velocity",
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
@@ -186,6 +186,8 @@ void cEuclidParams::refreshParam(uint8_t param)
         case paramRotation: snprintf(t, n, "%d", r.rotation); break;
         case paramDivision: snprintf(t, n, "%s", euclid::divisionName(r.division)); break;
         case paramMode: snprintf(t, n, "%s", euclid::noteModeName(r.mode)); break;
+        case paramChord: snprintf(t, n, "%s", euclid::chordTypeName(x.chord)); break;
+        case paramChordChance: snprintf(t, n, "%d%%", x.chordChance); break;
         case paramNoteOrder:
             snprintf(t, n, "%s", kDirectionNames[static_cast<uint8_t>(r.direction) % 4]);
             break;
@@ -260,6 +262,11 @@ uint32_t cEuclidParams::paramDimMask() const
         if (x.keyMode != euclid::KeyMode::own)
             dim |= (1ul << paramOwnRoot) | (1ul << paramOwnScale);
     }
+
+    // Arps always use the chord's tones, so chance doesn't apply.
+    bool arp = r.mode == euclid::NoteMode::arpUp || r.mode == euclid::NoteMode::arpUpDown;
+    if (x.chord == euclid::ChordType::single || arp)
+        dim |= 1ul << paramChordChance;
     return dim;
 }
 
@@ -317,9 +324,13 @@ void cEuclidParams::refreshNotes()
         noteCursor = r.noteCount - 1;
 
     euclid::Rhythm live = euclidEngine.getLiveRhythm(selectedChannel);
-    bool notesStaged = live.noteCount != r.noteCount;
+    bool notesStaged = live.noteCount != r.noteCount || live.tieMask != r.tieMask;
     for (uint8_t i = 0; i < r.noteCount && !notesStaged; i++)
         notesStaged = live.notes[i] != r.notes[i];
+
+    const uint8_t entries = euclid::entryCount(r);
+    if (noteCursor >= entries)
+        noteCursor = entries - 1;
 
     if (r.mode != euclid::NoteMode::seq)
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Used when Mode is SEQ");
@@ -333,9 +344,27 @@ void cEuclidParams::refreshNotes()
     else
         snprintf(noteHeaderText, sizeof(noteHeaderText), "%d of %d notes", r.noteCount, kNoteSlots);
 
-    for (uint8_t i = 0; i < kNoteSlots; i++)
-        panelData.cellText[i] = i < r.noteCount ? mtNotes[r.notes[i] & 127] : nullptr;
-    panelData.usedCells = r.noteCount;
+    // One cell per entry: its lowest note, plus how many more for a chord.
+    for (uint8_t e = 0; e < kNoteSlots; e++)
+    {
+        if (e >= entries)
+        {
+            panelData.cellText[e] = nullptr;
+            continue;
+        }
+        const uint8_t start = euclid::entryStart(r, e);
+        const uint8_t len = euclid::entryLength(r, e);
+        uint8_t low = r.notes[start];
+        for (uint8_t i = 1; i < len; i++)
+            if (r.notes[start + i] < low)
+                low = r.notes[start + i];
+        if (len > 1)
+            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s+%d", mtNotes[low & 127], len - 1);
+        else
+            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s", mtNotes[low & 127]);
+        panelData.cellText[e] = noteCellText[e];
+    }
+    panelData.usedCells = entries;
     panelData.dimCells = 0;
     panelData.playingCell = next;
 

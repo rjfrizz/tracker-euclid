@@ -158,6 +158,7 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
 void cEuclidParams::stop()
 {
     moduleRefresh = 0;
+    heldEntryPads = 0;
 
     // Release any auditioned notes still held.
     for (uint8_t i = 0; i < 48; i++)
@@ -234,11 +235,12 @@ void cEuclidParams::moveFocus(int8_t delta)
 void cEuclidParams::moveNoteCursor(int8_t delta)
 {
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
+    const int entries = euclid::entryCount(r);
     int next = static_cast<int>(noteCursor) + delta;
     if (next < 0)
         next = 0;
-    if (next >= r.noteCount)
-        next = r.noteCount - 1;
+    if (next >= entries)
+        next = entries - 1;
     noteCursor = static_cast<uint8_t>(next);
     refreshFrame();
 }
@@ -298,6 +300,12 @@ void cEuclidParams::changeParam(int16_t delta)
             euclidEngine.setMode(ch, static_cast<euclid::NoteMode>(m));
             break;
         }
+        case paramChord:
+            setRowValue(paramChord, rowValue(paramChord, false) + step);
+            return;
+        case paramChordChance:
+            setRowValue(paramChordChance, rowValue(paramChordChance, false) + delta);
+            return;
         case paramName:
             setRowValue(paramName, clampInt(rowValue(paramName, false) + step, 0, euclid::channelNameCount() - 1));
             return;
@@ -370,61 +378,146 @@ void cEuclidParams::changeParam(int16_t delta)
 //==============================================================================================
 // Note list editing
 
+namespace
+{
+// The SEQ list as (note, tied) pairs, for editing whole entries. A tied
+// note plays together with the one before it.
+struct NoteList
+{
+    uint8_t note[euclid::kMaxNotes];
+    bool tied[euclid::kMaxNotes];
+    uint8_t count = 0;
+
+    explicit NoteList(const euclid::Rhythm& r)
+    {
+        count = r.noteCount;
+        for (uint8_t i = 0; i < count; i++)
+        {
+            note[i] = r.notes[i];
+            tied[i] = i > 0 && (r.tieMask & (1u << i));
+        }
+    }
+
+    uint16_t tieMask() const
+    {
+        uint16_t m = 0;
+        for (uint8_t i = 1; i < count; i++)
+            if (tied[i])
+                m |= 1u << i;
+        return m;
+    }
+
+    void erase(uint8_t at, uint8_t n)
+    {
+        for (uint8_t i = at; i + n < count; i++)
+        {
+            note[i] = note[i + n];
+            tied[i] = tied[i + n];
+        }
+        count -= n;
+        if (count > 0)
+            tied[0] = false;
+    }
+
+    bool insert(uint8_t at, uint8_t value, bool tie)
+    {
+        if (count >= euclid::kMaxNotes)
+            return false;
+        for (uint8_t i = count; i > at; i--)
+        {
+            note[i] = note[i - 1];
+            tied[i] = tied[i - 1];
+        }
+        note[at] = value;
+        tied[at] = tie;
+        count++;
+        return true;
+    }
+
+    void store(uint8_t ch) const { euclidEngine.setNotes(ch, note, count, tieMask()); }
+};
+} // namespace
+
 void cEuclidParams::addNote(uint8_t note)
 {
-    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    NoteList list(r);
 
     // After a clear the list holds one leftover note (a channel can't be
     // empty); the first pad replaces it instead of adding after it.
     if (replaceNextNote)
     {
         replaceNextNote = false;
-        r.notes[0] = note;
-        euclidEngine.setNotes(selectedChannel, r.notes, 1);
+        list.count = 1;
+        list.note[0] = note;
+        list.tied[0] = false;
         noteCursor = 0;
+    }
+    else if (heldEntryPads > 0)
+    {
+        // Another pad is still down: add to the entry it started.
+        const uint8_t last = static_cast<uint8_t>(euclid::entryCount(r) - 1);
+        const uint8_t start = euclid::entryStart(r, last);
+        const uint8_t len = euclid::entryLength(r, last);
+        for (uint8_t i = 0; i < len; i++)
+            if (list.note[start + i] == note)
+                return; // already in the chord
+        if (len >= euclid::kMaxEntryNotes || !list.insert(list.count, note, true))
+            return;
+        noteCursor = last;
     }
     else
     {
-        if (r.noteCount >= kNoteSlots)
+        if (!list.insert(list.count, note, false))
             return;
-        r.notes[r.noteCount] = note;
-        euclidEngine.setNotes(selectedChannel, r.notes, r.noteCount + 1);
-        noteCursor = r.noteCount;
+        noteCursor = static_cast<uint8_t>(euclid::entryCount(r));
     }
+
+    list.store(ch);
     refreshNotes();
     refreshFrame();
 }
 
 void cEuclidParams::transposeNote(int16_t delta)
 {
-    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
-    if (noteCursor >= r.noteCount)
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    if (noteCursor >= euclid::entryCount(r))
         return;
     replaceNextNote = false;
-    r.notes[noteCursor] = static_cast<uint8_t>(clampInt(r.notes[noteCursor] + delta, 0, 127));
-    euclidEngine.setNotes(selectedChannel, r.notes, r.noteCount);
+
+    NoteList list(r);
+    const uint8_t start = euclid::entryStart(r, noteCursor);
+    const uint8_t len = euclid::entryLength(r, noteCursor);
+    for (uint8_t i = 0; i < len; i++)
+        list.note[start + i] = static_cast<uint8_t>(clampInt(list.note[start + i] + delta, 0, 127));
+    list.store(ch);
     refreshNotes();
 }
 
 void cEuclidParams::deleteNote()
 {
-    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
-    if (r.noteCount <= 1 || noteCursor >= r.noteCount)
-        return; // a channel always keeps at least one note; Shift+Delete clears
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    const uint8_t entries = euclid::entryCount(r);
+    if (entries <= 1 || noteCursor >= entries)
+        return; // a channel always keeps at least one entry; Shift+Delete clears
 
-    for (uint8_t i = noteCursor; i + 1 < r.noteCount; i++)
-        r.notes[i] = r.notes[i + 1];
-    euclidEngine.setNotes(selectedChannel, r.notes, r.noteCount - 1);
-    if (noteCursor >= r.noteCount - 1)
-        noteCursor = r.noteCount - 2;
+    NoteList list(r);
+    list.erase(euclid::entryStart(r, noteCursor), euclid::entryLength(r, noteCursor));
+    list.store(ch);
+    if (noteCursor >= entries - 1)
+        noteCursor = static_cast<uint8_t>(entries - 2);
     refreshNotes();
     refreshFrame();
 }
 
 void cEuclidParams::clearNotes()
 {
-    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
-    euclidEngine.setNotes(selectedChannel, r.notes, 1);
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    euclidEngine.setNotes(ch, r.notes, 1, 0);
     noteCursor = 0;
     replaceNextNote = true;
     refreshNotes();
@@ -589,15 +682,20 @@ void cEuclidParams::setSoftKey(uint8_t key)
 
 void cEuclidParams::duplicateNote()
 {
-    euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
-    if (r.noteCount >= kNoteSlots || noteCursor >= r.noteCount)
+    const uint8_t ch = selectedChannel;
+    euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    if (noteCursor >= euclid::entryCount(r))
+        return;
+    const uint8_t start = euclid::entryStart(r, noteCursor);
+    const uint8_t len = euclid::entryLength(r, noteCursor);
+    if (r.noteCount + len > kNoteSlots)
         return;
     replaceNextNote = false;
 
-    for (uint8_t i = r.noteCount; i > noteCursor + 1; i--)
-        r.notes[i] = r.notes[i - 1];
-    r.notes[noteCursor + 1] = r.notes[noteCursor];
-    euclidEngine.setNotes(selectedChannel, r.notes, r.noteCount + 1);
+    NoteList list(r);
+    for (uint8_t i = 0; i < len; i++)
+        list.insert(static_cast<uint8_t>(start + len + i), r.notes[start + i], i > 0);
+    list.store(ch);
     noteCursor++;
     refreshNotes();
     refreshFrame();
@@ -783,6 +881,7 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
         {
             ShiftEdits shift;
             EP->addNote(note);
+            EP->heldEntryPads++;
         }
     }
     else if (state == buttonRelease)
@@ -793,6 +892,8 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
         {
             sendMidiNoteOff(static_cast<uint8_t>(EP->heldPadNote[pad]), 0, EP->heldPadChannel[pad], false);
             EP->heldPadNote[pad] = -1;
+            if (EP->heldEntryPads > 0)
+                EP->heldEntryPads--;
         }
     }
 }

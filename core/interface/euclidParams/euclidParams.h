@@ -21,6 +21,8 @@ class cEuclidParams : public ModuleBase
         paramRotation,
         paramDivision,
         paramMode,
+        paramChord,
+        paramChordChance,
         paramNoteOrder,
         paramKey,
         paramOwnRoot,
@@ -134,6 +136,9 @@ class cEuclidParams : public ModuleBase
     void deleteNote();
     void duplicateNote();
     void clearNotes();
+    // Pads held together on the Note page make one chord entry.
+    uint8_t heldEntryPads = 0;
+    char noteCellText[kNoteSlots][8];
 
     // Sets view.
     void moveSetCursor(int8_t delta);

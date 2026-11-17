@@ -8,9 +8,9 @@
 // Sets: everything the 8 channels are doing, plus the global key, stored as
 // a small binary file.
 //
-// Layout (version 3, 340 bytes):
+// Layout (version 4, 404 bytes):
 //   0  'E' 'U' 'C' 'S'
-//   4  version (3)
+//   4  version (4)
 //   5  channel count (8)
 //   6  slot this state was last saved to or loaded from (1-8, 0 = none)
 //   7  global root (0-11)
@@ -18,17 +18,20 @@
 //   9  launch point (euclid::Launch; 0 = bar, so older version 2 files load
 //      with the default)
 //   10 reserved (6 bytes of 0)
-//   16 8 channel records of 40 bytes:
+//   16 8 channel records of 48 bytes:
 //        0 steps, pulses, rotation, division, direction, noteCount
 //        6 notes[16]
 //        22 enabled, muted, midiChannel, velocity, gate, probability
 //        28 mode, keyMode, keyOffset, ownRoot, ownScale, octave, range
 //        35 seqKeyMode, transpose + 64, homeRoot, homeScale
-//        39 name (euclid::channelName index; 0 = none, which is also what
-//           earlier version 3 files hold here)
-//   336 CRC-32 (little-endian) of bytes 0-335
+//        39 name (euclid::channelName index; 0 = none)
+//        40 tieMask (2 bytes, little-endian), chord, chordChance
+//        44 reserved (4 bytes of 0)
+//   400 CRC-32 (little-endian) of bytes 0-399
 //
 // Older files still load, and the fields they don't have get defaults:
+//   version 3 (340 bytes: 40-byte records, CRC at 336): no chords; byte 39
+//     is the name (0 in files written before names existed).
 //   version 2 (340 bytes): no bytes 35-38; SEQ lists are Own, untransposed,
 //     with the file's global key as their home key.
 //   version 1 (268 bytes: an 8-byte header, 32-byte records without the key
@@ -40,11 +43,15 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 3;
+constexpr uint8_t kSetVersion = 4;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
-constexpr size_t kSetChannelSize = 40;
+constexpr size_t kSetChannelSize = 48;
 constexpr size_t kSetFileSize = kSetHeaderSize + kChannels * kSetChannelSize + 4;
+
+// Versions 2 and 3, read only.
+constexpr size_t kSetV3ChannelSize = 40;
+constexpr size_t kSetV3FileSize = kSetHeaderSize + kChannels * kSetV3ChannelSize + 4;
 
 // Version 1, read only.
 constexpr size_t kSetV1HeaderSize = 8;
