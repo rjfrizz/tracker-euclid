@@ -106,8 +106,9 @@ void cEuclidParams::setView(View v)
 {
     view = v;
     armedAction = SetAction::none;
-    panelData.mode = view == View::params ? strEuclidPanelData::Mode::list
-                                          : strEuclidPanelData::Mode::grid;
+    // Params and Global are lists of settings; Notes and Sets are grids.
+    panelData.mode = (view == View::params || view == View::global) ? strEuclidPanelData::Mode::list
+                                                                    : strEuclidPanelData::Mode::grid;
     panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;
     const char* const* help = view == View::sets ? kSetsHelp : kNoteHelp;
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
