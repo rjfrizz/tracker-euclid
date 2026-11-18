@@ -57,6 +57,10 @@ struct strTrackerPattern
     bool showTrackNames;
     const char* tracksNames[kTrackCount];
 
+    // EUCLID: steps a track loops at, when shorter than the pattern (0 =
+    // the pattern's length). Steps past it are shaded, with a line at its end.
+    int16_t trackLength[kTrackCount];
+
     void init()
     {
         for (uint8_t t = 0; t < kTrackCount; t++)
@@ -76,6 +80,7 @@ struct strTrackerPattern
             }
             inactive[t] = 0;
             tracksNames[t] = nullptr;
+            trackLength[t] = 0;
         }
         actualTrack = 0;
         actualStep = 0;
@@ -138,6 +143,7 @@ class cTracker : public cDisplayControl
     void selection();
     void drawRowNumbers(uint16_t* rowNumbers, bool showTrackEndLines);
     void tracksNumbers();
+    void trackEnds();
 
     void notes();
     void instruments();
@@ -168,6 +174,10 @@ class cTracker : public cDisplayControl
     uint32_t dimFx2Color;
 
     uint8_t stepHight;
+
+    // Step number shown on each row (1-based, 0 for a row past the ends),
+    // from update(), for trackEnds() in update5().
+    uint16_t visibleRowNumbers[15];
 };
 
 #endif

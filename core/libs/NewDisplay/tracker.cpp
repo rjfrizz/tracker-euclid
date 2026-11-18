@@ -366,6 +366,9 @@ void cTracker::update()
         rowNumbers[i] = row;
     }
 
+    for (uint16_t i = 0; i < 15; i++)
+        visibleRowNumbers[i] = i < rowCount ? rowNumbers[i] : 0;
+
     backgroundDivider(rowNumbers);
 
     calculateSelection();
@@ -414,7 +417,79 @@ void cTracker::update5()
         fxes2();
     }
 
+    trackEnds();
     tracksNumbers();
+}
+
+//-------------------------------------------------------------------------------------
+// EUCLID: tracks shorter than the pattern loop on their own. Their steps past
+// the end are shaded (drawn over the text, so it reads as "not played") and a
+// line marks where the loop ends.
+void cTracker::trackEnds()
+{
+    const int16_t patternLength = tracks->patternLength;
+
+    API_SAVE_CONTEXT();
+
+    API_COLOR(0x000000);
+    API_COLOR_A(150);
+    API_LINE_WIDTH(16);
+    API_BEGIN(RECTS);
+    for (uint8_t i = 0; i < columnsCount; i++)
+    {
+        int track = tracks->firstVisibleTrack + i;
+        if (track >= tracks->kTrackCount)
+            break;
+        int16_t length = tracks->trackLength[track];
+        if (length <= 0 || length >= patternLength)
+            continue;
+
+        // One block per run of shaded rows (at most two, around a wrap),
+        // to keep this light on the frame's display list.
+        int16_t x = rightOffset + (i * tracksWidth) + 1;
+        int runStart = -1;
+        for (uint8_t j = 0; j <= rowCount; j++)
+        {
+            uint16_t step = j < rowCount ? visibleRowNumbers[j] : 0;
+            bool shaded = step != 0 && step > length;
+            if (shaded && runStart < 0)
+                runStart = j;
+            if (!shaded && runStart >= 0)
+            {
+                API_VERTEX2F(x, posY + (runStart * stepHight) + 1);
+                API_VERTEX2F(x + tracksWidth - 2, posY + (j * stepHight) - 1);
+                runStart = -1;
+            }
+        }
+    }
+    API_END();
+    API_COLOR_A(255);
+
+    API_COLOR(colors[20]);
+    API_LINE_WIDTH(24);
+    API_BEGIN(LINES);
+    for (uint8_t i = 0; i < columnsCount; i++)
+    {
+        int track = tracks->firstVisibleTrack + i;
+        if (track >= tracks->kTrackCount)
+            break;
+        int16_t length = tracks->trackLength[track];
+        if (length <= 0 || length >= patternLength)
+            continue;
+
+        int16_t x = rightOffset + (i * tracksWidth) + 1;
+        for (uint8_t j = 0; j < rowCount; j++)
+        {
+            if (visibleRowNumbers[j] != length)
+                continue;
+            int16_t y = posY + ((j + 1) * stepHight);
+            API_VERTEX2F(x, y);
+            API_VERTEX2F(x + tracksWidth - 2, y);
+        }
+    }
+    API_END();
+
+    API_RESTORE_CONTEXT();
 }
 
 //-------------------------------------------------------------------------------------

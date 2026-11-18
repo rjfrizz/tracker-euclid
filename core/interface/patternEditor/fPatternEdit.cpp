@@ -501,6 +501,11 @@ void cPatternEditor::refreshPattern()
     seq = sequencer.getPatternToUI();
     showLength(); // EUCLID: the cursor's track may have its own length
     trackerPattern.patternLength = seq->track[0].length + 1;
+    for (uint8_t t = 0; t < strTrackerPattern::kTrackCount && t < kAllTracks; t++)
+    {
+        trackerPattern.trackLength[t] =
+          Sequencer::hasOwnTrackLengths(seq) ? seq->track[t].length + 1 : 0;
+    }
     trackerPattern.selectedParam = editParam;
 
     //----------------------------------------------------------------------------
