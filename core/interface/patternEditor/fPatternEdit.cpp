@@ -499,6 +499,7 @@ void cPatternEditor::refreshEditStateFromOutsideModule()
 void cPatternEditor::refreshPattern()
 {
     seq = sequencer.getPatternToUI();
+    showLength(); // EUCLID: the cursor's track may have its own length
     trackerPattern.patternLength = seq->track[0].length + 1;
     trackerPattern.selectedParam = editParam;
 
@@ -1276,6 +1277,7 @@ const uint8_t changeStepVals[changeLengthVals_elements] = { 0, 1, 2, 4, 8, 16, 3
 void cPatternEditor::changeActualPatternLength(int16_t value)
 {
     Sequencer::strPattern* pattern = sequencer.getPatternToUI();
+    const uint8_t oldLength = pattern->track[0].length;
 
     if (pattern->track[0].length + value < 0)
         pattern->track[0].length = 0;
@@ -1284,8 +1286,8 @@ void cPatternEditor::changeActualPatternLength(int16_t value)
     else
         pattern->track[0].length += value;
 
-    for (uint8_t i = 1; i < 8; i++)
-        pattern->track[i].length = pattern->track[0].length;
+    // EUCLID: keeps tracks with their own lengths (see Sequencer::applyPatternLength).
+    sequencer.applyPatternLength(pattern, oldLength);
 
     trackerPattern.patternLength = pattern->track[0].length + 1;
 
@@ -1301,6 +1303,7 @@ void cPatternEditor::changeActualPatternLength(int16_t value)
 void cPatternEditor::changeActualPatternLengthByDefinedValues(int16_t dir)
 {
     Sequencer::strPattern* pattern = sequencer.getPatternToUI();
+    const uint8_t oldLength = pattern->track[0].length;
 
     if (dir > 0)
     {
@@ -1325,8 +1328,8 @@ void cPatternEditor::changeActualPatternLengthByDefinedValues(int16_t dir)
         }
     }
 
-    for (uint8_t i = 1; i < 8; i++)
-        pattern->track[i].length = pattern->track[0].length;
+    // EUCLID: keeps tracks with their own lengths (see Sequencer::applyPatternLength).
+    sequencer.applyPatternLength(pattern, oldLength);
 
     trackerPattern.patternLength = pattern->track[0].length + 1;
 
@@ -1340,14 +1343,34 @@ void cPatternEditor::changeActualPatternLengthByDefinedValues(int16_t dir)
     newFileManager.setActualPatternStructChanged();
 }
 
+// EUCLID: Shift + encoder on Length sets the length of the track under the
+// cursor only, so it loops on its own inside the pattern.
+void cPatternEditor::changeCursorTrackLength(int16_t value)
+{
+    Sequencer::strPattern* pattern = sequencer.getPatternToUI();
+    const uint8_t track = trackerPattern.actualTrack;
+    if (track >= kAllTracks)
+        return;
+
+    int last = Sequencer::hasOwnTrackLengths(pattern) ? pattern->track[track].length
+                                                      : pattern->track[0].length;
+    last = clamp<int>(last + (value > 0 ? 1 : -1), 0, pattern->track[0].length);
+    sequencer.setTrackLength(pattern, track, static_cast<uint8_t>(last));
+
+    showLength(1);
+    refreshPattern();
+    newFileManager.setActualPatternStructChanged();
+}
+
 void cPatternEditor::setActualPatternLength(int16_t value)
 {
     Sequencer::strPattern* pattern = sequencer.getPatternToUI();
+    const uint8_t oldLength = pattern->track[0].length;
 
     pattern->track[0].length = clamp<int>(value, 0, Sequencer::MAXSTEP);
 
-    for (uint8_t i = 1; i < 8; i++)
-        pattern->track[i].length = pattern->track[0].length;
+    // EUCLID: keeps tracks with their own lengths (see Sequencer::applyPatternLength).
+    sequencer.applyPatternLength(pattern, oldLength);
 
     trackerPattern.patternLength = pattern->track[0].length + 1;
 
@@ -2011,7 +2034,12 @@ void functEncoder(int16_t value)
         switch (PTE->selectedPlace)
         {
             case 0: PTE->changeActualPattern(value); break;
-            case 1: PTE->changeActualPatternLength(value); break;
+            case 1:
+                if (PTE->buttons->isButtonPressed(interfaceButtonShift))
+                    PTE->changeCursorTrackLength(value);
+                else
+                    PTE->changeActualPatternLength(value);
+                break;
             case 2: PTE->changeActualPatternEditStep(value); break;
             case 5:
             case 6: functUndoRedoOnLeftRight(value); break;

@@ -2089,3 +2089,55 @@ AUDIO_CORE_RAM uint8_t Sequencer::isTrackEngineMuted(uint8_t track)
     return isSampleTrack(track) ? mtProject.values.trackMute[track]
                                 : mtProject.values.midiTrackMute[track % 8];
 }
+
+//------------------------------------------------------------------------------
+// EUCLID: per-track loop lengths
+
+void Sequencer::setTrackLength(strPattern* p, uint8_t track, uint8_t lastStep)
+{
+    if (p == nullptr || track >= kAllTracks)
+        return;
+
+    if (!hasOwnTrackLengths(p))
+    {
+        // Until now only track 0 counted: give every track the pattern's
+        // length first, so stale lengths don't start mattering.
+        for (int i = 1; i < kAllTracks; i++)
+            p->track[i].length = p->track[0].length;
+        p->rezerwa1 = kOwnTrackLengths;
+    }
+
+    if (track == 0)
+    {
+        uint8_t old = p->track[0].length;
+        const uint8_t maxLast = static_cast<uint8_t>(MAXSTEP);
+        p->track[0].length = lastStep > maxLast ? maxLast : lastStep;
+        applyPatternLength(p, old);
+        return;
+    }
+
+    // A track can't be longer than its pattern.
+    p->track[track].length = lastStep > p->track[0].length ? p->track[0].length : lastStep;
+}
+
+void Sequencer::applyPatternLength(strPattern* p, uint8_t oldLastStep)
+{
+    if (p == nullptr)
+        return;
+
+    const uint8_t last = p->track[0].length;
+    for (int i = 1; i < kAllTracks; i++)
+    {
+        if (!hasOwnTrackLengths(p) || p->track[i].length == oldLastStep || p->track[i].length > last)
+            p->track[i].length = last;
+    }
+}
+
+uint8_t Sequencer::getTrackLoopLastStep(uint8_t track) const
+{
+    const uint8_t patternLast = currentPattern->track[0].length;
+    if (track >= kAllTracks || !hasOwnTrackLengths(currentPattern))
+        return patternLast;
+    const uint8_t own = currentPattern->track[track].length;
+    return own > patternLast ? patternLast : own;
+}

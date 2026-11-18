@@ -806,6 +806,22 @@ class Sequencer
 
     void clearSingleTrack(strPattern::strTrack* track);
     void clearPattern(strPattern* patt);
+
+    // EUCLID: tracks with their own loop lengths. A pattern marked with
+    // kOwnTrackLengths in its spare header byte loops each track at that
+    // track's length; the pattern's length (track 0) still decides when it
+    // ends. Unmarked patterns play exactly as on stock firmware, where only
+    // track 0's length counts (the stock editor leaves the MIDI tracks'
+    // lengths stale, so they can't be trusted without the mark).
+    static constexpr uint8_t kOwnTrackLengths = 0xE1;
+    static bool hasOwnTrackLengths(const strPattern* p) { return p->rezerwa1 == kOwnTrackLengths; }
+    // Sets one track's loop length (last step index) and marks the pattern.
+    void setTrackLength(strPattern* p, uint8_t track, uint8_t lastStep);
+    // After the pattern's length (track 0) changed from oldLastStep: tracks
+    // that matched the pattern follow it, shorter ones stay (clamped).
+    void applyPatternLength(strPattern* p, uint8_t oldLastStep);
+    // The last step index a track loops at in the playing pattern.
+    uint8_t getTrackLoopLastStep(uint8_t track) const;
     void setPatternHeader(strPattern* patt);
     void clearStep(strPattern::strTrack::strStep*);
     void clearStep(strPattern::strTrack::strStep* step, uint8_t);

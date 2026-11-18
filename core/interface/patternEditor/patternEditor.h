@@ -74,6 +74,7 @@ class cPatternEditor : public ModuleBase
     void changeActualPatternLength(int16_t value);
     void changeActualPatternLengthByDefinedValues(int16_t value);
     void setActualPatternLength(int16_t value);
+    void changeCursorTrackLength(int16_t value);
     void changeActualPatternEditStep(int16_t value);
     void changeActualPatternEditStepByDefinedValues(int16_t value);
     void setActualPatternEditStep(int16_t value);
@@ -184,6 +185,7 @@ class cPatternEditor : public ModuleBase
     uint16_t lastShownPattern_blinkState = 0;
 
     uint16_t lastLength = 0;
+    uint16_t lastTrackLength = 0;
 
     uint8_t isCursorInSelection();
     bool isSelectionOrCursorInMidiTracks();
@@ -266,7 +268,7 @@ class cPatternEditor : public ModuleBase
     // parametry
     char cTempo[7];
     char cPattern[5];
-    char cLength[5];
+    char cLength[10]; // "13/64" when the cursor's track has its own length
     char cStep[5];
     char cTitlePattern[PATTERN_NAME_LENGTH + 1];
 

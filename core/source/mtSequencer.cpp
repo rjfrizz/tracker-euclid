@@ -1346,7 +1346,8 @@ AUDIO_CORE_RAM void Sequencer::play(uint8_t fromPos)
     for (int trackIdx = 0; trackIdx < kAllTracks; trackIdx++)
     {
         player.track[trackIdx].uStep = 1;
-        player.track[trackIdx].actual_pos = fromPos;
+        // A track shorter than the pattern starts where it would be by now.
+        player.track[trackIdx].actual_pos = fromPos % (getTrackLoopLastStep(trackIdx) + 1);
         player.track[trackIdx].actual_pos_absolute = fromPos;
 
         if (isCustomPlayMode(trackIdx))
@@ -1809,8 +1810,17 @@ void Sequencer::switchRowStep(uint8_t row) // przełączamy stepy w zależności
                 player.track[row].actual_pos_absolute = 0;
             }
 
+            // EUCLID: in a pattern with its own track lengths, each track
+            // loops at its own length (normal playback only).
+            int rowLastPos = lastPos;
+            if (!player.selectionModeLooped && !player.performanceMode &&
+                player.performance.patternLength <= -1)
+            {
+                rowLastPos = getTrackLoopLastStep(row);
+            }
+
             player.track[row].actual_pos++;
-            if ((player.track[row].actual_pos > lastPos) || (player.breakPattern))
+            if ((player.track[row].actual_pos > rowLastPos) || (player.breakPattern))
             {
                 player.track[row].actual_pos = startPos;
                 player.track[row].passCount++;
@@ -1955,9 +1965,18 @@ void Sequencer::switchRowStep(uint8_t row) // przełączamy stepy w zależności
                 return;
             }
 
+            // EUCLID: when the song repeats a pattern with its own track
+            // lengths, the tracks carry on where they were so the drift
+            // between them continues; any other pattern change restarts them.
+            bool carryTracks = hasOwnTrackLengths(currentPattern) &&
+                               newFileManager.getNextSongPattern() == mtProject.values.actualPattern;
+
             isNextPatternAvailable = newFileManager.switchNextPatternInSong();
 
-            reset_actual_pos();
+            if (carryTracks)
+                player.globalPos = 0;
+            else
+                reset_actual_pos();
             switchRamPatternsNow();
             patternSwitched = true;
 

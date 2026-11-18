@@ -413,12 +413,32 @@ void cPatternEditor::showLength(uint8_t forceShow)
 
     const char* numberFormat =
       mtConfig.general.numberingMode == NumberingMode::kHexadecimal ? "%02X" : "%d";
-    uint8_t localLength = sequencer.getPatternToUI()->track[0].length + 1;
+    Sequencer::strPattern* pattern = sequencer.getPatternToUI();
+    uint8_t localLength = pattern->track[0].length + 1;
 
-    if (lastLength != localLength || forceShow)
+    // EUCLID: a track looping at its own length shows "track/pattern".
+    uint8_t trackLength = localLength;
+    if (Sequencer::hasOwnTrackLengths(pattern) && trackerPattern.actualTrack >= 0 &&
+        trackerPattern.actualTrack < kAllTracks)
+    {
+        trackLength = pattern->track[trackerPattern.actualTrack].length + 1;
+        if (trackLength > localLength)
+            trackLength = localLength;
+    }
+
+    if (lastLength != localLength || lastTrackLength != trackLength || forceShow)
     {
         lastLength = localLength;
-        sprintf(cLength, numberFormat, localLength);
+        lastTrackLength = trackLength;
+        if (trackLength != localLength)
+        {
+            char a[5], b[5];
+            snprintf(a, sizeof(a), numberFormat, trackLength);
+            snprintf(b, sizeof(b), numberFormat, localLength);
+            snprintf(cLength, sizeof(cLength), "%s/%s", a, b);
+        }
+        else
+            sprintf(cLength, numberFormat, localLength);
         display.setControlText2(label[1], cLength);
         display.refreshControl(label[1]);
     }
