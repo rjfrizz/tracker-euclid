@@ -314,6 +314,15 @@ class Engine
     FreezeLength getFreezeLength() const { return freezeLength; }
     void setFreezeLength(FreezeLength f);
 
+    // Whether the engine's notes are heard (and captured). The engine keeps
+    // running either way, so turning it back on lands in time.
+    bool isOutputEnabled() const { return outputEnabled; }
+    void setOutputEnabled(bool enabled);
+    // Layer: play the live engine over Pattern and Song playback too.
+    // Saved with sets.
+    bool getLayer() const { return layer; }
+    void setLayer(bool on);
+
     //--------------------------------------------------------------------------
     // Capture: every note played since Play is kept in a ring buffer (the
     // newest `capacity` notes) so it can be frozen into a pattern.
@@ -395,6 +404,8 @@ class Engine
     uint32_t launchCounter = 0; // micro-steps since start, wraps every 4 bars
     uint32_t changeCount = 0;   // main loop only
     FreezeLength freezeLength = FreezeLength::fourBars;
+    bool outputEnabled = true;
+    bool layer = false;
 
     uint32_t playTime = 0;
     NoteEvent* captureBuffer = nullptr;

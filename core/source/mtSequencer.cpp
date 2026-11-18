@@ -398,6 +398,8 @@ AUDIO_CORE_RAM void Sequencer::play_microStep(int row)
         return;
     if (isTrackEngineMuted(row))
         return;
+    if (patternSilenced) // EUCLID: the live engine is playing instead
+        return;
 
     // ************************************
     // 		 PRE EFEKTY i operacje na uStep == 1
@@ -1334,6 +1336,7 @@ AUDIO_CORE_RAM void Sequencer::play(uint8_t fromPos)
     reset_actual_pos();
     resetChanceState();
 
+    euclidRoutePlay();
     euclidEngine.start();
 
     player.isStop = 0;
@@ -1403,6 +1406,7 @@ void Sequencer::playSelection(bool looped) // potrzebuje aktualnego zaznaczenia
 
     player.globalPos = player.loopSelection.firstStep;
 
+    euclidRoutePlay();
     euclidEngine.start();
 
     player.isStop = 0;

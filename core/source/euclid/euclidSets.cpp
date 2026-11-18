@@ -57,6 +57,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
     buf[8] = key.scale;
     buf[9] = static_cast<uint8_t>(engine.getLaunch());
     buf[10] = static_cast<uint8_t>(engine.getFreezeLength());
+    buf[11] = engine.getLayer() ? 1 : 0;
 
     for (int ch = 0; ch < kChannels; ch++)
     {
@@ -152,6 +153,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         engine.setGlobalKey(key);
         engine.setLaunch(enumOr(buf[9], Launch::count, Launch::bar));
         engine.setFreezeLength(enumOr(buf[10], FreezeLength::count, FreezeLength::fourBars));
+        engine.setLayer(buf[11] != 0);
     }
 
     for (int ch = 0; ch < kChannels; ch++)

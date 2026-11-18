@@ -6,15 +6,15 @@
 
 // Freeze: turns the notes the engine played into tracks for a stock pattern.
 //
-// Each channel's notes go to its MIDI track (pattern track 8 + channel).
-// A channel whose notes repeated exactly through the window gets a track
-// that loops at that repeat length, so a 13-step channel freezes as a
-// 13-step track and keeps drifting; anything else keeps the whole window as
-// a take. One track plays one note per step, so chords that match a stock
+// Channel N's notes go to pattern track N (tracks 1-8), all as MIDI. A
+// channel whose notes repeated exactly through the window gets a track that
+// loops at that repeat length, so a 13-step channel freezes as a 13-step
+// track and keeps drifting; anything else keeps the whole window as a take.
+// Track 1 sets the pattern's length, so channel 1 always fills the whole
+// pattern. One track plays one note per step, so chords that match a stock
 // Chord FX shape stay on one track, and other extra notes (wider chords,
-// 1/32 notes) go to extra voice tracks: MIDI tracks of channels that played
-// nothing, then the sample tracks. Notes that don't fit are dropped, highest
-// first.
+// 1/32 notes) go to voice tracks: tracks 9-16, then the tracks of channels
+// that played nothing. Notes that don't fit are dropped, highest first.
 //
 // This file has no platform dependencies; euclidFreezePlatform.cpp writes
 // the result into a pattern.
@@ -24,7 +24,7 @@ namespace euclid
 
 constexpr int kFreezeTracks = 16;
 constexpr int kFreezeMaxSteps = 128;
-constexpr int kFreezeFirstMidiTrack = 8;
+constexpr int kFreezeFirstVoiceTrack = 8; // tracks 9-16 hold extra voices
 
 struct FrozenStep
 {

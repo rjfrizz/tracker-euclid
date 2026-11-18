@@ -18,6 +18,13 @@
 cEuclidParams euclidParams;
 static cEuclidParams* EP = &euclidParams;
 
+// start() sets moduleRefresh and stop() clears it, so it says whether this
+// screen is the one showing.
+bool euclidScreenActive()
+{
+    return euclidParams.moduleRefresh != 0;
+}
+
 static void functPlayAction();
 static void functUp();
 static void functDown();
@@ -564,6 +571,7 @@ void cEuclidParams::changeGlobal(int16_t delta)
         case globalFreeze:
             setRowValue(globalFreeze, rowValue(globalFreeze, false) + step);
             return;
+        case globalLayer: euclidEngine.setLayer(step > 0); break;
         case globalLaunch:
             euclidEngine.setLaunch(static_cast<euclid::Launch>(clampInt(
               static_cast<int>(euclidEngine.getLaunch()) + step, 0, static_cast<int>(euclid::Launch::count) - 1)));

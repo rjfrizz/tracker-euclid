@@ -18,7 +18,8 @@
 //   9  launch point (euclid::Launch; 0 = bar, so older version 2 files load
 //      with the default)
 //   10 freeze length (euclid::FreezeLength; 0 = 4 bars, the default)
-//   11 reserved (5 bytes of 0)
+//   11 layer (1 = the live engine also plays over Pattern and Song; 0 = off)
+//   12 reserved (4 bytes of 0)
 //   16 8 channel records of 48 bytes:
 //        0 steps, pulses, rotation, division, direction, noteCount
 //        6 notes[16]

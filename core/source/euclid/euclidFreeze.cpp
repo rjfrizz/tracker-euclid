@@ -96,15 +96,16 @@ class Allocator
   public:
     Allocator(FrozenPattern& p, const bool* channelPlayed) : p(p)
     {
-        // Spare tracks for extra voices: MIDI tracks of channels that
-        // played nothing, then sample tracks 1-7, then track 0 (which sets
-        // the pattern's length, so only for full-length voices).
-        for (int c = 0; c < kChannels; c++)
-            if (!channelPlayed[c])
-                pool[poolCount++] = static_cast<uint8_t>(kFreezeFirstMidiTrack + c);
-        for (int t = 1; t < kFreezeFirstMidiTrack; t++)
+        // Spare tracks for extra voices: tracks 9-16, then the tracks of
+        // channels that played nothing (track 1 last: it sets the
+        // pattern's length, so it only takes full-length voices).
+        for (int t = kFreezeFirstVoiceTrack; t < kFreezeTracks; t++)
             pool[poolCount++] = static_cast<uint8_t>(t);
-        pool[poolCount++] = 0;
+        for (int c = 1; c < kChannels; c++)
+            if (!channelPlayed[c])
+                pool[poolCount++] = static_cast<uint8_t>(c);
+        if (!channelPlayed[0])
+            pool[poolCount++] = 0;
     }
 
     // A spare track for a voice that loops at `length` steps, or -1.
@@ -207,7 +208,7 @@ void buildFreeze(const Engine& e, uint32_t start, uint32_t end, FrozenPattern& o
         // Loop length: the channel's repeat length, if what it played really
         // did repeat through the window; otherwise the whole window.
         uint8_t length = out.length;
-        uint32_t period = e.repeatLength(c);
+        uint32_t period = c == 0 ? 0 : e.repeatLength(c); // track 1 is the pattern's length
         if (period > 0)
         {
             period = period / gcd32(period, kStep) * kStep; // whole steps
@@ -217,8 +218,8 @@ void buildFreeze(const Engine& e, uint32_t start, uint32_t end, FrozenPattern& o
 
         int lanes[kFreezeTracks];
         int laneCount = 0;
-        lanes[laneCount++] = kFreezeFirstMidiTrack + c;
-        FrozenTrack& main = out.track[kFreezeFirstMidiTrack + c];
+        lanes[laneCount++] = c;
+        FrozenTrack& main = out.track[c];
         main.used = true;
         main.channel = static_cast<uint8_t>(c);
         main.voice = 0;

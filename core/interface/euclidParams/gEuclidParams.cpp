@@ -17,7 +17,7 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
 
-const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch", "Freeze" };
+const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch", "Freeze", "Layer" };
 
 
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
@@ -320,6 +320,8 @@ void cEuclidParams::refreshGlobal()
         snprintf(globalText[globalFreeze], sizeof(globalText[globalFreeze]), "%d bar%s", bars,
                  bars == 1 ? "" : "s");
     }
+    snprintf(globalText[globalLayer], sizeof(globalText[globalLayer]), "%s",
+             euclidEngine.getLayer() ? "On" : "Off");
 
     panelData.dimRows = sequencer.isSetInternalClock() ? 0 : (1u << globalTempo);
     panelData.stagedRows = stagedRowMask();

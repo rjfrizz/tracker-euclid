@@ -714,7 +714,7 @@ void Engine::triggerStep(Channel& c)
     uint8_t notes[kMaxVoices];
     uint8_t count = nextNotes(c, notes);
 
-    if (!c.expr.enabled || c.expr.muted)
+    if (!c.expr.enabled || c.expr.muted || !outputEnabled)
         return;
 
     if (c.expr.probability < 100)
@@ -997,6 +997,22 @@ void Engine::edited(int ch)
     c.stagedExpr = clampExpression(c.stagedExpr);
     if (!running || immediateEdits)
         commitLocked(ch, true);
+}
+
+void Engine::setOutputEnabled(bool enabled)
+{
+    lock();
+    outputEnabled = enabled;
+    if (!enabled)
+        for (Channel& c : channels)
+            closeNote(c);
+    unlock();
+}
+
+void Engine::setLayer(bool on)
+{
+    layer = on;
+    changeCount++;
 }
 
 void Engine::setFreezeLength(FreezeLength f)

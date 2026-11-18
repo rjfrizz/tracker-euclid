@@ -53,6 +53,7 @@ class cEuclidParams : public ModuleBase
         globalScale,
         globalLaunch,
         globalFreeze,
+        globalLayer,
         globalCount
     };
 

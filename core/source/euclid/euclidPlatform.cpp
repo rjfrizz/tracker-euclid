@@ -11,6 +11,7 @@
 #include "fileManager.h"
 #include "log.h"
 #include "mtMidi.h"
+#include "mtSequencer.h"
 #include "util_math.h"
 
 #include <stdio.h>
@@ -143,6 +144,13 @@ bool saveCurrent()
     return true;
 }
 } // namespace
+
+void euclidRoutePlay()
+{
+    const bool live = euclidScreenActive();
+    sequencer.setPatternSilenced(live);
+    euclidEngine.setOutputEnabled(live || euclidEngine.getLayer());
+}
 
 void euclidPlatformInit()
 {

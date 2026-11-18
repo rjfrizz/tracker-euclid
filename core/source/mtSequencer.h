@@ -814,6 +814,12 @@ class Sequencer
     // track 0's length counts (the stock editor leaves the MIDI tracks'
     // lengths stale, so they can't be trusted without the mark).
     static constexpr uint8_t kOwnTrackLengths = 0xE1;
+
+    // EUCLID: while set, the playing pattern's notes aren't sent; clock,
+    // timing and pattern switching carry on. See euclidRoutePlay().
+    void setPatternSilenced(bool silenced) { patternSilenced = silenced; }
+    bool isPatternSilenced() const { return patternSilenced; }
+    bool patternSilenced = false;
     static bool hasOwnTrackLengths(const strPattern* p) { return p->rezerwa1 == kOwnTrackLengths; }
     // Sets one track's loop length (last step index) and marks the pattern.
     void setTrackLength(strPattern* p, uint8_t track, uint8_t lastStep);

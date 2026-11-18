@@ -10,6 +10,14 @@ void euclidPlatformInit();
 // Gives the engine its capture buffer (euclidFreezePlatform.cpp).
 void euclidFreezeInit();
 
+// What a Play press plays, decided by the screen it's pressed on: on the
+// EUCLID screen the live engine only (the stock pattern keeps time but stays
+// silent); anywhere else the stock pattern or song, plus the live engine if
+// Layer is on. Called by the sequencer when playback starts.
+void euclidRoutePlay();
+// True while the EUCLID screen is showing (fEuclidParams.cpp).
+bool euclidScreenActive();
+
 // Main-loop housekeeping: autosaves the working state to the SD card a short
 // while after the last change.
 void euclidPlatformUpdate();

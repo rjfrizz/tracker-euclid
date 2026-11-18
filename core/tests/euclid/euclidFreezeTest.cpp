@@ -88,9 +88,10 @@ static void testPolyrhythmLoops()
 
     CHECK(frozen.length == 64);
     CHECK(frozen.channels == 2);
-    const FrozenTrack& kick = frozen.track[kFreezeFirstMidiTrack + 0];
-    const FrozenTrack& poly = frozen.track[kFreezeFirstMidiTrack + 1];
-    CHECK(kick.used && kick.length == 16 && notesOn(kick) == 4);
+    const FrozenTrack& kick = frozen.track[0];
+    const FrozenTrack& poly = frozen.track[1];
+    // Channel 1 is on track 1, which sets the pattern's length: written out.
+    CHECK(kick.used && kick.length == 64 && notesOn(kick) == 16);
     CHECK(poly.used && poly.length == 13 && notesOn(poly) == 5);
     for (int s = 0; s < 13; s++)
         CHECK((poly.step[s].note >= 0) == isPulse(13, 5, 0, static_cast<uint8_t>(s)));
@@ -109,7 +110,7 @@ static void testRandomIsATake()
     e.setRhythm(0, r);
     play(e, kMicroStepsPerBar * 2);
     buildFreeze(e, 0, kMicroStepsPerBar * 2, frozen);
-    const FrozenTrack& t = frozen.track[kFreezeFirstMidiTrack];
+    const FrozenTrack& t = frozen.track[0];
     CHECK(t.length == 32); // the whole window
     CHECK(frozen.loopingTracks == 0);
 }
@@ -136,17 +137,17 @@ static void testChordsUseStockShapesOrSpill()
     play(e, kMicroStepsPerBar);
     buildFreeze(e, 0, kMicroStepsPerBar, frozen);
     CHECK(frozen.tracksUsed == 1);
-    CHECK(frozen.track[8].step[0].note == 36 && frozen.track[8].step[0].chord == 5);
+    CHECK(frozen.track[0].step[0].note == 36 && frozen.track[0].step[0].chord == 5);
 
-    // The same with 9ths: 5 voices, the extras on channels' free MIDI tracks.
+    // The same with 9ths: 5 voices, the extras on tracks 9-12.
     x.chord = ChordType::ninth;
     e.setExpression(0, x);
     play(e, kMicroStepsPerBar);
     buildFreeze(e, 0, kMicroStepsPerBar, frozen);
     CHECK(frozen.tracksUsed == 5);
-    CHECK(frozen.track[8].step[0].note == 36 && frozen.track[8].step[0].chord == 0);
-    CHECK(frozen.track[9].used && frozen.track[9].voice == 1 && frozen.track[9].step[0].note == 40);
-    CHECK(frozen.track[12].used && frozen.track[12].step[0].note == 50);
+    CHECK(frozen.track[0].step[0].note == 36 && frozen.track[0].step[0].chord == 0);
+    CHECK(frozen.track[8].used && frozen.track[8].voice == 1 && frozen.track[8].step[0].note == 40);
+    CHECK(frozen.track[11].used && frozen.track[11].step[0].note == 50);
     CHECK(frozen.droppedNotes == 0);
 }
 
@@ -158,17 +159,17 @@ static void testThirtySecondsAndLongGates()
     buildFreeze(e, 0, kMicroStepsPerBar, frozen);
     // Two notes per step: the second, half a step late, on a second track.
     CHECK(frozen.tracksUsed == 2);
-    const FrozenTrack& late = frozen.track[9];
+    const FrozenTrack& late = frozen.track[8];
     CHECK(late.used && late.step[0].note == 60);
     // The player delays by map(value + 1, 0, 100, 1, 48): half a step.
     CHECK((late.step[0].micromove + 1) * 47 / 100 + 1 == 24);
-    CHECK(frozen.track[8].step[0].micromove == -1);
+    CHECK(frozen.track[0].step[0].micromove == -1);
 
     Engine g = makeEngine();
     setChannel(g, 0, 4, 1, {48}, Division::d1_8, 100); // 96-micro-step notes every 4 eighths
     play(g, kMicroStepsPerBar * 2);
     buildFreeze(g, 0, kMicroStepsPerBar * 2, frozen);
-    const FrozenTrack& t = frozen.track[8];
+    const FrozenTrack& t = frozen.track[0];
     CHECK(t.step[0].note == 48 && t.step[0].gate == -1);
     CHECK(t.step[2].note == FrozenStep::kNoteOff); // two steps later
 }
@@ -186,11 +187,9 @@ static void testTooManyVoicesDropsHighest()
     }
     play(e, kMicroStepsPerBar);
     buildFreeze(e, 0, kMicroStepsPerBar, frozen);
-    // Every track but track 0: the channels loop at 4 steps, and track 0
-    // sets the pattern's length, so it only takes full-length voices.
-    CHECK(frozen.tracksUsed == 15);
-    CHECK(frozen.track[0].used == false);
-    CHECK(frozen.droppedNotes == (40 - 15) * 4); // 25 notes from each of the 4 chords
+    // All 16 tracks: the 8 channels' own, then 8 voices on tracks 9-16.
+    CHECK(frozen.tracksUsed == 16);
+    CHECK(frozen.droppedNotes == (40 - 16) * 4); // 24 notes from each of the 4 chords
     CHECK(frozen.channels == 8);
 }
 
