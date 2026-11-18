@@ -154,6 +154,17 @@ const char* channelName(uint8_t index)
     return index < channelNameCount() ? kChannelNames[index] : nullptr;
 }
 
+uint8_t freezeLengthBars(FreezeLength f)
+{
+    switch (f)
+    {
+        case FreezeLength::oneBar: return 1;
+        case FreezeLength::twoBars: return 2;
+        case FreezeLength::eightBars: return 8;
+        default: return 4;
+    }
+}
+
 const char* launchName(Launch l)
 {
     switch (l)
@@ -404,6 +415,8 @@ void Engine::start()
         resetChannelPosition(c);
     }
     launchCounter = 0;
+    playTime = 0;
+    captureCount = 0; // a new take
     running = true;
 }
 
@@ -730,6 +743,18 @@ void Engine::triggerStep(Channel& c)
         if (out.noteOn)
             out.noteOn(notes[i], c.expr.velocity, c.expr.midiChannel);
         c.openNotes[c.openCount++] = notes[i];
+
+        if (captureBuffer != nullptr && captureCapacity > 0)
+        {
+            NoteEvent& e = captureBuffer[captureCount % captureCapacity];
+            e.time = playTime;
+            e.gate = gate;
+            e.channel = static_cast<uint8_t>(&c - channels);
+            e.note = notes[i];
+            e.velocity = c.expr.velocity;
+            e.midiChannel = c.expr.midiChannel;
+            captureCount = captureCount + 1;
+        }
     }
     c.gateRemaining = gate;
 }
@@ -778,6 +803,7 @@ void Engine::onMicroStep()
     launchCounter++;
     if (launchCounter >= static_cast<uint32_t>(kMicroStepsPerBar) * 4)
         launchCounter = 0;
+    playTime++;
 }
 
 //------------------------------------------------------------------------------
@@ -971,6 +997,102 @@ void Engine::edited(int ch)
     c.stagedExpr = clampExpression(c.stagedExpr);
     if (!running || immediateEdits)
         commitLocked(ch, true);
+}
+
+void Engine::setFreezeLength(FreezeLength f)
+{
+    freezeLength = f < FreezeLength::count ? f : FreezeLength::fourBars;
+    changeCount++;
+}
+
+void Engine::setCaptureBuffer(NoteEvent* buffer, uint32_t capacity)
+{
+    lock();
+    captureBuffer = buffer;
+    captureCapacity = buffer != nullptr ? capacity : 0;
+    captureCount = 0;
+    unlock();
+}
+
+uint32_t Engine::captureFirst() const
+{
+    uint32_t end = captureCount;
+    return end > captureCapacity ? end - captureCapacity : 0;
+}
+
+namespace
+{
+uint32_t gcd32(uint32_t a, uint32_t b)
+{
+    while (b != 0)
+    {
+        uint32_t t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+uint32_t lcm32(uint32_t a, uint32_t b)
+{
+    if (a == 0 || b == 0)
+        return 0;
+    return a / gcd32(a, b) * b;
+}
+} // namespace
+
+uint32_t Engine::repeatLength(int ch) const
+{
+    if (!validChannel(ch))
+        return 0;
+    lock();
+    const Rhythm r = channels[ch].active;
+    const Expression x = channels[ch].expr;
+    unlock();
+
+    const uint32_t cycle = static_cast<uint32_t>(r.steps) * divisionToMicroSteps(r.division);
+    uint32_t pulses = 0;
+    for (uint8_t i = 0; i < r.steps; i++)
+        pulses += isPulse(r.steps, r.pulses, r.rotation, i);
+    if (pulses == 0)
+        return cycle;
+
+    // How many pulses the note choice takes to come round again.
+    uint32_t notePeriod = 1;
+    switch (r.mode)
+    {
+        case NoteMode::seq:
+        {
+            uint32_t entries = entryCount(r);
+            if (r.direction == NoteDirection::random)
+                return 0;
+            notePeriod = r.direction == NoteDirection::pingPong && entries > 1 ? 2 * (entries - 1) : entries;
+            break;
+        }
+        case NoteMode::scaleUp:
+        case NoteMode::scaleUpDown:
+        case NoteMode::arpUp:
+        case NoteMode::arpUpDown:
+        {
+            uint8_t intervals[12];
+            uint32_t len = scaleIntervals(keyFor(x, globalActive), intervals);
+            uint32_t n = len * x.range;
+            if (r.mode == NoteMode::arpUp || r.mode == NoteMode::arpUpDown)
+            {
+                uint8_t steps[kMaxVoices];
+                ChordType t = x.chord == ChordType::single ? ChordType::triad : x.chord;
+                n = chordSteps(t, steps) * x.range;
+            }
+            bool upDown = r.mode == NoteMode::scaleUpDown || r.mode == NoteMode::arpUpDown;
+            notePeriod = upDown && n > 1 ? 2 * (n - 1) : n;
+            break;
+        }
+        default: return 0; // Random, Walk
+    }
+
+    // The notes line up with the rhythm again after this many cycles.
+    uint32_t cycles = lcm32(notePeriod, pulses) / pulses;
+    return cycle * cycles;
 }
 
 void Engine::setLaunch(Launch l)

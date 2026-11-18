@@ -2,6 +2,8 @@
 
 #include "euclid/euclidPlatform.h"
 #include "euclid/euclidSets.h"
+#include "Platform.h"
+#include "TrackerImpl.h"
 
 #include "mtConfig.h"
 #include "mtMidi.h"
@@ -48,6 +50,8 @@ struct ShiftEdits
 
 void cEuclidParams::update()
 {
+    updateFreeze();
+
     // Settings changed from outside this screen, such as loading a set or
     // the working state restored at boot.
     uint32_t changes = euclidEngine.getChangeCount();
@@ -557,6 +561,9 @@ void cEuclidParams::changeGlobal(int16_t delta)
             k.scale = static_cast<uint8_t>(clampInt(k.scale + step, 0, euclid::scaleCount() - 1));
             euclidEngine.setGlobalKey(k);
             break;
+        case globalFreeze:
+            setRowValue(globalFreeze, rowValue(globalFreeze, false) + step);
+            return;
         case globalLaunch:
             euclidEngine.setLaunch(static_cast<euclid::Launch>(clampInt(
               static_cast<int>(euclidEngine.getLaunch()) + step, 0, static_cast<int>(euclid::Launch::count) - 1)));
@@ -566,6 +573,93 @@ void cEuclidParams::changeGlobal(int16_t delta)
     refreshGlobal();
     refreshTitle();
     refreshPads();
+}
+
+//==============================================================================================
+// Freeze
+
+namespace
+{
+uint32_t nowMs()
+{
+    return TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+}
+} // namespace
+
+void cEuclidParams::showMessage(const char* text)
+{
+    snprintf(message, sizeof(message), "%s", text);
+    messageUntil = nowMs() + 5000;
+    refreshTitle();
+}
+
+// The window ends at the nearest bar line: pressed in the first beat of a
+// bar, the one just passed (you were a little late); later in the bar, the
+// end of this one. With Launch set to 2 or 4 bars it snaps to those phrases.
+void cEuclidParams::requestFreeze()
+{
+    if (freezePending)
+    {
+        freezePending = false;
+        showMessage("Freeze cancelled");
+        return;
+    }
+    if (!euclidEngine.isRunning())
+    {
+        showMessage("Press Play first: freeze takes what you play");
+        return;
+    }
+
+    uint32_t phrase = euclid::kMicroStepsPerBar;
+    if (euclidEngine.getLaunch() == euclid::Launch::twoBars || euclidEngine.getLaunch() == euclid::Launch::fourBars)
+        phrase = euclid::launchToMicroSteps(euclidEngine.getLaunch());
+
+    const uint32_t now = euclidEngine.getPlayTime();
+    const uint32_t pos = now % phrase;
+    const uint32_t beat = euclid::kMicroStepsPerBar / 4;
+    freezeEnd = pos < beat ? now - pos : now - pos + phrase;
+
+    if (freezeEnd < static_cast<uint32_t>(euclid::kMicroStepsPerBar))
+    {
+        // Pressed in the first beat after Play: wait for the first bar.
+        freezeEnd = euclid::kMicroStepsPerBar;
+    }
+    freezePending = true;
+    refreshTitle();
+    updateFreeze();
+}
+
+void cEuclidParams::updateFreeze()
+{
+    if (freezePending)
+    {
+        if (!euclidEngine.isRunning())
+        {
+            freezePending = false;
+            showMessage("Stopped before the bar: no freeze");
+            return;
+        }
+        if (euclidEngine.getPlayTime() < freezeEnd || newFileManager.getStatus() != fmIdle)
+            return;
+
+        freezePending = false;
+        const uint32_t bar = euclid::kMicroStepsPerBar;
+        uint32_t bars = euclid::freezeLengthBars(euclidEngine.getFreezeLength());
+        if (bars > freezeEnd / bar)
+            bars = freezeEnd / bar; // only this much has been played
+
+        char text[48];
+        euclidFreeze::freeze(freezeEnd - bars * bar, freezeEnd, text, sizeof(text));
+        showMessage(text);
+        return;
+    }
+
+    // Put the normal title back when a message runs out.
+    if (messageUntil != 0 && static_cast<int32_t>(messageUntil - nowMs()) <= 0)
+    {
+        messageUntil = 0;
+        refreshTitle();
+    }
 }
 
 //==============================================================================================
@@ -958,13 +1052,16 @@ static void functPlayAction()
 
 // Rec commits everything staged when it's released, unless a channel key
 // was pressed while it was held (that committed just the channel). Shift +
-// Rec is kept for freeze.
+// Rec freezes the last bars into a new pattern (press again to cancel).
 static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
 {
     if (state == buttonPress)
     {
         if (EP->buttons->isButtonPressed(interfaceButtonShift))
+        {
+            EP->requestFreeze();
             return;
+        }
         EP->recHeld = true;
         EP->recCommittedChannel = false;
     }

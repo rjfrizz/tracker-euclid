@@ -52,6 +52,7 @@ class cEuclidParams : public ModuleBase
         globalRoot,
         globalScale,
         globalLaunch,
+        globalFreeze,
         globalCount
     };
 
@@ -120,6 +121,15 @@ class cEuclidParams : public ModuleBase
     void commitAll();
     void commitChannel(uint8_t ch);
     void refreshAfterCommit();
+
+    // Freeze (Shift + Rec): the last bars played become a new pattern.
+    void requestFreeze();
+    void updateFreeze();
+    void showMessage(const char* text);
+    bool freezePending = false;
+    uint32_t freezeEnd = 0; // engine play time the window ends at
+    char message[48] = "";
+    uint32_t messageUntil = 0; // ms
     bool recHeld = false;
     bool recCommittedChannel = false;
     uint16_t lastPendingMask = 0;

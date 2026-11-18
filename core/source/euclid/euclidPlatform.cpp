@@ -154,6 +154,7 @@ void euclidPlatformInit()
     out.lock = lock;
     out.unlock = unlock;
     euclidEngine.init(out);
+    euclidFreezeInit();
     euclid::loadDemoDefaults(euclidEngine);
 }
 

@@ -2,6 +2,8 @@
 
 #include "euclid/euclidPlatform.h"
 #include "euclid/euclidSets.h"
+#include "Platform.h"
+#include "TrackerImpl.h"
 #include "mtSequencer.h"
 #include "mtStructs.h"
 
@@ -15,7 +17,7 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
     "Gate",      "Chance",   "MIDI channel", "Channel",
 };
 
-const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch" };
+const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch", "Freeze" };
 
 
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
@@ -147,6 +149,16 @@ void cEuclidParams::setView(View v)
 
 void cEuclidParams::refreshTitle()
 {
+    // A freeze message, or one on its way, takes over the title for a while.
+    uint32_t now = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+    if (freezePending || static_cast<int32_t>(messageUntil - now) > 0)
+    {
+        snprintf(titleText, sizeof(titleText), "%s",
+                 freezePending ? "Freezing at the end of the bar..." : message);
+        titleBar->setTitle(titleText);
+        return;
+    }
+
     const char* hint = euclidEngine.hasAnyStagedChange() ? "   -  Rec to apply" : "";
     if (view == View::sets)
         snprintf(titleText, sizeof(titleText), "Sets%s", hint);
@@ -303,6 +315,11 @@ void cEuclidParams::refreshGlobal()
              k.scale == live.scale && live.scale != active.scale ? "> " : "", euclid::scaleName(k.scale));
     snprintf(globalText[globalLaunch], sizeof(globalText[globalLaunch]), "%s",
              euclid::launchName(euclidEngine.getLaunch()));
+    {
+        uint8_t bars = euclid::freezeLengthBars(euclidEngine.getFreezeLength());
+        snprintf(globalText[globalFreeze], sizeof(globalText[globalFreeze]), "%d bar%s", bars,
+                 bars == 1 ? "" : "s");
+    }
 
     panelData.dimRows = sequencer.isSetInternalClock() ? 0 : (1u << globalTempo);
     panelData.stagedRows = stagedRowMask();

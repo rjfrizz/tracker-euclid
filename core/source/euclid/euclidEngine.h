@@ -203,6 +203,28 @@ const char* channelName(uint8_t index); // nullptr for 0
 uint16_t launchToMicroSteps(Launch l);
 const char* launchName(Launch l);
 
+// A note the engine played, for freezing. Time is in micro-steps since Play.
+struct NoteEvent
+{
+    uint32_t time;
+    uint16_t gate; // micro-steps
+    uint8_t channel; // engine channel 0-7
+    uint8_t note;
+    uint8_t velocity;
+    uint8_t midiChannel;
+};
+
+// Freeze length, saved with sets.
+enum class FreezeLength : uint8_t
+{
+    fourBars = 0,
+    oneBar,
+    twoBars,
+    eightBars,
+    count
+};
+uint8_t freezeLengthBars(FreezeLength f);
+
 struct Output
 {
     void (*noteOn)(uint8_t note, uint8_t velocity, uint8_t channel) = nullptr;
@@ -289,6 +311,24 @@ class Engine
     Launch getLaunch() const { return launch; }
     void setLaunch(Launch l);
 
+    FreezeLength getFreezeLength() const { return freezeLength; }
+    void setFreezeLength(FreezeLength f);
+
+    //--------------------------------------------------------------------------
+    // Capture: every note played since Play is kept in a ring buffer (the
+    // newest `capacity` notes) so it can be frozen into a pattern.
+    void setCaptureBuffer(NoteEvent* buffer, uint32_t capacity);
+    uint32_t getPlayTime() const { return playTime; } // micro-steps since Play
+    // Notes are numbered from 0 since Play; the oldest still kept is
+    // captureFirst(), and captureEnd() is one past the newest.
+    uint32_t captureFirst() const;
+    uint32_t captureEnd() const { return captureCount; }
+    const NoteEvent& captureAt(uint32_t index) const { return captureBuffer[index % captureCapacity]; }
+    // How long a channel's output takes to repeat with its current
+    // settings, in micro-steps, assuming nothing random is involved (the
+    // freeze checks that against what was actually played). 0 if unknown.
+    uint32_t repeatLength(int ch) const;
+
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
     uint32_t getChangeCount() const { return changeCount; }
@@ -354,6 +394,12 @@ class Engine
     Launch launch = Launch::bar;
     uint32_t launchCounter = 0; // micro-steps since start, wraps every 4 bars
     uint32_t changeCount = 0;   // main loop only
+    FreezeLength freezeLength = FreezeLength::fourBars;
+
+    uint32_t playTime = 0;
+    NoteEvent* captureBuffer = nullptr;
+    uint32_t captureCapacity = 0;
+    volatile uint32_t captureCount = 0;
 
     uint8_t names[kChannels] = {};
 

@@ -1,10 +1,14 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 // Sets up the Euclidean engine's MIDI output and loads its startup defaults.
 // Call once at boot, before the sequencer starts.
 void euclidPlatformInit();
+
+// Gives the engine its capture buffer (euclidFreezePlatform.cpp).
+void euclidFreezeInit();
 
 // Main-loop housekeeping: autosaves the working state to the SD card a short
 // while after the last change.
@@ -29,3 +33,10 @@ uint8_t currentSlot();
 // True if something changed since that save or load.
 bool editedSinceSlot();
 } // namespace euclidSets
+
+namespace euclidFreeze
+{
+// Freezes the notes played in [start, end) micro-steps (whole bars) into a
+// new pattern in the first free slot. The message says what happened.
+bool freeze(uint32_t start, uint32_t end, char* message, size_t messageLength);
+} // namespace euclidFreeze
