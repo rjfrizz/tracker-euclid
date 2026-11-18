@@ -95,6 +95,21 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[41] = static_cast<uint8_t>(r.tieMask >> 8);
         p[42] = static_cast<uint8_t>(x.chord);
         p[43] = x.chordChance;
+        for (int k = 0; k < kModsPerChannel; k++)
+        {
+            const Mod& m = x.mod[k];
+            uint8_t* q = p + 48 + k * kSetModSize;
+            q[0] = static_cast<uint8_t>(m.dest);
+            q[1] = static_cast<uint8_t>(m.shape);
+            q[2] = static_cast<uint8_t>(m.amount + 128);
+            q[3] = m.steps;
+            q[4] = m.pulses;
+            q[5] = m.rotation;
+            q[6] = static_cast<uint8_t>(m.division);
+            q[7] = m.autoRotate;
+            q[8] = m.length;
+            q[9] = m.cc;
+        }
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -126,6 +141,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV3FileSize;
     }
     else if (version == 4)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV4ChannelSize;
+        fileSize = kSetV4FileSize;
+    }
+    else if (version == 5)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -207,6 +228,24 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             r.tieMask = static_cast<uint16_t>(p[40] | (p[41] << 8));
             x.chord = enumOr(p[42], ChordType::count, ChordType::single);
             x.chordChance = p[43];
+        }
+        if (version >= 5)
+        {
+            for (int k = 0; k < kModsPerChannel; k++)
+            {
+                const uint8_t* q = p + 48 + k * kSetModSize;
+                Mod& m = x.mod[k];
+                m.dest = enumOr(q[0], ModDest::count, ModDest::off);
+                m.shape = enumOr(q[1], ModShape::count, ModShape::accent);
+                m.amount = static_cast<int8_t>(static_cast<int>(q[2]) - 128);
+                m.steps = q[3];
+                m.pulses = q[4];
+                m.rotation = q[5];
+                m.division = enumOr(q[6], Division::count, Division::d1_16);
+                m.autoRotate = q[7];
+                m.length = q[8];
+                m.cc = q[9];
+            }
         }
 
         // The engine clamps every field, so a hand-edited file can't put it

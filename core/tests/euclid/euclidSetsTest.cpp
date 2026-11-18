@@ -60,6 +60,20 @@ static void fill(Engine& e)
         x.transpose = static_cast<int8_t>(ch * 6 - 24);
         x.chord = static_cast<ChordType>(ch % static_cast<int>(ChordType::count));
         x.chordChance = static_cast<uint8_t>(30 + ch * 10);
+        for (int k = 0; k < kModsPerChannel; k++)
+        {
+            Mod& m = x.mod[k];
+            m.dest = static_cast<ModDest>((ch + k) % static_cast<int>(ModDest::count));
+            m.shape = static_cast<ModShape>((ch * 2 + k) % static_cast<int>(ModShape::count));
+            m.amount = static_cast<int8_t>(ch * 25 - 100 + k);
+            m.steps = static_cast<uint8_t>(3 + ch + k);
+            m.pulses = static_cast<uint8_t>(1 + k);
+            m.rotation = static_cast<uint8_t>(k);
+            m.division = static_cast<Division>((ch + k) % static_cast<int>(Division::count));
+            m.autoRotate = static_cast<uint8_t>(k == 0 ? 0 : 4);
+            m.length = static_cast<uint8_t>(2 + ch);
+            m.cc = static_cast<uint8_t>(70 + ch);
+        }
         e.setExpression(ch, x);
 
         Rhythm withMode = e.getRhythm(ch);
@@ -95,6 +109,14 @@ static bool sameSettings(const Engine& a, const Engine& b)
             ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale || ra.tieMask != rb.tieMask ||
             xa.chord != xb.chord || xa.chordChance != xb.chordChance)
             return false;
+        for (int k = 0; k < kModsPerChannel; k++)
+        {
+            const Mod &ma = xa.mod[k], &mb = xb.mod[k];
+            if (ma.dest != mb.dest || ma.shape != mb.shape || ma.amount != mb.amount || ma.steps != mb.steps ||
+                ma.pulses != mb.pulses || ma.rotation != mb.rotation || ma.division != mb.division ||
+                ma.autoRotate != mb.autoRotate || ma.length != mb.length || ma.cc != mb.cc)
+                return false;
+        }
     }
     for (int ch = 0; ch < kChannels; ch++)
         if (a.getName(ch) != b.getName(ch))
@@ -116,6 +138,32 @@ static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
     uint32_t crc = crc32(v3, kSetV3FileSize - 4);
     for (int i = 0; i < 4; i++)
         v3[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+}
+
+static void testLoadsVersion4()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t v5[kSetFileSize];
+    serializeSet(a, 2, v5, sizeof(v5));
+    uint8_t v4[kSetV4FileSize];
+    std::memcpy(v4, v5, kSetHeaderSize);
+    v4[4] = 4;
+    for (int ch = 0; ch < kChannels; ch++)
+        std::memcpy(v4 + kSetHeaderSize + ch * kSetV4ChannelSize, v5 + kSetHeaderSize + ch * kSetChannelSize,
+                    kSetV4ChannelSize);
+    uint32_t crc = crc32(v4, kSetV4FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v4[kSetV4FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, v4, sizeof(v4)));
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        CHECK(b.getExpression(ch).chord == a.getExpression(ch).chord);
+        CHECK(b.getExpression(ch).mod[0].dest == ModDest::off); // no modulators in version 4
+        CHECK(b.getExpression(ch).mod[1].dest == ModDest::off);
+    }
 }
 
 static void testLoadsVersion3()
@@ -230,7 +278,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 404);
+    CHECK(kSetFileSize == 596);
+    CHECK(kSetV4FileSize == 404);
     CHECK(kSetV3FileSize == 340);
     CHECK(kSetV1FileSize == 268);
 
@@ -309,6 +358,7 @@ int main()
     testLoadsVersion1();
     testLoadsVersion2();
     testLoadsVersion3();
+    testLoadsVersion4();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

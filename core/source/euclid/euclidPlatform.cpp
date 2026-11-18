@@ -28,6 +28,11 @@ void noteOff(uint8_t note, uint8_t channel)
     sendMidiNoteOff(note, 0, channel, false);
 }
 
+void controlChange(uint8_t cc, uint8_t value, uint8_t channel)
+{
+    sendCC(cc, value, channel, false);
+}
+
 uint8_t randomPercent()
 {
     return static_cast<uint8_t>(utilMathRandom::random(0, 100));
@@ -157,6 +162,7 @@ void euclidPlatformInit()
     euclid::Output out;
     out.noteOn = noteOn;
     out.noteOff = noteOff;
+    out.controlChange = controlChange;
     out.randomPercent = randomPercent;
     out.randomBelow = randomBelow;
     out.lock = lock;

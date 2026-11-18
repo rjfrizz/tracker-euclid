@@ -44,7 +44,38 @@ class cEuclidParams : public ModuleBase
         notes,
         sets,
         global,
+        mod,
     };
+
+    // Rows of the Mod page, for the modulator being edited.
+    enum ModRow : uint8_t
+    {
+        modRowDest = 0,
+        modRowShape,
+        modRowAmount,
+        modRowSteps,
+        modRowPulses,
+        modRowRotation,
+        modRowDivision,
+        modRowAutoRotate,
+        modRowLength,
+        modRowCc,
+        modRowCount
+    };
+
+    // rowValue() for a row without a value.
+    static constexpr int kNoValue = -10000;
+
+    bool isListView() const { return view == View::params || view == View::global || view == View::mod; }
+    uint8_t focusedRow() const
+    {
+        return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
+    }
+    uint8_t listRowCount() const
+    {
+        return view == View::global ? globalCount
+                                    : (view == View::mod ? modRowCount : (view == View::params ? paramCount : 0));
+    }
 
     enum GlobalParam : uint8_t
     {
@@ -90,6 +121,7 @@ class cEuclidParams : public ModuleBase
     void refreshNotes();
     void refreshSets();
     void refreshGlobal();
+    void refreshMod();
     void refreshPads();
     uint32_t paramDimMask() const;
     uint32_t stagedRowMask() const;
@@ -157,6 +189,17 @@ class cEuclidParams : public ModuleBase
 
     // Global view.
     void changeGlobal(int16_t delta);
+
+    // Mod view (modEuclidParams.cpp).
+    PadMap modPadMap(uint8_t row) const;
+    int modRowValue(uint8_t row, bool live) const;
+    void setModRowValue(uint8_t row, int value);
+    void changeMod(int16_t delta);
+    uint32_t modDimMask() const;
+    uint8_t selectedMod = 0; // 0 = Mod A, 1 = Mod B
+    uint8_t selectedModRow = modRowDest;
+    char modText[modRowCount][16];
+    uint8_t lastModRotation = 0xFF;
 
     View view = View::params;
     View viewBeforeSets = View::params; // where Back on Sets or Global returns to

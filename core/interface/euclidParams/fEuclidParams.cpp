@@ -37,6 +37,7 @@ static void functParamsView();
 static void functNotesView();
 static void functSetsView();
 static void functGlobalView();
+static void functModView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -71,6 +72,8 @@ void cEuclidParams::update()
             refreshNotes();
         else if (view == View::sets)
             refreshSets();
+        else if (view == View::mod)
+            refreshMod();
         else
             refreshGlobal();
         refreshTitle();
@@ -92,8 +95,15 @@ void cEuclidParams::update()
             refreshParams();
         else if (view == View::global)
             refreshGlobal();
+        else if (view == View::mod)
+            refreshMod();
         refreshPads();
     }
+
+    // Auto-rotation moves the modulator's ring.
+    if (view == View::mod &&
+        euclidEngine.getModRotation(selectedChannel, selectedMod) != lastModRotation)
+        refreshRing();
 
     // Tempo can change outside this screen (external clock, other screens),
     // and a queued key change lands on the bar.
@@ -154,6 +164,8 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // Master opens the global key and tempo; the stock mixer is still
     // reachable from the stock screens' Master key.
     ip->setButtonObj(interfaceButtonMaster, buttonPress, functGlobalView);
+    // Fx 2 opens Mod; pressing it again switches between Mod A and B.
+    ip->setButtonObj(interfaceButtonFx2, buttonPress, functModView);
 
     // The first time this screen opens the SD card is ready, so this is
     // where the working state from before the last power-off comes back.
@@ -222,6 +234,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
     refreshTitle();
     if (view == View::params)
         refreshParams();
+    else if (view == View::mod)
+        refreshMod();
     else
         refreshNotes();
     refreshFrame();
@@ -694,6 +708,9 @@ void cEuclidParams::refreshAfterCommit()
         refreshNotes();
     else if (view == View::global)
         refreshGlobal();
+    else if (view == View::mod)
+        refreshMod();
+    refreshTitle();
     refreshChannels();
     refreshRing();
     refreshPads();
@@ -807,6 +824,11 @@ void cEuclidParams::duplicateNote()
 static void functEncoder(int16_t value)
 {
     ShiftEdits shift;
+    if (EP->view == cEuclidParams::View::mod)
+    {
+        EP->changeMod(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::global)
     {
         EP->changeGlobal(value);
@@ -831,6 +853,14 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::mod)
+    {
+        if (EP->selectedModRow > 0)
+            EP->selectedModRow--;
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::global)
     {
         if (EP->selectedGlobal > 0)
@@ -852,6 +882,14 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::mod)
+    {
+        if (EP->selectedModRow + 1 < cEuclidParams::modRowCount)
+            EP->selectedModRow++;
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::global)
     {
         if (EP->selectedGlobal + 1 < cEuclidParams::globalCount)
@@ -924,6 +962,18 @@ static void functParamsView()
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
+    EP->setDefaultScreenFunct();
+}
+
+static void functModView()
+{
+    if (EP->view == cEuclidParams::View::mod)
+    {
+        EP->selectedMod = static_cast<uint8_t>(1 - EP->selectedMod);
+        EP->setView(cEuclidParams::View::mod);
+        return;
+    }
+    EP->setView(cEuclidParams::View::mod);
     EP->setDefaultScreenFunct();
 }
 

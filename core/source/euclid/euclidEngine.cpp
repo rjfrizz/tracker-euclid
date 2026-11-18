@@ -2,6 +2,8 @@
 
 #include "scales.h"
 
+#include <math.h>
+
 euclid::Engine euclidEngine;
 
 namespace euclid
@@ -154,6 +156,40 @@ const char* channelName(uint8_t index)
     return index < channelNameCount() ? kChannelNames[index] : nullptr;
 }
 
+const char* modDestName(ModDest d)
+{
+    switch (d)
+    {
+        case ModDest::off: return "Off";
+        case ModDest::velocity: return "Velocity";
+        case ModDest::gate: return "Gate";
+        case ModDest::chance: return "Chance";
+        case ModDest::pitch: return "Pitch";
+        case ModDest::cc: return "MIDI CC";
+        default: return "?";
+    }
+}
+
+const char* modShapeName(ModShape s)
+{
+    switch (s)
+    {
+        case ModShape::accent: return "Accent";
+        case ModShape::envelope: return "Envelope";
+        case ModShape::stepped: return "Stepped";
+        case ModShape::sine: return "Sine LFO";
+        case ModShape::triangle: return "Triangle LFO";
+        case ModShape::square: return "Square LFO";
+        case ModShape::random: return "Random LFO";
+        default: return "?";
+    }
+}
+
+bool modUsesPulses(ModShape s)
+{
+    return s == ModShape::accent || s == ModShape::envelope || s == ModShape::stepped;
+}
+
 uint8_t freezeLengthBars(FreezeLength f)
 {
     switch (f)
@@ -293,6 +329,24 @@ Expression Engine::clampExpression(const Expression& e) const
     if (x.chord >= ChordType::count)
         x.chord = ChordType::single;
     x.chordChance = clampValue<uint8_t>(x.chordChance, 0, 100);
+    for (Mod& m : x.mod)
+    {
+        if (m.dest >= ModDest::count)
+            m.dest = ModDest::off;
+        if (m.shape >= ModShape::count)
+            m.shape = ModShape::accent;
+        m.amount = clampValue<int8_t>(m.amount, -100, 100);
+        m.steps = clampValue<uint8_t>(m.steps, 1, kMaxSteps);
+        m.pulses = clampValue<uint8_t>(m.pulses, 0, m.steps);
+        m.rotation = m.rotation % m.steps;
+        if (m.division >= Division::count)
+            m.division = Division::d1_16;
+        if (m.autoRotate != 0 && m.autoRotate != 1 && m.autoRotate != 2 && m.autoRotate != 4 &&
+            m.autoRotate != 8)
+            m.autoRotate = 0;
+        m.length = clampValue<uint8_t>(m.length, 1, kMaxSteps);
+        m.cc = clampValue<uint8_t>(m.cc, 0, 127);
+    }
     return x;
 }
 
@@ -322,8 +376,18 @@ bool sameRhythm(const Rhythm& a, const Rhythm& b)
 }
 
 // Mute is left out: it never goes through staging.
+bool sameMod(const Mod& a, const Mod& b)
+{
+    return a.dest == b.dest && a.shape == b.shape && a.amount == b.amount && a.steps == b.steps &&
+           a.pulses == b.pulses && a.rotation == b.rotation && a.division == b.division &&
+           a.autoRotate == b.autoRotate && a.length == b.length && a.cc == b.cc;
+}
+
 bool sameExpression(const Expression& a, const Expression& b)
 {
+    for (int k = 0; k < kModsPerChannel; k++)
+        if (!sameMod(a.mod[k], b.mod[k]))
+            return false;
     return a.enabled == b.enabled && a.midiChannel == b.midiChannel && a.velocity == b.velocity &&
            a.gate == b.gate && a.probability == b.probability && a.keyMode == b.keyMode &&
            a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot && a.ownScale == b.ownScale &&
@@ -413,6 +477,8 @@ void Engine::start()
         if (c.pendingDirty)
             applyPending(c);
         resetChannelPosition(c);
+        for (auto& m : c.modState)
+            m = Channel::ModState();
     }
     launchCounter = 0;
     playTime = 0;
@@ -717,17 +783,49 @@ void Engine::triggerStep(Channel& c)
     if (!c.expr.enabled || c.expr.muted || !outputEnabled)
         return;
 
-    if (c.expr.probability < 100)
+    // Modulators add to velocity, gate, chance and pitch.
+    int velocity = c.expr.velocity;
+    int gatePercent = c.expr.gate;
+    int chance = c.expr.probability;
+    int pitch = 0;
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        const Mod& m = c.expr.mod[k];
+        if (m.dest == ModDest::off || m.dest == ModDest::cc)
+            continue;
+        const int v = modValue(c, k); // 0-1000
+        switch (m.dest)
+        {
+            case ModDest::velocity: velocity += m.amount * 127 * v / 100000; break;
+            case ModDest::gate: gatePercent += m.amount * v / 1000; break;
+            case ModDest::chance: chance += m.amount * v / 1000; break;
+            case ModDest::pitch:
+            {
+                int semis = m.amount * 24 * v;
+                pitch += (semis + (semis >= 0 ? 50000 : -50000)) / 100000;
+                break;
+            }
+            default: break;
+        }
+    }
+    velocity = clampValue<int>(velocity, 1, 127);
+    gatePercent = clampValue<int>(gatePercent, 1, 100);
+    chance = clampValue<int>(chance, 0, 100);
+    if (pitch != 0)
+        for (uint8_t i = 0; i < count; i++)
+            notes[i] = static_cast<uint8_t>(clampValue<int>(notes[i] + pitch, 0, 127));
+
+    if (chance < 100)
     {
         uint8_t roll = out.randomPercent ? out.randomPercent() : 0;
-        if (roll >= c.expr.probability)
+        if (roll >= chance)
             return;
     }
 
     closeNote(c);
 
     uint16_t stepLength = divisionToMicroSteps(r.division);
-    uint16_t gate = static_cast<uint16_t>((static_cast<uint32_t>(stepLength) * c.expr.gate) / 100);
+    uint16_t gate = static_cast<uint16_t>((static_cast<uint32_t>(stepLength) * gatePercent) / 100);
     if (gate < 1)
         gate = 1;
 
@@ -741,7 +839,7 @@ void Engine::triggerStep(Channel& c)
         if (repeat)
             continue;
         if (out.noteOn)
-            out.noteOn(notes[i], c.expr.velocity, c.expr.midiChannel);
+            out.noteOn(notes[i], static_cast<uint8_t>(velocity), c.expr.midiChannel);
         c.openNotes[c.openCount++] = notes[i];
 
         if (captureBuffer != nullptr && captureCapacity > 0)
@@ -751,12 +849,132 @@ void Engine::triggerStep(Channel& c)
             e.gate = gate;
             e.channel = static_cast<uint8_t>(&c - channels);
             e.note = notes[i];
-            e.velocity = c.expr.velocity;
+            e.velocity = static_cast<uint8_t>(velocity);
             e.midiChannel = c.expr.midiChannel;
             captureCount = captureCount + 1;
         }
     }
     c.gateRemaining = gate;
+}
+
+//------------------------------------------------------------------------------
+// Modulators
+
+uint8_t Engine::modRotationAt(const Mod& m, uint32_t t) const
+{
+    uint32_t rot = m.rotation;
+    if (m.autoRotate > 0)
+        rot += t / (static_cast<uint32_t>(m.autoRotate) * kMicroStepsPerBar);
+    return static_cast<uint8_t>(rot % m.steps);
+}
+
+// 0-1000 at the engine's current time.
+uint16_t Engine::modValue(const Channel& c, int k) const
+{
+    const Mod& m = c.expr.mod[k];
+    const uint32_t t = playTime;
+    const uint32_t stepLen = divisionToMicroSteps(m.division);
+    const uint32_t step = t / stepLen;
+    const uint32_t phase = t % stepLen;
+    const uint8_t rot = modRotationAt(m, t);
+    const uint8_t index = static_cast<uint8_t>(step % m.steps);
+
+    switch (m.shape)
+    {
+        case ModShape::accent: return isPulse(m.steps, m.pulses, rot, index) ? 1000 : 0;
+        case ModShape::envelope:
+        {
+            // The most recent pulse within the decay, counting back.
+            const uint32_t decay = static_cast<uint32_t>(m.length) * stepLen;
+            for (uint32_t back = 0; back < m.length && back <= step; back++)
+            {
+                uint8_t i = static_cast<uint8_t>((step - back) % m.steps);
+                if (isPulse(m.steps, m.pulses, rot, i))
+                {
+                    uint32_t since = back * stepLen + phase;
+                    return static_cast<uint16_t>(1000 * (decay - since) / decay);
+                }
+            }
+            return 0;
+        }
+        case ModShape::stepped:
+        case ModShape::random: return c.modState[k].held;
+        default: break;
+    }
+
+    // LFOs: a period of `length` steps.
+    const uint32_t period = static_cast<uint32_t>(m.length) * stepLen;
+    const uint32_t ph = static_cast<uint32_t>((static_cast<uint64_t>(t % period) * 1000) / period);
+    switch (m.shape)
+    {
+        case ModShape::sine:
+            return static_cast<uint16_t>(500.0f - 500.0f * cosf(6.2831853f * static_cast<float>(ph) / 1000.0f));
+        case ModShape::triangle: return static_cast<uint16_t>(ph < 500 ? ph * 2 : (1000 - ph) * 2);
+        case ModShape::square: return ph < 500 ? 1000 : 0;
+        default: return 0;
+    }
+}
+
+// Once per micro-step: new random values on step boundaries, and CCs.
+void Engine::updateMods(Channel& c)
+{
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        const Mod& m = c.expr.mod[k];
+        if (m.dest == ModDest::off)
+            continue;
+        auto& st = c.modState[k];
+
+        const uint32_t step = playTime / divisionToMicroSteps(m.division);
+        if (step != st.lastStep)
+        {
+            st.lastStep = step;
+            bool newValue = m.shape == ModShape::random ||
+                            (m.shape == ModShape::stepped &&
+                             isPulse(m.steps, m.pulses, modRotationAt(m, playTime),
+                                     static_cast<uint8_t>(step % m.steps)));
+            if (newValue)
+                st.held = static_cast<uint16_t>(out.randomBelow ? out.randomBelow(101) * 10 : 0);
+        }
+
+        // CCs follow the value, sent only when it changes and at most every
+        // half 1/16 step so they don't crowd the MIDI port.
+        if (m.dest == ModDest::cc && playTime % 24 == 0 && c.expr.enabled && !c.expr.muted && outputEnabled)
+        {
+            int v = modValue(c, k) * (m.amount >= 0 ? m.amount : -m.amount) * 127 / 100000;
+            if (m.amount < 0)
+                v = 127 - v;
+            v = clampValue<int>(v, 0, 127);
+            if (v != st.lastCc)
+            {
+                st.lastCc = static_cast<int16_t>(v);
+                if (out.controlChange)
+                    out.controlChange(m.cc, static_cast<uint8_t>(v), c.expr.midiChannel);
+            }
+        }
+    }
+}
+
+uint16_t Engine::getModValue(int ch, int k) const
+{
+    if (!validChannel(ch) || k < 0 || k >= kModsPerChannel)
+        return 0;
+    return modValue(channels[ch], k);
+}
+
+uint8_t Engine::getModStep(int ch, int k) const
+{
+    if (!validChannel(ch) || k < 0 || k >= kModsPerChannel)
+        return 0;
+    const Mod& m = channels[ch].stagedExpr.mod[k];
+    return static_cast<uint8_t>((playTime / divisionToMicroSteps(m.division)) % m.steps);
+}
+
+uint8_t Engine::getModRotation(int ch, int k) const
+{
+    if (!validChannel(ch) || k < 0 || k >= kModsPerChannel)
+        return 0;
+    return modRotationAt(channels[ch].stagedExpr.mod[k], playTime);
 }
 
 void Engine::onMicroStep()
@@ -786,6 +1004,8 @@ void Engine::onMicroStep()
 
         if (launchPoint && c.pendingDirty)
             applyPending(c);
+
+        updateMods(c);
 
         if (c.microStepInStep == 0)
             triggerStep(c);

@@ -59,6 +59,8 @@ int keyIndex(const euclid::Expression& x, bool seq)
 
 cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
 {
+    if (view == View::mod)
+        return modPadMap(row);
     if (view == View::global)
     {
         switch (row)
@@ -106,6 +108,8 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
 // shows) or the live ones (committed, playing or about to).
 int cEuclidParams::rowValue(uint8_t row, bool live) const
 {
+    if (view == View::mod)
+        return modRowValue(row, live);
     if (view == View::global)
     {
         euclid::Key k = live ? euclidEngine.getLiveGlobalKey() : euclidEngine.getGlobalKey();
@@ -116,7 +120,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
             case globalLaunch: return static_cast<int>(euclidEngine.getLaunch());
             case globalFreeze: return freezeIndex(euclidEngine.getFreezeLength());
             case globalLayer: return euclidEngine.getLayer() ? 1 : 0;
-            default: return -1;
+            default: return kNoValue;
         }
     }
 
@@ -146,7 +150,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         case paramChance: return x.probability;
         case paramMidiChannel: return x.midiChannel;
         case paramEnabled: return x.enabled ? 1 : 0;
-        default: return -1;
+        default: return kNoValue;
     }
 }
 
@@ -154,6 +158,11 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
 // the engine's immediate flag, which the caller sets from Shift.
 void cEuclidParams::setRowValue(uint8_t row, int v)
 {
+    if (view == View::mod)
+    {
+        setModRowValue(row, v);
+        return;
+    }
     if (view == View::global)
     {
         euclid::Key k = euclidEngine.getGlobalKey();
@@ -264,7 +273,7 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
 // Value <-> pad for one row.
 int cEuclidParams::valueToPad(const PadMap& m, int v) const
 {
-    if (v < 0)
+    if (v == kNoValue)
         return -1;
     switch (m.kind)
     {
@@ -280,11 +289,11 @@ int cEuclidParams::padToValue(const PadMap& m, uint8_t pad) const
 {
     switch (m.kind)
     {
-        case PadMap::list: return pad < m.count ? pad + m.minValue : -1;
+        case PadMap::list: return pad < m.count ? pad + m.minValue : kNoValue;
         case PadMap::keyboard: return pad % kPadColumns;
         case PadMap::level:
             return m.minValue + (pad * (m.maxValue - m.minValue) + (kPads - 1) / 2) / (kPads - 1);
-        default: return -1;
+        default: return kNoValue;
     }
 }
 
@@ -346,7 +355,7 @@ void cEuclidParams::refreshPads()
         return;
     }
 
-    const uint8_t row = view == View::global ? selectedGlobal : selectedParam;
+    const uint8_t row = focusedRow();
     const PadMap m = padMapFor(row);
     if (m.kind == PadMap::none)
         return;
@@ -391,16 +400,16 @@ bool cEuclidParams::padSelect(uint8_t pad)
         return true;
     }
 
-    if (view != View::params && view != View::global)
+    if (!isListView())
         return false;
 
-    const uint8_t row = view == View::global ? selectedGlobal : selectedParam;
+    const uint8_t row = focusedRow();
     const PadMap m = padMapFor(row);
     if (m.kind == PadMap::none)
         return false;
 
     int v = padToValue(m, pad);
-    if (v >= 0)
+    if (v != kNoValue)
         setRowValue(row, v);
     return true;
 }

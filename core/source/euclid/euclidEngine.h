@@ -151,6 +151,60 @@ struct Rhythm
 };
 
 // Expression settings: how the channel's notes are played.
+// Modulators: each one has its own Euclidean rhythm, which a shape turns
+// into a value from 0 to 1 that's added to a destination.
+//   accent   - full on pulses, nothing between
+//   envelope - jumps to full on a pulse, then falls to nothing over `length`
+//              of its steps
+//   stepped  - a new random value on each pulse, held until the next
+//   sine, triangle, square, random - LFOs with a period of `length` steps
+//              (random: a new value every step); pulses are ignored
+// The rhythm runs on its own grid from Play, rotating by one step every
+// `autoRotate` bars when that's set. Stored in set files, so only add at
+// the end of these enums.
+enum class ModDest : uint8_t
+{
+    off = 0,
+    velocity,
+    gate,
+    chance,
+    pitch, // amount -100..+100 = -24..+24 semitones
+    cc,    // sent on the channel's MIDI channel; a negative amount inverts it
+    count
+};
+
+enum class ModShape : uint8_t
+{
+    accent = 0,
+    envelope,
+    stepped,
+    sine,
+    triangle,
+    square,
+    random,
+    count
+};
+
+struct Mod
+{
+    ModDest dest = ModDest::off;
+    ModShape shape = ModShape::accent;
+    int8_t amount = 50; // -100..+100
+    uint8_t steps = 16;
+    uint8_t pulses = 4;
+    uint8_t rotation = 0;
+    Division division = Division::d1_16;
+    uint8_t autoRotate = 0; // bars between rotations: 0 (off), 1, 2, 4 or 8
+    uint8_t length = 4;     // its steps: envelope decay, LFO period
+    uint8_t cc = 74;        // MIDI CC number for ModDest::cc
+};
+
+constexpr int kModsPerChannel = 2;
+
+const char* modDestName(ModDest d);
+const char* modShapeName(ModShape s);
+bool modUsesPulses(ModShape s);
+
 struct Expression
 {
     bool enabled = false;
@@ -175,6 +229,8 @@ struct Expression
     // triad) and ignore chordChance.
     ChordType chord = ChordType::single;
     uint8_t chordChance = 100; // percent of pulses that play the chord
+
+    Mod mod[kModsPerChannel];
 };
 
 // SEQ list entries.
@@ -229,6 +285,7 @@ struct Output
 {
     void (*noteOn)(uint8_t note, uint8_t velocity, uint8_t channel) = nullptr;
     void (*noteOff)(uint8_t note, uint8_t channel) = nullptr;
+    void (*controlChange)(uint8_t cc, uint8_t value, uint8_t channel) = nullptr;
     // Returns a value in [0, 100).
     uint8_t (*randomPercent)() = nullptr;
     // Returns a value in [0, n).
@@ -338,6 +395,12 @@ class Engine
     // freeze checks that against what was actually played). 0 if unknown.
     uint32_t repeatLength(int ch) const;
 
+    // A modulator's value right now (0-1000) and where its rhythm is, for
+    // the screen.
+    uint16_t getModValue(int ch, int mod) const;
+    uint8_t getModStep(int ch, int mod) const;
+    uint8_t getModRotation(int ch, int mod) const; // including auto-rotation
+
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
     uint32_t getChangeCount() const { return changeCount; }
@@ -373,6 +436,13 @@ class Engine
         uint8_t openNotes[kMaxVoices] = {};
         uint8_t openMidiChannel = 1;
         uint16_t gateRemaining = 0;
+
+        struct ModState
+        {
+            uint32_t lastStep = 0xFFFFFFFFu; // last modulator step seen
+            uint16_t held = 0;               // stepped / random value
+            int16_t lastCc = -1;             // last CC value sent
+        } modState[kModsPerChannel];
     };
 
     void lock() const;
@@ -386,6 +456,9 @@ class Engine
     uint8_t nextSeqNotes(Channel& c, uint8_t* notes);
     uint8_t nextGeneratedNotes(Channel& c, uint8_t* notes);
     bool rollChord(const Channel& c);
+    uint16_t modValue(const Channel& c, int k) const;
+    uint8_t modRotationAt(const Mod& m, uint32_t t) const;
+    void updateMods(Channel& c);
     Key keyFor(const Expression& x, const Key& global) const;
     Key seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const;
     uint8_t seqNote(const Channel& c, uint8_t listNote) const;

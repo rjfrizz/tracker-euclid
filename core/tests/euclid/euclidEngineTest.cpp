@@ -742,8 +742,142 @@ static void testSeqChordEntries()
     CHECK((playSeq(e, 2) == std::vector<uint8_t>{36, 40, 43, 50, 53, 57, 60})); // D F A C
 }
 
+struct CcEvent
+{
+    uint8_t cc, value, channel;
+};
+static std::vector<CcEvent> ccs;
+static std::vector<uint8_t> velocitiesHeard;
+static void onNoteRecord(uint8_t n, uint8_t v, uint8_t ch)
+{
+    velocitiesHeard.push_back(v);
+    onNote(n, v, ch);
+}
+static void onCc(uint8_t cc, uint8_t value, uint8_t ch) { ccs.push_back({cc, value, ch}); }
+
+static Engine makeModEngine(Mod m, uint8_t velocity = 60)
+{
+    Output o;
+    o.noteOn = onNoteRecord;
+    o.noteOff = offNote;
+    o.controlChange = onCc;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine e;
+    e.init(o);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    Expression x;
+    x.enabled = true;
+    x.velocity = velocity;
+    x.mod[0] = m;
+    e.setExpression(0, x);
+    return e;
+}
+
+static void testAccentOnVelocity()
+{
+    reset();
+    velocitiesHeard.clear();
+    Mod m;
+    m.dest = ModDest::velocity;
+    m.shape = ModShape::accent;
+    m.amount = 50; // +63
+    m.steps = 4;
+    m.pulses = 1;
+    Engine e = makeModEngine(m);
+    e.start();
+    run(e, 48 * 8);
+    e.stop();
+    CHECK((velocitiesHeard == std::vector<uint8_t>{123, 60, 60, 60, 123, 60, 60, 60}));
+}
+
+static void testAccentOnPitchIsAnOctave()
+{
+    reset();
+    Mod m;
+    m.dest = ModDest::pitch;
+    m.shape = ModShape::accent;
+    m.amount = 50; // +12 semitones
+    m.steps = 2;
+    m.pulses = 1;
+    Engine e = makeModEngine(m);
+    e.start();
+    run(e, 48 * 4);
+    e.stop();
+    CHECK((playedNotes() == std::vector<uint8_t>{72, 60, 72, 60}));
+}
+
+static void testAutoRotate()
+{
+    Mod m;
+    m.dest = ModDest::velocity;
+    m.steps = 4;
+    m.pulses = 1;
+    m.autoRotate = 1; // one step later every bar
+    Engine e = makeModEngine(m);
+    e.start();
+    CHECK(e.getModRotation(0, 0) == 0);
+    run(e, kMicroStepsPerBar);
+    CHECK(e.getModRotation(0, 0) == 1);
+    run(e, kMicroStepsPerBar * 3);
+    CHECK(e.getModRotation(0, 0) == 0); // wrapped after 4 bars
+    e.stop();
+}
+
+static void testEnvelopeDecays()
+{
+    Mod m;
+    m.dest = ModDest::gate;
+    m.shape = ModShape::envelope;
+    m.steps = 4;
+    m.pulses = 1;
+    m.length = 2; // falls to nothing over two 1/16 steps
+    Engine e = makeModEngine(m);
+    e.start();
+    run(e, 1); // just past the pulse
+    uint16_t a = e.getModValue(0, 0);
+    run(e, 47);
+    uint16_t b = e.getModValue(0, 0); // half way
+    run(e, 48);
+    uint16_t c = e.getModValue(0, 0); // gone
+    e.stop();
+    CHECK(a > 980);
+    CHECK(b == 500);
+    CHECK(c == 0);
+}
+
+static void testCcSquareLfo()
+{
+    reset();
+    ccs.clear();
+    Mod m;
+    m.dest = ModDest::cc;
+    m.shape = ModShape::square;
+    m.amount = 100;
+    m.length = 4; // period: one beat
+    m.cc = 74;
+    Engine e = makeModEngine(m);
+    Expression x = e.getExpression(0);
+    x.midiChannel = 5;
+    e.setExpression(0, x);
+    e.start();
+    run(e, 192 * 2); // two periods
+    e.stop();
+    // Only changes are sent: high, low, high, low.
+    CHECK(ccs.size() == 4);
+    CHECK(ccs.size() == 4 && ccs[0].value == 127 && ccs[1].value == 0 && ccs[0].cc == 74 && ccs[0].channel == 5);
+}
+
 int main()
 {
+    testAccentOnVelocity();
+    testAccentOnPitchIsAnOctave();
+    testAutoRotate();
+    testEnvelopeDecays();
+    testCcSquareLfo();
     testScaleUpWithTriads();
     testArps();
     testChordChance();

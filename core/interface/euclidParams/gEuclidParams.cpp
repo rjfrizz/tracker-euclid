@@ -20,6 +20,11 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
 const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch", "Freeze", "Layer" };
 
 
+const char* const kModNames[cEuclidParams::modRowCount] = {
+    "Destination", "Shape", "Amount", "Steps", "Pulses",
+    "Rotation", "Division", "Auto rotate", "Length", "CC number",
+};
+
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
 
 // Each line must fit the 360 px panel in the 17 px font: about 34 characters.
@@ -108,17 +113,15 @@ void cEuclidParams::setView(View v)
 {
     view = v;
     armedAction = SetAction::none;
-    // Params and Global are lists of settings; Notes and Sets are grids.
-    panelData.mode = (view == View::params || view == View::global) ? strEuclidPanelData::Mode::list
-                                                                    : strEuclidPanelData::Mode::grid;
+    // Params, Global and Mod are lists of settings; Notes and Sets are grids.
+    panelData.mode = isListView() ? strEuclidPanelData::Mode::list : strEuclidPanelData::Mode::grid;
     panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;
     const char* const* help = view == View::sets ? kSetsHelp : kNoteHelp;
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
         panelData.help[i] = help[i];
 
-    // Params and Global are both lists; point the panel at the right one.
-    const bool global = view == View::global;
-    panelData.rows = static_cast<uint8_t>(global ? static_cast<int>(globalCount) : static_cast<int>(paramCount));
+    // Point the panel at the right list.
+    panelData.rows = listRowCount();
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
     {
         panelData.names[i] = nullptr;
@@ -126,8 +129,21 @@ void cEuclidParams::setView(View v)
     }
     for (uint8_t i = 0; i < panelData.rows; i++)
     {
-        panelData.names[i] = global ? kGlobalNames[i] : kParamNames[i];
-        panelData.values[i] = global ? globalText[i] : valueText[i];
+        if (view == View::global)
+        {
+            panelData.names[i] = kGlobalNames[i];
+            panelData.values[i] = globalText[i];
+        }
+        else if (view == View::mod)
+        {
+            panelData.names[i] = kModNames[i];
+            panelData.values[i] = modText[i];
+        }
+        else
+        {
+            panelData.names[i] = kParamNames[i];
+            panelData.values[i] = valueText[i];
+        }
     }
     panelData.firstRow = 0;
     panelData.dimRows = 0;
@@ -140,9 +156,12 @@ void cEuclidParams::setView(View v)
         refreshNotes();
     else if (view == View::sets)
         refreshSets();
+    else if (view == View::mod)
+        refreshMod();
     else
         refreshGlobal();
     refreshChannels();
+    refreshRing();
     refreshPads();
     display.synchronizeRefresh();
 }
@@ -164,6 +183,8 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "Sets%s", hint);
     else if (view == View::global)
         snprintf(titleText, sizeof(titleText), "Global%s", hint);
+    else if (view == View::mod)
+        snprintf(titleText, sizeof(titleText), "Mod %c  Ch %d%s", 'A' + selectedMod, selectedChannel + 1, hint);
     else
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
                  view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);
@@ -172,7 +193,7 @@ void cEuclidParams::refreshTitle()
 
 void cEuclidParams::refreshFrame()
 {
-    panelData.focusRow = static_cast<int8_t>(view == View::global ? selectedGlobal : selectedParam);
+    panelData.focusRow = static_cast<int8_t>(focusedRow());
     panelData.cursorCell = static_cast<int8_t>(view == View::sets ? setCursor : noteCursor);
     display.setControlData(panel, &panelData);
     display.refreshControl(panel);
@@ -245,11 +266,11 @@ void cEuclidParams::refreshParam(uint8_t param)
 uint32_t cEuclidParams::stagedRowMask() const
 {
     uint32_t mask = 0;
-    const uint8_t rows = view == View::global ? globalCount : (view == View::params ? paramCount : 0);
+    const uint8_t rows = listRowCount();
     for (uint8_t row = 0; row < rows; row++)
     {
         int staged = rowValue(row, false);
-        if (staged >= 0 && staged != rowValue(row, true))
+        if (staged != kNoValue && staged != rowValue(row, true))
             mask |= 1ul << row;
     }
     return mask;
@@ -508,6 +529,25 @@ void cEuclidParams::refreshRing()
 
     snprintf(ringText, sizeof(ringText), "E(%d,%d)", active.pulses, active.steps);
     ringData.centerText = ringText;
+
+    // On the Mod page the inner ring is the modulator's rhythm.
+    if (view == View::mod)
+    {
+        const euclid::Mod& m = euclidEngine.getExpression(ch).mod[selectedMod];
+        ringData.hasPending = m.dest != euclid::ModDest::off && euclid::modUsesPulses(m.shape);
+        ringData.pendingSteps = m.steps;
+        ringData.pendingPulses = m.pulses;
+        ringData.pendingRotation = euclidEngine.getModRotation(ch, selectedMod);
+        lastModRotation = ringData.pendingRotation;
+        snprintf(ringText2, sizeof(ringText2), "Mod %c: %s", 'A' + selectedMod, euclid::modDestName(m.dest));
+        ringData.centerText2 = ringText2;
+        display.setControlData(ring, &ringData);
+        display.refreshControl(ring);
+        lastPlayhead = ringData.playhead;
+        lastPending = hasPending;
+        lastRunning = running;
+        return;
+    }
 
     if (hasStaged)
     {
