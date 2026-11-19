@@ -166,6 +166,8 @@ const char* modDestName(ModDest d)
         case ModDest::chance: return "Chance";
         case ModDest::pitch: return "Pitch";
         case ModDest::cc: return "MIDI CC";
+        case ModDest::modAmount: return "Mod amount";
+        case ModDest::modRate: return "Mod rate";
         default: return "?";
     }
 }
@@ -174,20 +176,79 @@ const char* modShapeName(ModShape s)
 {
     switch (s)
     {
-        case ModShape::accent: return "Accent";
-        case ModShape::envelope: return "Envelope";
-        case ModShape::stepped: return "Stepped";
-        case ModShape::sine: return "Sine LFO";
-        case ModShape::triangle: return "Triangle LFO";
-        case ModShape::square: return "Square LFO";
-        case ModShape::random: return "Random LFO";
+        case ModShape::sine: return "Sine";
+        case ModShape::triangle: return "Triangle";
+        case ModShape::sawUp: return "Saw up";
+        case ModShape::sawDown: return "Saw down";
+        case ModShape::square: return "Square";
+        case ModShape::smoothRandom: return "Smooth random";
+        case ModShape::drift: return "Drift";
+        case ModShape::randomSteps: return "Random steps";
+        case ModShape::euclidAccent: return "Euclid accent";
+        case ModShape::euclidEnvelope: return "Euclid envelope";
+        case ModShape::euclidRandom: return "Euclid random";
         default: return "?";
     }
 }
 
-bool modUsesPulses(ModShape s)
+const char* modRateName(ModRate r)
 {
-    return s == ModShape::accent || s == ModShape::envelope || s == ModShape::stepped;
+    switch (r)
+    {
+        case ModRate::r1_16: return "1/16";
+        case ModRate::r1_8: return "1/8";
+        case ModRate::r1_4: return "1/4";
+        case ModRate::r1_2: return "1/2";
+        case ModRate::bar1: return "1 bar";
+        case ModRate::bar2: return "2 bars";
+        case ModRate::bar4: return "4 bars";
+        case ModRate::bar8: return "8 bars";
+        case ModRate::bar16: return "16 bars";
+        case ModRate::bar32: return "32 bars";
+        case ModRate::bar64: return "64 bars";
+        default: return "?";
+    }
+}
+
+uint32_t modRateToMicroSteps(ModRate r)
+{
+    const uint32_t bar = kMicroStepsPerBar;
+    switch (r)
+    {
+        case ModRate::r1_16: return bar / 16;
+        case ModRate::r1_8: return bar / 8;
+        case ModRate::r1_4: return bar / 4;
+        case ModRate::r1_2: return bar / 2;
+        case ModRate::bar2: return bar * 2;
+        case ModRate::bar4: return bar * 4;
+        case ModRate::bar8: return bar * 8;
+        case ModRate::bar16: return bar * 16;
+        case ModRate::bar32: return bar * 32;
+        case ModRate::bar64: return bar * 64;
+        default: return bar;
+    }
+}
+
+ModRate modRateNearest(uint32_t microSteps)
+{
+    ModRate best = ModRate::bar1;
+    uint32_t bestError = 0xFFFFFFFFu;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(ModRate::count); i++)
+    {
+        uint32_t p = modRateToMicroSteps(static_cast<ModRate>(i));
+        uint32_t error = p > microSteps ? p - microSteps : microSteps - p;
+        if (error < bestError)
+        {
+            bestError = error;
+            best = static_cast<ModRate>(i);
+        }
+    }
+    return best;
+}
+
+bool isEuclidShape(ModShape s)
+{
+    return s == ModShape::euclidAccent || s == ModShape::euclidEnvelope || s == ModShape::euclidRandom;
 }
 
 uint8_t freezeLengthBars(FreezeLength f)
@@ -334,8 +395,12 @@ Expression Engine::clampExpression(const Expression& e) const
         if (m.dest >= ModDest::count)
             m.dest = ModDest::off;
         if (m.shape >= ModShape::count)
-            m.shape = ModShape::accent;
+            m.shape = ModShape::sine;
         m.amount = clampValue<int8_t>(m.amount, -100, 100);
+        if (m.rate >= ModRate::count)
+            m.rate = ModRate::bar1;
+        m.phase = clampValue<uint8_t>(m.phase, 0, 99);
+        m.target = static_cast<uint8_t>(m.target % kModsPerChannel);
         m.steps = clampValue<uint8_t>(m.steps, 1, kMaxSteps);
         m.pulses = clampValue<uint8_t>(m.pulses, 0, m.steps);
         m.rotation = m.rotation % m.steps;
@@ -378,9 +443,10 @@ bool sameRhythm(const Rhythm& a, const Rhythm& b)
 // Mute is left out: it never goes through staging.
 bool sameMod(const Mod& a, const Mod& b)
 {
-    return a.dest == b.dest && a.shape == b.shape && a.amount == b.amount && a.steps == b.steps &&
-           a.pulses == b.pulses && a.rotation == b.rotation && a.division == b.division &&
-           a.autoRotate == b.autoRotate && a.length == b.length && a.cc == b.cc;
+    return a.dest == b.dest && a.shape == b.shape && a.amount == b.amount && a.rate == b.rate &&
+           a.phase == b.phase && a.target == b.target && a.steps == b.steps && a.pulses == b.pulses &&
+           a.rotation == b.rotation && a.division == b.division && a.autoRotate == b.autoRotate &&
+           a.length == b.length && a.cc == b.cc;
 }
 
 bool sameExpression(const Expression& a, const Expression& b)
@@ -477,8 +543,7 @@ void Engine::start()
         if (c.pendingDirty)
             applyPending(c);
         resetChannelPosition(c);
-        for (auto& m : c.modState)
-            m = Channel::ModState();
+        resetMods(c);
     }
     launchCounter = 0;
     playTime = 0;
@@ -783,25 +848,24 @@ void Engine::triggerStep(Channel& c)
     if (!c.expr.enabled || c.expr.muted || !outputEnabled)
         return;
 
-    // Modulators add to velocity, gate, chance and pitch.
+    // Modulators add to velocity, gate, chance and pitch (their values are
+    // worked out once per micro-step in updateMods).
     int velocity = c.expr.velocity;
     int gatePercent = c.expr.gate;
     int chance = c.expr.probability;
     int pitch = 0;
     for (int k = 0; k < kModsPerChannel; k++)
     {
-        const Mod& m = c.expr.mod[k];
-        if (m.dest == ModDest::off || m.dest == ModDest::cc)
-            continue;
-        const int v = modValue(c, k); // 0-1000
-        switch (m.dest)
+        const int v = c.modState[k].value;    // -1000..1000
+        const int a = c.modEffectiveAmount[k]; // percent
+        switch (c.expr.mod[k].dest)
         {
-            case ModDest::velocity: velocity += m.amount * 127 * v / 100000; break;
-            case ModDest::gate: gatePercent += m.amount * v / 1000; break;
-            case ModDest::chance: chance += m.amount * v / 1000; break;
+            case ModDest::velocity: velocity += a * 127 * v / 100000; break;
+            case ModDest::gate: gatePercent += a * v / 1000; break;
+            case ModDest::chance: chance += a * v / 1000; break;
             case ModDest::pitch:
             {
-                int semis = m.amount * 24 * v;
+                int semis = a * 24 * v;
                 pitch += (semis + (semis >= 0 ? 50000 : -50000)) / 100000;
                 break;
             }
@@ -868,98 +932,220 @@ uint8_t Engine::modRotationAt(const Mod& m, uint32_t t) const
     return static_cast<uint8_t>(rot % m.steps);
 }
 
-// 0-1000 at the engine's current time.
-uint16_t Engine::modValue(const Channel& c, int k) const
+int Engine::randomLevel()
 {
-    const Mod& m = c.expr.mod[k];
-    const uint32_t t = playTime;
-    const uint32_t stepLen = divisionToMicroSteps(m.division);
-    const uint32_t step = t / stepLen;
-    const uint32_t phase = t % stepLen;
-    const uint8_t rot = modRotationAt(m, t);
-    const uint8_t index = static_cast<uint8_t>(step % m.steps);
-
-    switch (m.shape)
-    {
-        case ModShape::accent: return isPulse(m.steps, m.pulses, rot, index) ? 1000 : 0;
-        case ModShape::envelope:
-        {
-            // The most recent pulse within the decay, counting back.
-            const uint32_t decay = static_cast<uint32_t>(m.length) * stepLen;
-            for (uint32_t back = 0; back < m.length && back <= step; back++)
-            {
-                uint8_t i = static_cast<uint8_t>((step - back) % m.steps);
-                if (isPulse(m.steps, m.pulses, rot, i))
-                {
-                    uint32_t since = back * stepLen + phase;
-                    return static_cast<uint16_t>(1000 * (decay - since) / decay);
-                }
-            }
-            return 0;
-        }
-        case ModShape::stepped:
-        case ModShape::random: return c.modState[k].held;
-        default: break;
-    }
-
-    // LFOs: a period of `length` steps.
-    const uint32_t period = static_cast<uint32_t>(m.length) * stepLen;
-    const uint32_t ph = static_cast<uint32_t>((static_cast<uint64_t>(t % period) * 1000) / period);
-    switch (m.shape)
-    {
-        case ModShape::sine:
-            return static_cast<uint16_t>(500.0f - 500.0f * cosf(6.2831853f * static_cast<float>(ph) / 1000.0f));
-        case ModShape::triangle: return static_cast<uint16_t>(ph < 500 ? ph * 2 : (1000 - ph) * 2);
-        case ModShape::square: return ph < 500 ? 1000 : 0;
-        default: return 0;
-    }
+    return out.randomBelow ? (static_cast<int>(out.randomBelow(201)) - 100) * 10 : 0;
 }
 
-// Once per micro-step: new random values on step boundaries, and CCs.
-void Engine::updateMods(Channel& c)
+namespace
+{
+uint32_t phaseOffset(const Mod& m)
+{
+    return static_cast<uint32_t>((static_cast<uint64_t>(m.phase) << 32) / 100);
+}
+} // namespace
+
+void Engine::resetMods(Channel& c)
 {
     for (int k = 0; k < kModsPerChannel; k++)
     {
-        const Mod& m = c.expr.mod[k];
-        if (m.dest == ModDest::off)
-            continue;
         auto& st = c.modState[k];
+        st = Channel::ModState();
+        st.phase = phaseOffset(c.expr.mod[k]);
+        st.to = static_cast<int16_t>(randomLevel());
+        st.from = st.to;
+        c.lastCc[k] = -1;
+        c.modEffectiveAmount[k] = c.expr.mod[k].amount;
+    }
+}
 
-        const uint32_t step = playTime / divisionToMicroSteps(m.division);
-        if (step != st.lastStep)
+// Once per micro-step: moves every modulator on, works out its value, and
+// sends CCs.
+void Engine::updateMods(Channel& c)
+{
+    // Modulators aimed at other modulators, from their last values: a
+    // depth from 0 to twice the amount set, a speed from half to double.
+    int depth[kModsPerChannel];
+    int speed[kModsPerChannel];
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        depth[k] = 1000;
+        speed[k] = 1000;
+    }
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        const Mod& m = c.expr.mod[k];
+        if ((m.dest != ModDest::modAmount && m.dest != ModDest::modRate) || m.target == k)
+            continue;
+        const int amount = m.amount * c.modState[k].value / 100; // -1000..1000
+        if (m.dest == ModDest::modAmount)
+            depth[m.target] += amount;
+        else
+            speed[m.target] = amount >= 0 ? speed[m.target] * (1000 + amount) / 1000
+                                          : speed[m.target] * (1000 + amount / 2) / 1000;
+    }
+
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        const Mod& m = c.expr.mod[k];
+        auto& st = c.modState[k];
+        c.modEffectiveAmount[k] =
+          static_cast<int16_t>(m.amount * clampValue<int>(depth[k], 0, 2000) / 1000);
+        if (m.dest == ModDest::off)
         {
-            st.lastStep = step;
-            bool newValue = m.shape == ModShape::random ||
-                            (m.shape == ModShape::stepped &&
-                             isPulse(m.steps, m.pulses, modRotationAt(m, playTime),
-                                     static_cast<uint8_t>(step % m.steps)));
-            if (newValue)
-                st.held = static_cast<uint16_t>(out.randomBelow ? out.randomBelow(101) * 10 : 0);
+            st.value = 0;
+            continue;
         }
 
-        // CCs follow the value, sent only when it changes and at most every
-        // half 1/16 step so they don't crowd the MIDI port.
-        if (m.dest == ModDest::cc && playTime % 24 == 0 && c.expr.enabled && !c.expr.muted && outputEnabled)
+        if (isEuclidShape(m.shape))
         {
-            int v = modValue(c, k) * (m.amount >= 0 ? m.amount : -m.amount) * 127 / 100000;
-            if (m.amount < 0)
-                v = 127 - v;
-            v = clampValue<int>(v, 0, 127);
-            if (v != st.lastCc)
+            const uint32_t stepLen = divisionToMicroSteps(m.division);
+            const uint32_t step = playTime / stepLen;
+            const uint32_t into = playTime % stepLen;
+            const uint8_t rot = modRotationAt(m, playTime);
+            const uint8_t index = static_cast<uint8_t>(step % m.steps);
+            const bool pulse = isPulse(m.steps, m.pulses, rot, index);
+
+            if (m.shape == ModShape::euclidAccent)
             {
-                st.lastCc = static_cast<int16_t>(v);
-                if (out.controlChange)
-                    out.controlChange(m.cc, static_cast<uint8_t>(v), c.expr.midiChannel);
+                st.value = pulse ? 1000 : 0;
             }
+            else if (m.shape == ModShape::euclidRandom)
+            {
+                if (step != st.lastStep && pulse)
+                    st.value = static_cast<int16_t>(out.randomBelow ? out.randomBelow(101) * 10 : 0);
+            }
+            else
+            {
+                // The latest pulse within the decay, counting back.
+                const uint32_t decay = static_cast<uint32_t>(m.length) * stepLen;
+                st.value = 0;
+                for (uint32_t back = 0; back < m.length && back <= step; back++)
+                {
+                    uint8_t i = static_cast<uint8_t>((step - back) % m.steps);
+                    if (isPulse(m.steps, m.pulses, rot, i))
+                    {
+                        uint32_t since = back * stepLen + into;
+                        st.value = static_cast<int16_t>(1000 * (decay - since) / decay);
+                        break;
+                    }
+                }
+            }
+            st.lastStep = step;
+            continue;
+        }
+
+        // Smooth shapes: one cycle per `rate`. At normal speed the position
+        // comes straight from the bar grid, so it never drifts; when another
+        // modulator changes the speed it's moved on step by step instead.
+        const uint32_t period = modRateToMicroSteps(m.rate);
+        uint32_t cycle;
+        if (speed[k] == 1000)
+        {
+            uint64_t pos = static_cast<uint64_t>(playTime % period) << 32;
+            st.phase = phaseOffset(m) + static_cast<uint32_t>(pos / period);
+            cycle = playTime / period;
+            // The offset can push the position past the end of a cycle.
+            if (st.phase < phaseOffset(m))
+                cycle++;
+        }
+        else
+        {
+            const uint32_t step =
+              static_cast<uint32_t>(((static_cast<uint64_t>(1) << 32) / period) * speed[k] / 1000);
+            const uint32_t before = st.phase;
+            st.phase += step;
+            cycle = st.cycle + (st.phase < before ? 1 : 0);
+        }
+
+        if (cycle != st.cycle)
+        {
+            st.cycle = cycle;
+            st.from = st.to;
+            if (m.shape == ModShape::drift)
+            {
+                int next = st.to + (out.randomBelow ? (static_cast<int>(out.randomBelow(81)) - 40) * 10 : 0);
+                st.to = static_cast<int16_t>(clampValue<int>(next, -1000, 1000));
+            }
+            else
+            {
+                st.to = static_cast<int16_t>(randomLevel());
+            }
+        }
+
+        const float f = static_cast<float>(st.phase) / 4294967296.0f; // 0..1
+        float v = 0.0f;
+        switch (m.shape)
+        {
+            case ModShape::sine: v = sinf(6.2831853f * f); break;
+            case ModShape::triangle: v = f < 0.25f ? 4.0f * f : (f < 0.75f ? 2.0f - 4.0f * f : 4.0f * f - 4.0f); break;
+            case ModShape::sawUp: v = 2.0f * f - 1.0f; break;
+            case ModShape::sawDown: v = 1.0f - 2.0f * f; break;
+            case ModShape::square: v = f < 0.5f ? 1.0f : -1.0f; break;
+            case ModShape::randomSteps: v = st.to / 1000.0f; break;
+            case ModShape::smoothRandom:
+            case ModShape::drift:
+            {
+                float glide = 0.5f - 0.5f * cosf(3.14159265f * f);
+                v = (st.from + (st.to - st.from) * glide) / 1000.0f;
+                break;
+            }
+            default: break;
+        }
+        st.value = static_cast<int16_t>(v * 1000.0f);
+    }
+
+    // CCs: modulators on the same CC number add up. Smooth shapes swing
+    // around the middle (64), Euclidean ones push up from 0 (or down from
+    // 127 with a negative amount). Sent only when the value changes, at most
+    // every half 1/16 step so they don't crowd the MIDI port.
+    if (playTime % 24 != 0 || !c.expr.enabled || c.expr.muted || !outputEnabled)
+        return;
+    for (int k = 0; k < kModsPerChannel; k++)
+    {
+        const Mod& m = c.expr.mod[k];
+        if (m.dest != ModDest::cc)
+            continue;
+        bool first = true;
+        for (int j = 0; j < k; j++)
+            if (c.expr.mod[j].dest == ModDest::cc && c.expr.mod[j].cc == m.cc)
+                first = false;
+        if (!first)
+            continue;
+
+        bool anySmooth = false;
+        int sum = 0;
+        for (int j = k; j < kModsPerChannel; j++)
+        {
+            const Mod& o = c.expr.mod[j];
+            if (o.dest != ModDest::cc || o.cc != m.cc)
+                continue;
+            const int a = c.modEffectiveAmount[j];
+            const int v = c.modState[j].value;
+            if (isEuclidShape(o.shape))
+                sum += a * 127 * v / 100000;
+            else
+            {
+                anySmooth = true;
+                sum += a * 63 * v / 100000;
+            }
+        }
+        const int base = anySmooth ? 64 : (c.modEffectiveAmount[k] < 0 ? 127 : 0);
+        const int value = clampValue<int>(base + sum, 0, 127);
+        if (value != c.lastCc[k])
+        {
+            c.lastCc[k] = static_cast<int16_t>(value);
+            if (out.controlChange)
+                out.controlChange(m.cc, static_cast<uint8_t>(value), c.expr.midiChannel);
         }
     }
 }
 
-uint16_t Engine::getModValue(int ch, int k) const
+int16_t Engine::getModValue(int ch, int k) const
 {
     if (!validChannel(ch) || k < 0 || k >= kModsPerChannel)
         return 0;
-    return modValue(channels[ch], k);
+    return channels[ch].modState[k].value;
 }
 
 uint8_t Engine::getModStep(int ch, int k) const

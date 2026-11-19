@@ -66,6 +66,9 @@ static void fill(Engine& e)
             m.dest = static_cast<ModDest>((ch + k) % static_cast<int>(ModDest::count));
             m.shape = static_cast<ModShape>((ch * 2 + k) % static_cast<int>(ModShape::count));
             m.amount = static_cast<int8_t>(ch * 25 - 100 + k);
+            m.rate = static_cast<ModRate>((ch + k * 3) % static_cast<int>(ModRate::count));
+            m.phase = static_cast<uint8_t>(ch * 10 + k);
+            m.target = static_cast<uint8_t>((k + 1) % kModsPerChannel);
             m.steps = static_cast<uint8_t>(3 + ch + k);
             m.pulses = static_cast<uint8_t>(1 + k);
             m.rotation = static_cast<uint8_t>(k);
@@ -112,6 +115,8 @@ static bool sameSettings(const Engine& a, const Engine& b)
         for (int k = 0; k < kModsPerChannel; k++)
         {
             const Mod &ma = xa.mod[k], &mb = xb.mod[k];
+            if (ma.rate != mb.rate || ma.phase != mb.phase || ma.target != mb.target)
+                return false;
             if (ma.dest != mb.dest || ma.shape != mb.shape || ma.amount != mb.amount || ma.steps != mb.steps ||
                 ma.pulses != mb.pulses || ma.rotation != mb.rotation || ma.division != mb.division ||
                 ma.autoRotate != mb.autoRotate || ma.length != mb.length || ma.cc != mb.cc)
@@ -138,6 +143,49 @@ static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
     uint32_t crc = crc32(v3, kSetV3FileSize - 4);
     for (int i = 0; i < 4; i++)
         v3[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+}
+
+// A version 5 file, built by hand: two 12-byte modulators per channel.
+static void testLoadsVersion5()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t v6[kSetFileSize];
+    serializeSet(a, 2, v6, sizeof(v6));
+
+    uint8_t v5[kSetV5FileSize] = {};
+    std::memcpy(v5, v6, kSetHeaderSize);
+    v5[4] = 5;
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        uint8_t* p = v5 + kSetHeaderSize + ch * kSetV5ChannelSize;
+        std::memcpy(p, v6 + kSetHeaderSize + ch * kSetChannelSize, 48);
+        uint8_t* q = p + 48;
+        q[0] = static_cast<uint8_t>(ModDest::cc);
+        q[1] = static_cast<uint8_t>(ModShape::triangle);
+        q[2] = 128 + 40;
+        q[3] = 16;
+        q[4] = 4;
+        q[5] = 0;
+        q[6] = static_cast<uint8_t>(Division::d1_16);
+        q[7] = 0;
+        q[8] = 8; // 8 sixteenths: half a bar
+        q[9] = 71;
+    }
+    uint32_t crc = crc32(v5, kSetV5FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v5[kSetV5FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, v5, sizeof(v5)));
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        const Mod& m = b.getExpression(ch).mod[0];
+        CHECK(m.dest == ModDest::cc && m.shape == ModShape::triangle && m.amount == 40 && m.cc == 71);
+        CHECK(m.rate == ModRate::r1_2); // half a bar
+        CHECK(b.getExpression(ch).mod[2].dest == ModDest::off);
+        CHECK(b.getExpression(ch).chord == a.getExpression(ch).chord);
+    }
 }
 
 static void testLoadsVersion4()
@@ -278,7 +326,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 596);
+    CHECK(kSetFileSize == 852);
+    CHECK(kSetV5FileSize == 596);
     CHECK(kSetV4FileSize == 404);
     CHECK(kSetV3FileSize == 340);
     CHECK(kSetV1FileSize == 268);
@@ -359,6 +408,7 @@ int main()
     testLoadsVersion2();
     testLoadsVersion3();
     testLoadsVersion4();
+    testLoadsVersion5();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

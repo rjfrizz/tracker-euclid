@@ -100,10 +100,13 @@ void cEuclidParams::update()
         refreshPads();
     }
 
-    // Auto-rotation moves the modulator's ring.
-    if (view == View::mod &&
-        euclidEngine.getModRotation(selectedChannel, selectedMod) != lastModRotation)
-        refreshRing();
+    // Auto-rotation moves the modulator's ring; the meters follow the values.
+    if (view == View::mod)
+    {
+        if (euclidEngine.getModRotation(selectedChannel, selectedMod) != lastModRotation)
+            refreshRing();
+        updateModMeters(false);
+    }
 
     // Tempo can change outside this screen (external clock, other screens),
     // and a queued key change lands on the bar.
@@ -164,7 +167,8 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // Master opens the global key and tempo; the stock mixer is still
     // reachable from the stock screens' Master key.
     ip->setButtonObj(interfaceButtonMaster, buttonPress, functGlobalView);
-    // Fx 2 opens Mod; pressing it again switches between Mod A and B.
+    // Fx 1 opens Mod (the firmware calls this button Fx2); pressing it again
+    // moves on through Mod A-D.
     ip->setButtonObj(interfaceButtonFx2, buttonPress, functModView);
 
     // The first time this screen opens the SD card is ready, so this is
@@ -884,7 +888,7 @@ static void functDown()
 {
     if (EP->view == cEuclidParams::View::mod)
     {
-        if (EP->selectedModRow + 1 < cEuclidParams::modRowCount)
+        if (EP->selectedModRow + 1 < EP->modVisibleCount)
             EP->selectedModRow++;
         EP->refreshFrame();
         EP->refreshPads();
@@ -967,9 +971,11 @@ static void functParamsView()
 
 static void functModView()
 {
+    // Pressing Fx 1 again moves on to the next modulator: A, B, C, D, A...
     if (EP->view == cEuclidParams::View::mod)
     {
-        EP->selectedMod = static_cast<uint8_t>(1 - EP->selectedMod);
+        EP->selectedMod = static_cast<uint8_t>((EP->selectedMod + 1) % euclid::kModsPerChannel);
+        EP->selectedModRow = 0;
         EP->setView(cEuclidParams::View::mod);
         return;
     }

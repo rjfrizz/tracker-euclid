@@ -15,6 +15,7 @@ constexpr int16_t kPad = 12;
 constexpr int16_t kHeaderH = 44;
 constexpr int16_t kCellH = 54;
 constexpr int16_t kHelpLineH = 24;
+constexpr int16_t kMeterAreaH = 60;
 } // namespace
 
 cEuclidPanel::cEuclidPanel(strControlProperties* properties)
@@ -98,7 +99,8 @@ void cEuclidPanel::drawList()
     const Theme& theme = display.getTheme();
     const uint8_t rows = data->rows < strEuclidPanelData::kMaxRows ? data->rows
                                                                    : strEuclidPanelData::kMaxRows;
-    const uint8_t visible = static_cast<uint8_t>(height / kRowH);
+    const int16_t listHeight = data->meterCount > 0 ? height - kMeterAreaH : height;
+    const uint8_t visible = static_cast<uint8_t>(listHeight / kRowH);
 
     // Scroll just far enough to keep the focused row on screen.
     if (data->focusRow >= 0)
@@ -133,6 +135,8 @@ void cEuclidPanel::drawList()
                          data->values[i]);
     }
 
+    drawMeters(posY + listHeight + 8);
+
     // Small marks at the right edge when there are more rows above or below.
     if (rows > visible)
     {
@@ -144,6 +148,63 @@ void cEuclidPanel::drawList()
         if (data->firstRow + visible < rows)
             API_VERTEX2F(posX + width + 4, posY + visible * kRowH - 6);
         API_END();
+    }
+}
+
+// One short bar per modulator, labelled A-D: dim when off, outlined when
+// it's the one being edited.
+void cEuclidPanel::drawMeters(int16_t y)
+{
+    if (data->meterCount == 0)
+        return;
+    const Theme& theme = display.getTheme();
+    const uint8_t n = data->meterCount < strEuclidPanelData::kMaxMeters ? data->meterCount
+                                                                        : strEuclidPanelData::kMaxMeters;
+    const int16_t cellW = width / n;
+    const int16_t barH = 14;
+    const int16_t labelW = 20;
+
+    for (uint8_t i = 0; i < n; i++)
+    {
+        const int16_t x = posX + i * cellW;
+        const int16_t barX = x + labelW;
+        const int16_t barW = cellW - labelW - 10;
+        const int16_t barY = y + 14;
+
+        char label[2] = { static_cast<char>('A' + i), 0 };
+        API_COLOR(data->meterActive[i] ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        API_CMD_TEXT(x + 4, barY + barH / 2, fonts[kFontBold].handle, OPT_CENTERY, label);
+
+        fillRect(barX, barY, barW, barH, theme.frameColors[1]);
+        if (i == data->meterSelected)
+            drawOutline(barX - 2, barY - 2, barW + 4, barH + 4, theme.frameColors[0]);
+        if (!data->meterActive[i])
+            continue;
+
+        int16_t v = data->meterValue[i];
+        if (v > 1000)
+            v = 1000;
+        if (v < -1000)
+            v = -1000;
+        if (data->meterBipolar[i])
+        {
+            const int16_t mid = barX + barW / 2;
+            const int16_t len = static_cast<int16_t>(static_cast<int32_t>(barW / 2) * (v < 0 ? -v : v) / 1000);
+            if (len > 0)
+                fillRect(v < 0 ? mid - len : mid, barY, len, barH, theme.activeLabelsColors[0]);
+            API_COLOR(theme.inactiveLabelsColors[0]);
+            API_LINE_WIDTH(16);
+            API_BEGIN(LINES);
+            API_VERTEX2F(mid, barY - 2);
+            API_VERTEX2F(mid, barY + barH + 2);
+            API_END();
+        }
+        else
+        {
+            const int16_t len = static_cast<int16_t>(static_cast<int32_t>(barW) * (v < 0 ? 0 : v) / 1000);
+            if (len > 0)
+                fillRect(barX, barY, len, barH, theme.activeLabelsColors[0]);
+        }
     }
 }
 

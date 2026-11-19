@@ -151,17 +151,27 @@ struct Rhythm
 };
 
 // Expression settings: how the channel's notes are played.
-// Modulators: each one has its own Euclidean rhythm, which a shape turns
-// into a value from 0 to 1 that's added to a destination.
-//   accent   - full on pulses, nothing between
-//   envelope - jumps to full on a pulse, then falls to nothing over `length`
-//              of its steps
-//   stepped  - a new random value on each pulse, held until the next
-//   sine, triangle, square, random - LFOs with a period of `length` steps
-//              (random: a new value every step); pulses are ignored
-// The rhythm runs on its own grid from Play, rotating by one step every
-// `autoRotate` bars when that's set. Stored in set files, so only add at
-// the end of these enums.
+// Modulators. Each channel has four (A-D). A modulator's shape gives a value
+// that's scaled by its amount and added to its destination; any number can
+// share a destination, and they add up.
+//
+// Smooth shapes run on the bar grid from Play, one cycle per `rate`, offset
+// by `phase`, and swing both ways around the setting (-1..+1):
+//   sine, triangle, sawUp, sawDown, square
+//   smoothRandom - glides to a new random level each cycle
+//   drift        - wanders: each cycle's level is a small random step from
+//                  the last, glided to, so it never quite repeats
+//   randomSteps  - a new random level each cycle, held
+// Euclidean shapes use the modulator's own rhythm (steps, pulses, rotation,
+// division, auto-rotation every few bars) and only push one way (0..1):
+//   euclidAccent   - full on pulses, nothing between
+//   euclidEnvelope - jumps on a pulse, then falls away over `length` steps
+//   euclidRandom   - a new random level on each pulse, held
+// A modulator can also drive another one on the same channel (`target`):
+// its depth (modAmount: 0 to twice the amount set) or its speed (modRate:
+// half to twice as fast).
+//
+// Stored in set files, so only add at the end of these enums.
 enum class ModDest : uint8_t
 {
     off = 0,
@@ -169,41 +179,72 @@ enum class ModDest : uint8_t
     gate,
     chance,
     pitch, // amount -100..+100 = -24..+24 semitones
-    cc,    // sent on the channel's MIDI channel; a negative amount inverts it
+    cc,    // sent on the channel's MIDI channel; see Engine::updateMods
+    modAmount,
+    modRate,
     count
 };
 
 enum class ModShape : uint8_t
 {
-    accent = 0,
-    envelope,
-    stepped,
+    euclidAccent = 0,
+    euclidEnvelope,
+    euclidRandom,
     sine,
     triangle,
     square,
-    random,
+    randomSteps,
+    sawUp,
+    sawDown,
+    smoothRandom,
+    drift,
+    count
+};
+
+// Cycle lengths for the smooth shapes.
+enum class ModRate : uint8_t
+{
+    r1_16 = 0,
+    r1_8,
+    r1_4,
+    r1_2,
+    bar1,
+    bar2,
+    bar4,
+    bar8,
+    bar16,
+    bar32,
+    bar64,
     count
 };
 
 struct Mod
 {
     ModDest dest = ModDest::off;
-    ModShape shape = ModShape::accent;
+    ModShape shape = ModShape::sine;
     int8_t amount = 50; // -100..+100
+    ModRate rate = ModRate::bar1;
+    uint8_t phase = 0;  // percent of a cycle, 0-99
+    uint8_t target = 0; // modulator 0-3 for modAmount / modRate
+    // Euclidean shapes:
     uint8_t steps = 16;
     uint8_t pulses = 4;
     uint8_t rotation = 0;
     Division division = Division::d1_16;
     uint8_t autoRotate = 0; // bars between rotations: 0 (off), 1, 2, 4 or 8
-    uint8_t length = 4;     // its steps: envelope decay, LFO period
+    uint8_t length = 4;     // euclidEnvelope: decay, in its steps
     uint8_t cc = 74;        // MIDI CC number for ModDest::cc
 };
 
-constexpr int kModsPerChannel = 2;
+constexpr int kModsPerChannel = 4;
 
 const char* modDestName(ModDest d);
 const char* modShapeName(ModShape s);
-bool modUsesPulses(ModShape s);
+const char* modRateName(ModRate r);
+uint32_t modRateToMicroSteps(ModRate r);
+bool isEuclidShape(ModShape s);
+// The rate nearest to a period, in micro-steps (for older set files).
+ModRate modRateNearest(uint32_t microSteps);
 
 struct Expression
 {
@@ -395,9 +436,9 @@ class Engine
     // freeze checks that against what was actually played). 0 if unknown.
     uint32_t repeatLength(int ch) const;
 
-    // A modulator's value right now (0-1000) and where its rhythm is, for
-    // the screen.
-    uint16_t getModValue(int ch, int mod) const;
+    // A modulator's value right now (-1000..1000; Euclidean shapes 0..1000)
+    // and where its rhythm is, for the screen.
+    int16_t getModValue(int ch, int mod) const;
     uint8_t getModStep(int ch, int mod) const;
     uint8_t getModRotation(int ch, int mod) const; // including auto-rotation
 
@@ -439,10 +480,15 @@ class Engine
 
         struct ModState
         {
-            uint32_t lastStep = 0xFFFFFFFFu; // last modulator step seen
-            uint16_t held = 0;               // stepped / random value
-            int16_t lastCc = -1;             // last CC value sent
+            uint32_t phase = 0;   // smooth shapes: position in the cycle, 2^32 = one cycle
+            uint32_t cycle = 0;   // smooth shapes: cycles completed
+            uint32_t lastStep = 0xFFFFFFFFu; // Euclidean shapes: last step seen
+            int16_t from = 0;     // random shapes: level at the start of the cycle
+            int16_t to = 0;       // random shapes: level at the end of it
+            int16_t value = 0;    // -1000..1000, updated every micro-step
         } modState[kModsPerChannel];
+        int16_t lastCc[kModsPerChannel] = { -1, -1, -1, -1 }; // last value sent, by first modulator of a CC
+        int16_t modEffectiveAmount[kModsPerChannel] = {};     // amount after other modulators' depth
     };
 
     void lock() const;
@@ -456,9 +502,10 @@ class Engine
     uint8_t nextSeqNotes(Channel& c, uint8_t* notes);
     uint8_t nextGeneratedNotes(Channel& c, uint8_t* notes);
     bool rollChord(const Channel& c);
-    uint16_t modValue(const Channel& c, int k) const;
     uint8_t modRotationAt(const Mod& m, uint32_t t) const;
     void updateMods(Channel& c);
+    void resetMods(Channel& c);
+    int randomLevel(); // -1000..1000
     Key keyFor(const Expression& x, const Key& global) const;
     Key seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const;
     uint8_t seqNote(const Channel& c, uint8_t listNote) const;

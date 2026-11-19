@@ -20,11 +20,6 @@ const char* const kParamNames[cEuclidParams::paramCount] = {
 const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch", "Freeze", "Layer" };
 
 
-const char* const kModNames[cEuclidParams::modRowCount] = {
-    "Destination", "Shape", "Amount", "Steps", "Pulses",
-    "Rotation", "Division", "Auto rotate", "Length", "CC number",
-};
-
 const char* const kDirectionNames[] = { "Forward", "Backward", "Ping-pong", "Random" };
 
 // Each line must fit the 360 px panel in the 17 px font: about 34 characters.
@@ -120,8 +115,11 @@ void cEuclidParams::setView(View v)
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
         panelData.help[i] = help[i];
 
-    // Point the panel at the right list.
+    // Point the panel at the right list (the Mod page fills its own rows).
+    if (view == View::mod)
+        buildModRows();
     panelData.rows = listRowCount();
+    panelData.meterCount = 0;
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
     {
         panelData.names[i] = nullptr;
@@ -136,8 +134,7 @@ void cEuclidParams::setView(View v)
         }
         else if (view == View::mod)
         {
-            panelData.names[i] = kModNames[i];
-            panelData.values[i] = modText[i];
+            continue;
         }
         else
         {
@@ -534,7 +531,7 @@ void cEuclidParams::refreshRing()
     if (view == View::mod)
     {
         const euclid::Mod& m = euclidEngine.getExpression(ch).mod[selectedMod];
-        ringData.hasPending = m.dest != euclid::ModDest::off && euclid::modUsesPulses(m.shape);
+        ringData.hasPending = m.dest != euclid::ModDest::off && euclid::isEuclidShape(m.shape);
         ringData.pendingSteps = m.steps;
         ringData.pendingPulses = m.pulses;
         ringData.pendingRotation = euclidEngine.getModRotation(ch, selectedMod);

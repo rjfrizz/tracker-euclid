@@ -48,11 +48,15 @@ class cEuclidParams : public ModuleBase
     };
 
     // Rows of the Mod page, for the modulator being edited.
+    // Only the rows that apply to the modulator are shown (modVisible).
     enum ModRow : uint8_t
     {
         modRowDest = 0,
         modRowShape,
         modRowAmount,
+        modRowRate,
+        modRowPhase,
+        modRowTarget,
         modRowSteps,
         modRowPulses,
         modRowRotation,
@@ -73,8 +77,11 @@ class cEuclidParams : public ModuleBase
     }
     uint8_t listRowCount() const
     {
-        return view == View::global ? globalCount
-                                    : (view == View::mod ? modRowCount : (view == View::params ? paramCount : 0));
+        if (view == View::global)
+            return globalCount;
+        if (view == View::mod)
+            return modVisibleCount;
+        return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
     }
 
     enum GlobalParam : uint8_t
@@ -196,10 +203,19 @@ class cEuclidParams : public ModuleBase
     void setModRowValue(uint8_t row, int value);
     void changeMod(int16_t delta);
     uint32_t modDimMask() const;
-    uint8_t selectedMod = 0; // 0 = Mod A, 1 = Mod B
-    uint8_t selectedModRow = modRowDest;
-    char modText[modRowCount][16];
+    void buildModRows();
+    uint8_t modRowId(uint8_t index) const
+    {
+        return index < modVisibleCount ? modVisible[index] : static_cast<uint8_t>(modRowCount);
+    }
+    void updateModMeters(bool force);
+    uint8_t selectedMod = 0;    // 0-3: Mod A-D
+    uint8_t selectedModRow = 0; // index into modVisible
+    uint8_t modVisible[modRowCount];
+    uint8_t modVisibleCount = 1;
+    char modText[modRowCount][16]; // by visible index
     uint8_t lastModRotation = 0xFF;
+    uint32_t lastMeterMs = 0;
 
     View view = View::params;
     View viewBeforeSets = View::params; // where Back on Sets or Global returns to

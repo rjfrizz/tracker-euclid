@@ -1,14 +1,40 @@
-// The Mod page (Fx 2): the selected channel's two modulators. Each has its
-// own Euclidean rhythm and a shape that turns it into a value added to a
-// destination; see euclid::Mod.
+// The Mod page (Fx 1): the selected channel's four modulators, A-D. Smooth
+// shapes cycle at a musical rate; Euclidean shapes follow their own rhythm.
+// See euclid::Mod. Only the rows that apply to the modulator are shown.
 
 #include "euclidParams/euclidParams.h"
+
+#include "Platform.h"
+#include "TrackerImpl.h"
 
 #include <stdio.h>
 
 namespace
 {
 constexpr uint8_t kPads = 48;
+
+const char* const kModRowNames[cEuclidParams::modRowCount] = {
+    "Destination", "Shape",    "Amount",   "Rate",        "Phase",  "Target",    "Steps",
+    "Pulses",      "Rotation", "Division", "Auto rotate", "Decay",  "CC number",
+};
+
+// Shapes in the order shown: smooth ones first.
+const euclid::ModShape kShapeOrder[] = {
+    euclid::ModShape::sine,         euclid::ModShape::triangle,     euclid::ModShape::sawUp,
+    euclid::ModShape::sawDown,      euclid::ModShape::square,       euclid::ModShape::smoothRandom,
+    euclid::ModShape::drift,        euclid::ModShape::randomSteps,  euclid::ModShape::euclidAccent,
+    euclid::ModShape::euclidEnvelope, euclid::ModShape::euclidRandom,
+};
+constexpr int kShapeCount = sizeof(kShapeOrder) / sizeof(kShapeOrder[0]);
+static_assert(kShapeCount == static_cast<int>(euclid::ModShape::count), "every shape listed");
+
+int shapeIndex(euclid::ModShape s)
+{
+    for (int i = 0; i < kShapeCount; i++)
+        if (kShapeOrder[i] == s)
+            return i;
+    return 0;
+}
 
 // Auto-rotate choices, in the order shown: off, every 1, 2, 4, 8 bars.
 const uint8_t kAutoRotate[] = { 0, 1, 2, 4, 8 };
@@ -26,16 +52,59 @@ int clampInt(int v, int lo, int hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+bool targetsAMod(euclid::ModDest d)
+{
+    return d == euclid::ModDest::modAmount || d == euclid::ModDest::modRate;
+}
 } // namespace
 
-cEuclidParams::PadMap cEuclidParams::modPadMap(uint8_t row) const
+// The rows that apply to this modulator, in order.
+void cEuclidParams::buildModRows()
 {
     const euclid::Mod& m = euclidEngine.getExpression(selectedChannel).mod[selectedMod];
-    switch (row)
+    uint8_t n = 0;
+    modVisible[n++] = modRowDest;
+    if (m.dest != euclid::ModDest::off)
+    {
+        modVisible[n++] = modRowShape;
+        modVisible[n++] = modRowAmount;
+        if (targetsAMod(m.dest))
+            modVisible[n++] = modRowTarget;
+        if (euclid::isEuclidShape(m.shape))
+        {
+            modVisible[n++] = modRowSteps;
+            modVisible[n++] = modRowPulses;
+            modVisible[n++] = modRowRotation;
+            modVisible[n++] = modRowDivision;
+            modVisible[n++] = modRowAutoRotate;
+            if (m.shape == euclid::ModShape::euclidEnvelope)
+                modVisible[n++] = modRowLength;
+        }
+        else
+        {
+            modVisible[n++] = modRowRate;
+            modVisible[n++] = modRowPhase;
+        }
+        if (m.dest == euclid::ModDest::cc)
+            modVisible[n++] = modRowCc;
+    }
+    modVisibleCount = n;
+    if (selectedModRow >= modVisibleCount)
+        selectedModRow = static_cast<uint8_t>(modVisibleCount - 1);
+}
+
+cEuclidParams::PadMap cEuclidParams::modPadMap(uint8_t index) const
+{
+    const euclid::Mod& m = euclidEngine.getExpression(selectedChannel).mod[selectedMod];
+    switch (modRowId(index))
     {
         case modRowDest: return { PadMap::list, static_cast<uint8_t>(euclid::ModDest::count), 0, 0 };
-        case modRowShape: return { PadMap::list, static_cast<uint8_t>(euclid::ModShape::count), 0, 0 };
+        case modRowShape: return { PadMap::list, kShapeCount, 0, 0 };
         case modRowAmount: return { PadMap::level, kPads, -100, 100 };
+        case modRowRate: return { PadMap::list, static_cast<uint8_t>(euclid::ModRate::count), 0, 0 };
+        case modRowPhase: return { PadMap::level, kPads, 0, 99 };
+        case modRowTarget: return { PadMap::list, euclid::kModsPerChannel, 0, 0 };
         case modRowSteps: return { PadMap::list, euclid::kMaxSteps, 1, 0 };
         case modRowPulses: return { PadMap::list, static_cast<uint8_t>(m.steps + 1), 0, 0 };
         case modRowRotation: return { PadMap::list, m.steps, 0, 0 };
@@ -47,16 +116,19 @@ cEuclidParams::PadMap cEuclidParams::modPadMap(uint8_t row) const
     }
 }
 
-int cEuclidParams::modRowValue(uint8_t row, bool live) const
+int cEuclidParams::modRowValue(uint8_t index, bool live) const
 {
     const euclid::Expression x =
       live ? euclidEngine.getLiveExpression(selectedChannel) : euclidEngine.getExpression(selectedChannel);
     const euclid::Mod& m = x.mod[selectedMod];
-    switch (row)
+    switch (modRowId(index))
     {
         case modRowDest: return static_cast<int>(m.dest);
-        case modRowShape: return static_cast<int>(m.shape);
+        case modRowShape: return shapeIndex(m.shape);
         case modRowAmount: return m.amount;
+        case modRowRate: return static_cast<int>(m.rate);
+        case modRowPhase: return m.phase;
+        case modRowTarget: return m.target;
         case modRowSteps: return m.steps;
         case modRowPulses: return m.pulses;
         case modRowRotation: return m.rotation;
@@ -68,19 +140,26 @@ int cEuclidParams::modRowValue(uint8_t row, bool live) const
     }
 }
 
-void cEuclidParams::setModRowValue(uint8_t row, int v)
+void cEuclidParams::setModRowValue(uint8_t index, int v)
 {
     euclid::Expression x = euclidEngine.getExpression(selectedChannel);
     euclid::Mod& m = x.mod[selectedMod];
+    const uint8_t row = modRowId(index);
     switch (row)
     {
         case modRowDest:
             m.dest = static_cast<euclid::ModDest>(clampInt(v, 0, static_cast<int>(euclid::ModDest::count) - 1));
+            // Aimed at another modulator: not itself.
+            if (targetsAMod(m.dest) && m.target == selectedMod)
+                m.target = static_cast<uint8_t>((selectedMod + 1) % euclid::kModsPerChannel);
             break;
-        case modRowShape:
-            m.shape = static_cast<euclid::ModShape>(clampInt(v, 0, static_cast<int>(euclid::ModShape::count) - 1));
-            break;
+        case modRowShape: m.shape = kShapeOrder[clampInt(v, 0, kShapeCount - 1)]; break;
         case modRowAmount: m.amount = static_cast<int8_t>(clampInt(v, -100, 100)); break;
+        case modRowRate:
+            m.rate = static_cast<euclid::ModRate>(clampInt(v, 0, static_cast<int>(euclid::ModRate::count) - 1));
+            break;
+        case modRowPhase: m.phase = static_cast<uint8_t>(clampInt(v, 0, 99)); break;
+        case modRowTarget: m.target = static_cast<uint8_t>(clampInt(v, 0, euclid::kModsPerChannel - 1)); break;
         case modRowSteps:
             m.steps = static_cast<uint8_t>(clampInt(v, 1, euclid::kMaxSteps));
             if (m.pulses > m.steps)
@@ -100,6 +179,13 @@ void cEuclidParams::setModRowValue(uint8_t row, int v)
     }
     euclidEngine.setExpression(selectedChannel, x);
 
+    // Destination and Shape change which rows there are: stay on the row
+    // that was edited.
+    buildModRows();
+    for (uint8_t i = 0; i < modVisibleCount; i++)
+        if (modVisible[i] == row)
+            selectedModRow = i;
+
     refreshMod();
     refreshTitle();
     refreshChannels();
@@ -109,27 +195,16 @@ void cEuclidParams::setModRowValue(uint8_t row, int v)
 
 void cEuclidParams::changeMod(int16_t delta)
 {
-    const uint8_t row = selectedModRow;
+    const uint8_t row = modRowId(selectedModRow);
     const int step = delta > 0 ? 1 : -1;
     // Rows with long ranges follow the encoder's speed; lists move one at a time.
-    const bool fine = row == modRowAmount || row == modRowCc;
-    setModRowValue(row, modRowValue(row, false) + (fine ? delta : step));
+    const bool fine = row == modRowAmount || row == modRowCc || row == modRowPhase;
+    setModRowValue(selectedModRow, modRowValue(selectedModRow, false) + (fine ? delta : step));
 }
 
-// Rows that don't apply to the modulator's shape or destination are dimmed.
 uint32_t cEuclidParams::modDimMask() const
 {
-    const euclid::Mod& m = euclidEngine.getExpression(selectedChannel).mod[selectedMod];
-    uint32_t dim = 0;
-    if (m.dest == euclid::ModDest::off)
-        return ~(1ul << modRowDest) & ((1ul << modRowCount) - 1);
-    if (!euclid::modUsesPulses(m.shape))
-        dim |= (1ul << modRowPulses) | (1ul << modRowRotation) | (1ul << modRowAutoRotate);
-    if (m.shape == euclid::ModShape::accent || m.shape == euclid::ModShape::stepped)
-        dim |= 1ul << modRowLength;
-    if (m.dest != euclid::ModDest::cc)
-        dim |= 1ul << modRowCc;
-    return dim;
+    return 0; // rows that don't apply aren't shown at all
 }
 
 void cEuclidParams::refreshMod()
@@ -137,11 +212,20 @@ void cEuclidParams::refreshMod()
     if (view != View::mod)
         return;
 
-    const euclid::Mod& m = euclidEngine.getExpression(selectedChannel).mod[selectedMod];
-    for (uint8_t row = 0; row < modRowCount; row++)
+    buildModRows();
+    panelData.rows = modVisibleCount;
+    for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
     {
-        char* t = modText[row];
-        const size_t n = sizeof(modText[row]);
+        panelData.names[i] = nullptr;
+        panelData.values[i] = nullptr;
+    }
+
+    const euclid::Mod& m = euclidEngine.getExpression(selectedChannel).mod[selectedMod];
+    for (uint8_t i = 0; i < modVisibleCount; i++)
+    {
+        const uint8_t row = modVisible[i];
+        char* t = modText[i];
+        const size_t n = sizeof(modText[i]);
         switch (row)
         {
             case modRowDest: snprintf(t, n, "%s", euclid::modDestName(m.dest)); break;
@@ -152,6 +236,9 @@ void cEuclidParams::refreshMod()
                 else
                     snprintf(t, n, "%+d%%", m.amount);
                 break;
+            case modRowRate: snprintf(t, n, "%s", euclid::modRateName(m.rate)); break;
+            case modRowPhase: snprintf(t, n, "%d%%", m.phase); break;
+            case modRowTarget: snprintf(t, n, "Mod %c", 'A' + m.target); break;
             case modRowSteps: snprintf(t, n, "%d", m.steps); break;
             case modRowPulses: snprintf(t, n, "%d", m.pulses); break;
             case modRowRotation: snprintf(t, n, "%d", m.rotation); break;
@@ -166,9 +253,45 @@ void cEuclidParams::refreshMod()
             case modRowCc: snprintf(t, n, "CC %d", m.cc); break;
             default: t[0] = 0; break;
         }
+        panelData.names[i] = kModRowNames[row];
+        panelData.values[i] = t;
     }
 
-    panelData.dimRows = modDimMask();
+    panelData.dimRows = 0;
     panelData.stagedRows = stagedRowMask();
-    refreshFrame();
+    updateModMeters(true);
+}
+
+// The meters under the list: all four modulators, the edited one outlined.
+void cEuclidParams::updateModMeters(bool force)
+{
+    if (view != View::mod)
+        return;
+
+    const uint32_t now = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+    if (!force && now - lastMeterMs < 40)
+        return;
+
+    const euclid::Expression x = euclidEngine.getExpression(selectedChannel);
+    bool changed = force;
+    panelData.meterCount = euclid::kModsPerChannel;
+    panelData.meterSelected = static_cast<int8_t>(selectedMod);
+    for (int k = 0; k < euclid::kModsPerChannel; k++)
+    {
+        const bool active = x.mod[k].dest != euclid::ModDest::off;
+        const bool bipolar = !euclid::isEuclidShape(x.mod[k].shape);
+        int16_t v = active ? euclidEngine.getModValue(selectedChannel, k) : 0;
+        int diff = v - panelData.meterValue[k];
+        if (active != panelData.meterActive[k] || bipolar != panelData.meterBipolar[k] || diff > 15 || diff < -15)
+            changed = true;
+        panelData.meterActive[k] = active;
+        panelData.meterBipolar[k] = bipolar;
+        panelData.meterValue[k] = v;
+    }
+
+    if (changed)
+    {
+        lastMeterMs = now;
+        refreshFrame();
+    }
 }

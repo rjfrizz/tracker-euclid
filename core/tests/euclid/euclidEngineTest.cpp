@@ -783,7 +783,7 @@ static void testAccentOnVelocity()
     velocitiesHeard.clear();
     Mod m;
     m.dest = ModDest::velocity;
-    m.shape = ModShape::accent;
+    m.shape = ModShape::euclidAccent;
     m.amount = 50; // +63
     m.steps = 4;
     m.pulses = 1;
@@ -799,7 +799,7 @@ static void testAccentOnPitchIsAnOctave()
     reset();
     Mod m;
     m.dest = ModDest::pitch;
-    m.shape = ModShape::accent;
+    m.shape = ModShape::euclidAccent;
     m.amount = 50; // +12 semitones
     m.steps = 2;
     m.pulses = 1;
@@ -816,6 +816,7 @@ static void testAutoRotate()
     m.dest = ModDest::velocity;
     m.steps = 4;
     m.pulses = 1;
+    m.shape = ModShape::euclidAccent;
     m.autoRotate = 1; // one step later every bar
     Engine e = makeModEngine(m);
     e.start();
@@ -831,18 +832,19 @@ static void testEnvelopeDecays()
 {
     Mod m;
     m.dest = ModDest::gate;
-    m.shape = ModShape::envelope;
+    m.shape = ModShape::euclidEnvelope;
     m.steps = 4;
     m.pulses = 1;
     m.length = 2; // falls to nothing over two 1/16 steps
     Engine e = makeModEngine(m);
     e.start();
-    run(e, 1); // just past the pulse
-    uint16_t a = e.getModValue(0, 0);
-    run(e, 47);
-    uint16_t b = e.getModValue(0, 0); // half way
+    // getModValue() is the value worked out for the micro-step just played.
+    run(e, 1); // on the pulse
+    int16_t a = e.getModValue(0, 0);
     run(e, 48);
-    uint16_t c = e.getModValue(0, 0); // gone
+    int16_t b = e.getModValue(0, 0); // one step later: half way
+    run(e, 48);
+    int16_t c = e.getModValue(0, 0); // two steps later: gone
     e.stop();
     CHECK(a > 980);
     CHECK(b == 500);
@@ -857,7 +859,7 @@ static void testCcSquareLfo()
     m.dest = ModDest::cc;
     m.shape = ModShape::square;
     m.amount = 100;
-    m.length = 4; // period: one beat
+    m.rate = ModRate::r1_4; // one cycle a beat
     m.cc = 74;
     Engine e = makeModEngine(m);
     Expression x = e.getExpression(0);
@@ -866,13 +868,128 @@ static void testCcSquareLfo()
     e.start();
     run(e, 192 * 2); // two periods
     e.stop();
-    // Only changes are sent: high, low, high, low.
+    // Only changes are sent: high, low, high, low, swinging around 64.
     CHECK(ccs.size() == 4);
-    CHECK(ccs.size() == 4 && ccs[0].value == 127 && ccs[1].value == 0 && ccs[0].cc == 74 && ccs[0].channel == 5);
+    CHECK(ccs.size() == 4 && ccs[0].value == 127 && ccs[1].value == 1 && ccs[0].cc == 74 && ccs[0].channel == 5);
+}
+
+static void testSineIsBipolarAndBarLocked()
+{
+    Mod m;
+    m.dest = ModDest::velocity;
+    m.shape = ModShape::sine;
+    m.rate = ModRate::bar1;
+    Engine e = makeModEngine(m);
+    e.start();
+    run(e, kMicroStepsPerBar / 4 + 1); // a quarter of the way: the top
+    int16_t top = e.getModValue(0, 0);
+    run(e, kMicroStepsPerBar / 2); // three quarters: the bottom
+    int16_t bottom = e.getModValue(0, 0);
+    run(e, kMicroStepsPerBar / 4); // a bar later: back to the start
+    int16_t again = e.getModValue(0, 0);
+    e.stop();
+    CHECK(top > 990);
+    CHECK(bottom < -990);
+    CHECK(again > -20 && again < 20);
+}
+
+static void testPhaseOffset()
+{
+    Mod m;
+    m.dest = ModDest::velocity;
+    m.shape = ModShape::sawUp;
+    m.rate = ModRate::bar1;
+    m.phase = 50; // half a cycle on
+    Engine e = makeModEngine(m);
+    e.start();
+    run(e, 1);
+    int16_t v = e.getModValue(0, 0);
+    e.stop();
+    CHECK(v > -20 && v < 20); // a saw from -1 to 1, half way: 0
+}
+
+static void testModAmountScalesAnother()
+{
+    // Mod A: a full square on velocity. Mod B: a square on Mod A's depth.
+    Mod a;
+    a.dest = ModDest::velocity;
+    a.shape = ModShape::euclidAccent;
+    a.amount = 20; // +25 velocity on pulses
+    a.steps = 1;
+    a.pulses = 1; // every step
+    Engine e = makeModEngine(a);
+    Expression x = e.getExpression(0);
+    Mod& b = x.mod[1];
+    b.dest = ModDest::modAmount;
+    b.target = 0;
+    b.shape = ModShape::square;
+    b.amount = 100;
+    b.rate = ModRate::bar1; // first half of the bar +1 (depth x2), second half -1 (depth 0)
+    e.setExpression(0, x);
+
+    reset();
+    velocitiesHeard.clear();
+    e.start();
+    run(e, kMicroStepsPerBar);
+    e.stop();
+    // A note every 1/16: 16 in the bar.
+    CHECK(velocitiesHeard.size() == 16);
+    CHECK(velocitiesHeard.size() == 16 && velocitiesHeard[1] == 60 + 50); // depth doubled
+    CHECK(velocitiesHeard.size() == 16 && velocitiesHeard[12] == 60);     // depth 0
+}
+
+static void testModRateSpeedsAnotherUp()
+{
+    // Mod A: a 1-bar saw. Mod B, steady at +1, on Mod A's rate: twice as fast.
+    Mod a;
+    a.dest = ModDest::velocity;
+    a.shape = ModShape::sawUp;
+    a.rate = ModRate::bar1;
+    Engine e = makeModEngine(a);
+    Expression x = e.getExpression(0);
+    Mod& b = x.mod[1];
+    b.dest = ModDest::modRate;
+    b.target = 0;
+    b.shape = ModShape::euclidAccent; // always on: 1
+    b.steps = 1;
+    b.pulses = 1;
+    b.amount = 100;
+    e.setExpression(0, x);
+    e.start();
+    run(e, kMicroStepsPerBar / 2 + 2);
+    int16_t v = e.getModValue(0, 0); // half a bar at double speed: a whole cycle
+    e.stop();
+    CHECK(v < -950); // back at the start of the saw
+}
+
+static void testTwoModulatorsOnOneCcAddUp()
+{
+    reset();
+    ccs.clear();
+    Mod a;
+    a.dest = ModDest::cc;
+    a.shape = ModShape::square;
+    a.rate = ModRate::bar1;
+    a.amount = 50; // +-31
+    a.cc = 20;
+    Engine e = makeModEngine(a);
+    Expression x = e.getExpression(0);
+    x.mod[1] = a; // the same again: together +-63
+    e.setExpression(0, x);
+    e.start();
+    run(e, 24 * 2);
+    e.stop();
+    CHECK(!ccs.empty() && ccs[0].cc == 20 && ccs[0].value == 64 + 62);
+    CHECK(ccs.size() == 1); // one stream for the CC, not one per modulator
 }
 
 int main()
 {
+    testSineIsBipolarAndBarLocked();
+    testPhaseOffset();
+    testModAmountScalesAnother();
+    testModRateSpeedsAnotherUp();
+    testTwoModulatorsOnOneCcAddUp();
     testAccentOnVelocity();
     testAccentOnPitchIsAnOctave();
     testAutoRotate();

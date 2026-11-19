@@ -102,13 +102,16 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
             q[0] = static_cast<uint8_t>(m.dest);
             q[1] = static_cast<uint8_t>(m.shape);
             q[2] = static_cast<uint8_t>(m.amount + 128);
-            q[3] = m.steps;
-            q[4] = m.pulses;
-            q[5] = m.rotation;
-            q[6] = static_cast<uint8_t>(m.division);
-            q[7] = m.autoRotate;
-            q[8] = m.length;
-            q[9] = m.cc;
+            q[3] = static_cast<uint8_t>(m.rate);
+            q[4] = m.phase;
+            q[5] = m.target;
+            q[6] = m.steps;
+            q[7] = m.pulses;
+            q[8] = m.rotation;
+            q[9] = static_cast<uint8_t>(m.division);
+            q[10] = m.autoRotate;
+            q[11] = m.length;
+            q[12] = m.cc;
         }
     }
 
@@ -147,6 +150,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV4FileSize;
     }
     else if (version == 5)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV5ChannelSize;
+        fileSize = kSetV5FileSize;
+    }
+    else if (version == 6)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -229,14 +238,37 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             x.chord = enumOr(p[42], ChordType::count, ChordType::single);
             x.chordChance = p[43];
         }
-        if (version >= 5)
+        if (version >= 6)
         {
             for (int k = 0; k < kModsPerChannel; k++)
             {
                 const uint8_t* q = p + 48 + k * kSetModSize;
                 Mod& m = x.mod[k];
                 m.dest = enumOr(q[0], ModDest::count, ModDest::off);
-                m.shape = enumOr(q[1], ModShape::count, ModShape::accent);
+                m.shape = enumOr(q[1], ModShape::count, ModShape::sine);
+                m.amount = static_cast<int8_t>(static_cast<int>(q[2]) - 128);
+                m.rate = enumOr(q[3], ModRate::count, ModRate::bar1);
+                m.phase = q[4];
+                m.target = q[5];
+                m.steps = q[6];
+                m.pulses = q[7];
+                m.rotation = q[8];
+                m.division = enumOr(q[9], Division::count, Division::d1_16);
+                m.autoRotate = q[10];
+                m.length = q[11];
+                m.cc = q[12];
+            }
+        }
+        else if (version == 5)
+        {
+            // Two modulators; the shape codes are the same, and an LFO's
+            // period was `length` of its steps.
+            for (int k = 0; k < 2; k++)
+            {
+                const uint8_t* q = p + 48 + k * kSetV5ModSize;
+                Mod& m = x.mod[k];
+                m.dest = enumOr(q[0], ModDest::count, ModDest::off);
+                m.shape = enumOr(q[1], ModShape::count, ModShape::sine);
                 m.amount = static_cast<int8_t>(static_cast<int>(q[2]) - 128);
                 m.steps = q[3];
                 m.pulses = q[4];
@@ -245,6 +277,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
                 m.autoRotate = q[7];
                 m.length = q[8];
                 m.cc = q[9];
+                m.rate = modRateNearest(static_cast<uint32_t>(m.length) * divisionToMicroSteps(m.division));
             }
         }
 

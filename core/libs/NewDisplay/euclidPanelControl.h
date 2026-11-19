@@ -29,6 +29,15 @@ struct strEuclidPanelData
     // top visible row and is kept up to date by the control.
     uint8_t firstRow = 0;
 
+    // Meters along the bottom of a list (the Mod page): one per modulator,
+    // -1000..1000 (centred bar) or 0..1000 (from the left).
+    static constexpr uint8_t kMaxMeters = 4;
+    uint8_t meterCount = 0;
+    int8_t meterSelected = -1;
+    bool meterActive[kMaxMeters] = {};
+    bool meterBipolar[kMaxMeters] = {};
+    int16_t meterValue[kMaxMeters] = {};
+
     // Grid mode.
     const char* header = nullptr;
     uint8_t columns = 4;
@@ -58,6 +67,7 @@ class cEuclidPanel : public cDisplayControl
   private:
     void drawList();
     void drawGrid();
+    void drawMeters(int16_t y);
     void drawOutline(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
     void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
 
