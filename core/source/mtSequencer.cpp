@@ -99,8 +99,12 @@ void Sequencer::clearAllPatternSlots()
 AUDIO_CORE_RAM void Sequencer::tick(float intervalSeconds)
 {
     // EUCLID: the synth editor's SysEx goes out here, between notes, so the
-    // two never interleave on a port.
-    euclidSynth::pump(TrackerImpl::getInstance()->getPlatform()->getTimer()->micros());
+    // two never interleave on a port. The audio callback starts before
+    // TrackerImpl::init has set the platform (TrackerImpl::updateAudioBuffers
+    // checks for that too), so check before asking it the time.
+    Platform* platform = TrackerImpl::getInstance()->getPlatform();
+    if (platform != nullptr)
+        euclidSynth::pump(platform->getTimer()->micros());
 
     updateExternalClockTempo((seqtimesec_t)intervalSeconds);
 
