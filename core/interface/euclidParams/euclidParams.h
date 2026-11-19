@@ -45,6 +45,17 @@ class cEuclidParams : public ModuleBase
         sets,
         global,
         mod,
+        shift,
+    };
+
+    // The Shift page's settings rows (Fx 2 again switches to them).
+    enum ShiftRow : uint8_t
+    {
+        shiftRowOn = 0,
+        shiftRowLength,
+        shiftRowAdvance,
+        shiftRowUnits,
+        shiftRowCount
     };
 
     // Rows of the Mod page, for the modulator being edited.
@@ -70,9 +81,15 @@ class cEuclidParams : public ModuleBase
     // rowValue() for a row without a value.
     static constexpr int kNoValue = -10000;
 
-    bool isListView() const { return view == View::params || view == View::global || view == View::mod; }
+    bool isShiftSettings() const { return view == View::shift && shiftSettings; }
+    bool isListView() const
+    {
+        return view == View::params || view == View::global || view == View::mod || isShiftSettings();
+    }
     uint8_t focusedRow() const
     {
+        if (view == View::shift)
+            return selectedShiftRow;
         return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
     }
     uint8_t listRowCount() const
@@ -81,6 +98,8 @@ class cEuclidParams : public ModuleBase
             return globalCount;
         if (view == View::mod)
             return modVisibleCount;
+        if (isShiftSettings())
+            return shiftRowCount;
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
     }
 
@@ -203,6 +222,21 @@ class cEuclidParams : public ModuleBase
     void setModRowValue(uint8_t row, int value);
     void changeMod(int16_t delta);
     uint32_t modDimMask() const;
+    // Shift view (shiftEuclidParams.cpp).
+    void refreshShift();
+    PadMap shiftPadMap(uint8_t row) const;
+    int shiftRowValue(uint8_t row, bool live) const;
+    void setShiftRowValue(uint8_t row, int value);
+    void changeShift(int16_t delta);
+    void moveShiftCursor(int8_t delta);
+    void clearShiftStep(bool all);
+    bool shiftSettings = false; // the settings list rather than the steps
+    uint8_t selectedShiftRow = shiftRowOn;
+    uint8_t shiftCursor = 0;
+    int8_t lastShiftPlayed = -2;
+    char shiftCellText[euclid::kShiftSteps][6];
+    char shiftText[shiftRowCount][16];
+
     void buildModRows();
     uint8_t modRowId(uint8_t index) const
     {

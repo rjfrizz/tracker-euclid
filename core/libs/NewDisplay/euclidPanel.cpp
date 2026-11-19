@@ -237,7 +237,7 @@ void cEuclidPanel::drawGrid()
             drawOutline(x + 2, y + 4, cellW - 4, kCellH - 8, theme.frameColors[0]);
 
         const char* t = used && data->cellText[i] != nullptr ? data->cellText[i] : "-";
-        bool dim = !used || (data->dimCells & (1u << i));
+        bool dim = !used || (data->dimCells & (1ul << i));
         API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
         API_CMD_TEXT(x + cellW / 2, y + kCellH / 2, fonts[kFontLarge].handle, OPT_CENTER, t);
     }

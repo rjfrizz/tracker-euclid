@@ -390,6 +390,13 @@ Expression Engine::clampExpression(const Expression& e) const
     if (x.chord >= ChordType::count)
         x.chord = ChordType::single;
     x.chordChance = clampValue<uint8_t>(x.chordChance, 0, 100);
+    x.shift.length = clampValue<uint8_t>(x.shift.length, 1, kShiftSteps);
+    if (x.shift.advance >= ShiftAdvance::count)
+        x.shift.advance = ShiftAdvance::perStep;
+    if (x.shift.units >= ShiftUnits::count)
+        x.shift.units = ShiftUnits::semitones;
+    for (int8_t& v : x.shift.step)
+        v = clampValue<int8_t>(v, -kMaxShift, kMaxShift);
     for (Mod& m : x.mod)
     {
         if (m.dest >= ModDest::count)
@@ -449,8 +456,20 @@ bool sameMod(const Mod& a, const Mod& b)
            a.length == b.length && a.cc == b.cc;
 }
 
+bool sameShift(const Shift& a, const Shift& b)
+{
+    if (a.on != b.on || a.length != b.length || a.advance != b.advance || a.units != b.units)
+        return false;
+    for (int i = 0; i < kShiftSteps; i++)
+        if (a.step[i] != b.step[i])
+            return false;
+    return true;
+}
+
 bool sameExpression(const Expression& a, const Expression& b)
 {
+    if (!sameShift(a.shift, b.shift))
+        return false;
     for (int k = 0; k < kModsPerChannel; k++)
         if (!sameMod(a.mod[k], b.mod[k]))
             return false;
@@ -496,6 +515,8 @@ void Engine::resetChannelPosition(Channel& c)
     c.pingPongDir = 1;
     c.degree = 0;
     c.degreeDir = 1;
+    c.shiftCounter = 0;
+    c.shiftPlayed = -1;
 }
 
 void Engine::closeNote(Channel& c)
@@ -838,7 +859,23 @@ uint8_t Engine::nextNotes(Channel& c, uint8_t* notes)
 void Engine::triggerStep(Channel& c)
 {
     const Rhythm& r = c.active;
-    if (!isPulse(r.steps, r.pulses, r.rotation, c.step))
+    const Shift& sh = c.expr.shift;
+    const bool pulse = isPulse(r.steps, r.pulses, r.rotation, c.step);
+
+    // Which Shift step applies: per step it moves on every step, played or
+    // not; per pulse only on pulses (muted or skipped ones too, like notes).
+    int8_t shiftAmount = 0;
+    if (sh.on && (pulse || sh.advance == ShiftAdvance::perStep))
+    {
+        const uint8_t index = static_cast<uint8_t>(c.shiftCounter % sh.length);
+        c.shiftCounter++;
+        if (pulse)
+        {
+            shiftAmount = sh.step[index];
+            c.shiftPlayed = static_cast<int8_t>(index);
+        }
+    }
+    if (!pulse)
         return;
 
     // The note sequence advances on every pulse, even muted or skipped ones,
@@ -876,6 +913,9 @@ void Engine::triggerStep(Channel& c)
     velocity = clampValue<int>(velocity, 1, 127);
     gatePercent = clampValue<int>(gatePercent, 1, 100);
     chance = clampValue<int>(chance, 0, 100);
+    if (shiftAmount != 0)
+        for (uint8_t i = 0; i < count; i++)
+            notes[i] = static_cast<uint8_t>(clampValue<int>(shiftNote(c, notes[i], shiftAmount), 0, 127));
     if (pitch != 0)
         for (uint8_t i = 0; i < count; i++)
             notes[i] = static_cast<uint8_t>(clampValue<int>(notes[i] + pitch, 0, 127));
@@ -1162,6 +1202,30 @@ uint8_t Engine::getModRotation(int ch, int k) const
     if (!validChannel(ch) || k < 0 || k >= kModsPerChannel)
         return 0;
     return modRotationAt(channels[ch].stagedExpr.mod[k], playTime);
+}
+
+// A note moved by a Shift step: semitones, or scale steps in the key the
+// channel plays in.
+int Engine::shiftNote(const Channel& c, int note, int8_t amount) const
+{
+    if (c.expr.shift.units == ShiftUnits::semitones)
+        return note + amount;
+
+    const Key key = c.active.mode == NoteMode::seq ? seqKeyFor(c.expr, c.active, globalActive)
+                                                   : keyFor(c.expr, globalActive);
+    const int dir = amount > 0 ? 1 : -1;
+    for (int n = amount > 0 ? amount : -amount; n > 0; n--)
+    {
+        do
+            note += dir;
+        while (note > 0 && note < 127 && !noteInScale(note, key));
+    }
+    return note;
+}
+
+int8_t Engine::getShiftStep(int ch) const
+{
+    return validChannel(ch) ? channels[ch].shiftPlayed : -1;
 }
 
 void Engine::onMicroStep()
@@ -1515,7 +1579,18 @@ uint32_t Engine::repeatLength(int ch) const
 
     // The notes line up with the rhythm again after this many cycles.
     uint32_t cycles = lcm32(notePeriod, pulses) / pulses;
-    return cycle * cycles;
+    uint32_t period = cycle * cycles;
+
+    // Shift repeats too: per pulse every `length` notes, per step every
+    // `length` steps.
+    if (x.shift.on)
+    {
+        if (x.shift.advance == ShiftAdvance::perPulse)
+            period = cycle * (lcm32(lcm32(notePeriod, x.shift.length), pulses) / pulses);
+        else
+            period = lcm32(period, static_cast<uint32_t>(x.shift.length) * divisionToMicroSteps(r.division));
+    }
+    return period;
 }
 
 void Engine::setLaunch(Launch l)

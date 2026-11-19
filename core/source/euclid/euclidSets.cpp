@@ -113,6 +113,13 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
             q[11] = m.length;
             q[12] = m.cc;
         }
+        uint8_t* sh = p + kSetShiftOffset;
+        sh[0] = x.shift.on ? 1 : 0;
+        sh[1] = x.shift.length;
+        sh[2] = static_cast<uint8_t>(x.shift.advance);
+        sh[3] = static_cast<uint8_t>(x.shift.units);
+        for (int i = 0; i < kShiftSteps; i++)
+            sh[4 + i] = static_cast<uint8_t>(x.shift.step[i] + 64);
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -156,6 +163,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV5FileSize;
     }
     else if (version == 6)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV6ChannelSize;
+        fileSize = kSetV6FileSize;
+    }
+    else if (version == 7)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -259,7 +272,17 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
                 m.cc = q[12];
             }
         }
-        else if (version == 5)
+        if (version >= 7)
+        {
+            const uint8_t* sh = p + kSetShiftOffset;
+            x.shift.on = sh[0] != 0;
+            x.shift.length = sh[1];
+            x.shift.advance = enumOr(sh[2], ShiftAdvance::count, ShiftAdvance::perStep);
+            x.shift.units = enumOr(sh[3], ShiftUnits::count, ShiftUnits::semitones);
+            for (int i = 0; i < kShiftSteps; i++)
+                x.shift.step[i] = static_cast<int8_t>(static_cast<int>(sh[4 + i]) - 64);
+        }
+        if (version == 5)
         {
             // Two modulators; the shape codes are the same, and an LFO's
             // period was `length` of its steps.

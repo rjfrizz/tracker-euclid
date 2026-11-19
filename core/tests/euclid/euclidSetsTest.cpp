@@ -60,6 +60,12 @@ static void fill(Engine& e)
         x.transpose = static_cast<int8_t>(ch * 6 - 24);
         x.chord = static_cast<ChordType>(ch % static_cast<int>(ChordType::count));
         x.chordChance = static_cast<uint8_t>(30 + ch * 10);
+        x.shift.on = ch % 2 == 1;
+        x.shift.length = static_cast<uint8_t>(3 + ch * 3);
+        x.shift.advance = static_cast<ShiftAdvance>(ch % 2);
+        x.shift.units = static_cast<ShiftUnits>((ch / 2) % 2);
+        for (int i = 0; i < kShiftSteps; i++)
+            x.shift.step[i] = static_cast<int8_t>((i * 7 + ch) % 49 - 24);
         for (int k = 0; k < kModsPerChannel; k++)
         {
             Mod& m = x.mod[k];
@@ -112,6 +118,12 @@ static bool sameSettings(const Engine& a, const Engine& b)
             ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale || ra.tieMask != rb.tieMask ||
             xa.chord != xb.chord || xa.chordChance != xb.chordChance)
             return false;
+        if (xa.shift.on != xb.shift.on || xa.shift.length != xb.shift.length ||
+            xa.shift.advance != xb.shift.advance || xa.shift.units != xb.shift.units)
+            return false;
+        for (int i = 0; i < kShiftSteps; i++)
+            if (xa.shift.step[i] != xb.shift.step[i])
+                return false;
         for (int k = 0; k < kModsPerChannel; k++)
         {
             const Mod &ma = xa.mod[k], &mb = xb.mod[k];
@@ -146,6 +158,31 @@ static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
 }
 
 // A version 5 file, built by hand: two 12-byte modulators per channel.
+static void testLoadsVersion6()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t v7[kSetFileSize];
+    serializeSet(a, 2, v7, sizeof(v7));
+    uint8_t v6[kSetV6FileSize];
+    std::memcpy(v6, v7, kSetHeaderSize);
+    v6[4] = 6;
+    for (int ch = 0; ch < kChannels; ch++)
+        std::memcpy(v6 + kSetHeaderSize + ch * kSetV6ChannelSize, v7 + kSetHeaderSize + ch * kSetChannelSize,
+                    kSetV6ChannelSize);
+    uint32_t crc = crc32(v6, kSetV6FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v6[kSetV6FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, v6, sizeof(v6)));
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        CHECK(!b.getExpression(ch).shift.on); // no Shift in version 6
+        CHECK(b.getExpression(ch).mod[3].rate == a.getExpression(ch).mod[3].rate);
+    }
+}
+
 static void testLoadsVersion5()
 {
     Engine a = makeEngine();
@@ -326,7 +363,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 852);
+    CHECK(kSetFileSize == 1140);
+    CHECK(kSetV6FileSize == 852);
     CHECK(kSetV5FileSize == 596);
     CHECK(kSetV4FileSize == 404);
     CHECK(kSetV3FileSize == 340);
@@ -409,6 +447,7 @@ int main()
     testLoadsVersion3();
     testLoadsVersion4();
     testLoadsVersion5();
+    testLoadsVersion6();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();
     testChangeCount();

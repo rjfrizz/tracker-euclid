@@ -1003,8 +1003,72 @@ static void testMuteAtLaunch()
     e.stop();
 }
 
+static void testShiftPerStepDriftsAgainstTheRhythm()
+{
+    // A 3-step lane (0, +12, -12) on a 4-step rhythm with every step a pulse.
+    Engine e = makeSeqEngine(Key{0, 1}, {60});
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 3;
+    x.shift.step[1] = 12;
+    x.shift.step[2] = -12;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 6) == std::vector<uint8_t>{60, 72, 48, 60, 72, 48}));
+}
+
+static void testShiftPerPulseSkipsRests()
+{
+    // Pulses on steps 0 and 2 of 4: per pulse, each note takes the next value.
+    Engine e = makeSeqEngine(Key{0, 1}, {60});
+    Rhythm r = e.getRhythm(0);
+    r.pulses = 2;
+    e.setRhythm(0, r);
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 2;
+    x.shift.advance = ShiftAdvance::perPulse;
+    x.shift.step[1] = 7;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 8) == std::vector<uint8_t>{60, 67, 60, 67}));
+
+    // Per step, the rests use up lane steps: always step 0 here.
+    x.shift.advance = ShiftAdvance::perStep;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 8) == std::vector<uint8_t>{60, 60, 60, 60}));
+}
+
+static void testShiftInScaleSteps()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
+    e.setGlobalKey(Key{0, 2});
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 2;
+    x.shift.units = ShiftUnits::scaleSteps;
+    x.shift.step[0] = 2;  // C -> E
+    x.shift.step[1] = -1; // C -> B
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 2) == std::vector<uint8_t>{64, 59}));
+}
+
+static void testShiftCountsTowardsRepeatLength()
+{
+    Engine e = makeSeqEngine(Key{0, 1}, {60});
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 3; // 3 steps against a 4-step rhythm: 12 steps
+    e.setExpression(0, x);
+    e.start();
+    CHECK(e.repeatLength(0) == 12u * kMicroStepsPerStep);
+    e.stop();
+}
+
 int main()
 {
+    testShiftPerStepDriftsAgainstTheRhythm();
+    testShiftPerPulseSkipsRests();
+    testShiftInScaleSteps();
+    testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();
     testSineIsBipolarAndBarLocked();
     testPhaseOffset();

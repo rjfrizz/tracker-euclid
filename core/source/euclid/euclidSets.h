@@ -8,9 +8,9 @@
 // Sets: everything the 8 channels are doing, plus the global key, stored as
 // a small binary file.
 //
-// Layout (version 6, 852 bytes):
+// Layout (version 7, 1140 bytes):
 //   0  'E' 'U' 'C' 'S'
-//   4  version (6)
+//   4  version (7)
 //   5  channel count (8)
 //   6  slot this state was last saved to or loaded from (1-8, 0 = none)
 //   7  global root (0-11)
@@ -20,7 +20,7 @@
 //   10 freeze length (euclid::FreezeLength; 0 = 4 bars, the default)
 //   11 layer (1 = the live engine also plays over Pattern and Song; 0 = off)
 //   12 reserved (4 bytes of 0)
-//   16 8 channel records of 104 bytes:
+//   16 8 channel records of 140 bytes:
 //        0 steps, pulses, rotation, division, direction, noteCount
 //        6 notes[16]
 //        22 enabled, muted, midiChannel, velocity, gate, probability
@@ -32,9 +32,11 @@
 //        48 4 modulators of 14 bytes: dest, shape, amount + 128, rate,
 //           phase, target, steps, pulses, rotation, division, autoRotate,
 //           length, cc, 1 reserved
-//   848 CRC-32 (little-endian) of bytes 0-847
+//        104 Shift: on, length, advance, units, then 32 steps (value + 64)
+//   1136 CRC-32 (little-endian) of bytes 0-1135
 //
 // Older files still load, and the fields they don't have get defaults:
+//   version 6 (852 bytes: 104-byte records, CRC at 848): no Shift.
 //   version 5 (596 bytes: 72-byte records, CRC at 592): two modulators of
 //     12 bytes (dest, shape, amount + 128, steps, pulses, rotation, division,
 //     autoRotate, length, cc); their LFO period (length steps of division)
@@ -53,12 +55,17 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 6;
+constexpr uint8_t kSetVersion = 7;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
-constexpr size_t kSetChannelSize = 104;
+constexpr size_t kSetChannelSize = 140;
+constexpr size_t kSetShiftOffset = 104;
 constexpr size_t kSetModSize = 14;
 constexpr size_t kSetFileSize = kSetHeaderSize + kChannels * kSetChannelSize + 4;
+
+// Version 6, read only.
+constexpr size_t kSetV6ChannelSize = 104;
+constexpr size_t kSetV6FileSize = kSetHeaderSize + kChannels * kSetV6ChannelSize + 4;
 
 // Version 5, read only.
 constexpr size_t kSetV5ChannelSize = 72;

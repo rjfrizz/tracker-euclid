@@ -61,6 +61,8 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
 {
     if (view == View::mod)
         return modPadMap(row);
+    if (isShiftSettings())
+        return shiftPadMap(row);
     if (view == View::global)
     {
         switch (row)
@@ -110,6 +112,8 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
 {
     if (view == View::mod)
         return modRowValue(row, live);
+    if (view == View::shift)
+        return shiftSettings ? shiftRowValue(row, live) : kNoValue;
     if (view == View::global)
     {
         euclid::Key k = live ? euclidEngine.getLiveGlobalKey() : euclidEngine.getGlobalKey();
@@ -161,6 +165,11 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
     if (view == View::mod)
     {
         setModRowValue(row, v);
+        return;
+    }
+    if (isShiftSettings())
+    {
+        setShiftRowValue(row, v);
         return;
     }
     if (view == View::global)
@@ -341,6 +350,23 @@ void cEuclidParams::refreshPads()
         return;
     }
 
+    if (view == View::shift && !shiftSettings)
+    {
+        // The lane: steps in use glow, steps with a shift a little more,
+        // the cursor brightest.
+        const euclid::Shift& s = euclidEngine.getExpression(selectedChannel).shift;
+        for (uint8_t pad = 0; pad < s.length && pad < kPads; pad++)
+        {
+            if (pad == shiftCursor)
+                padsBacklight.setBackLayer(1, bright, pad);
+            else if (s.step[pad] != 0)
+                padsBacklight.setBackLayer(1, mid, pad);
+            else
+                padsBacklight.setBackLayer(1, dim, pad);
+        }
+        return;
+    }
+
     if (view == View::sets)
     {
         for (uint8_t slot = 0; slot < euclid::kSetSlots; slot++)
@@ -397,6 +423,13 @@ bool cEuclidParams::padSelect(uint8_t pad)
     {
         if (pad < euclid::kSetSlots)
             moveSetCursor(static_cast<int8_t>(pad - setCursor));
+        return true;
+    }
+
+    if (view == View::shift && !shiftSettings)
+    {
+        // A pad picks the step to shift.
+        moveShiftCursor(static_cast<int8_t>(pad - shiftCursor));
         return true;
     }
 

@@ -38,6 +38,7 @@ static void functNotesView();
 static void functSetsView();
 static void functGlobalView();
 static void functModView();
+static void functShiftView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -75,6 +76,8 @@ void cEuclidParams::update()
             refreshSets();
         else if (view == View::mod)
             refreshMod();
+        else if (view == View::shift)
+            refreshShift();
         else
             refreshGlobal();
         refreshTitle();
@@ -100,6 +103,10 @@ void cEuclidParams::update()
             refreshMod();
         refreshPads();
     }
+
+    // The Shift grid follows the step being played.
+    if (view == View::shift && !shiftSettings && euclidEngine.getShiftStep(selectedChannel) != lastShiftPlayed)
+        refreshShift();
 
     // Auto-rotation moves the modulator's ring; the meters follow the values.
     if (view == View::mod)
@@ -173,6 +180,9 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // Fx 1 opens Mod (the firmware calls this button Fx2); pressing it again
     // moves on through Mod A-D.
     ip->setButtonObj(interfaceButtonFx2, buttonPress, functModView);
+    // Fx 2 opens Shift (the firmware calls this button Fx1); pressing it
+    // again switches between the steps and their settings.
+    ip->setButtonObj(interfaceButtonFx1, buttonPress, functShiftView);
 
     // The first time this screen opens the SD card is ready, so this is
     // where the working state from before the last power-off comes back.
@@ -243,6 +253,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
         refreshParams();
     else if (view == View::mod)
         refreshMod();
+    else if (view == View::shift)
+        refreshShift();
     else
         refreshNotes();
     refreshFrame();
@@ -717,6 +729,8 @@ void cEuclidParams::refreshAfterCommit()
         refreshGlobal();
     else if (view == View::mod)
         refreshMod();
+    else if (view == View::shift)
+        refreshShift();
     refreshTitle();
     refreshChannels();
     refreshRing();
@@ -831,6 +845,11 @@ void cEuclidParams::duplicateNote()
 static void functEncoder(int16_t value)
 {
     ShiftEdits shift;
+    if (EP->view == cEuclidParams::View::shift)
+    {
+        EP->changeShift(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::mod)
     {
         EP->changeMod(value);
@@ -860,6 +879,21 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::shift)
+    {
+        if (EP->shiftSettings)
+        {
+            if (EP->selectedShiftRow > 0)
+                EP->selectedShiftRow--;
+            EP->refreshFrame();
+            EP->refreshPads();
+        }
+        else
+        {
+            EP->moveShiftCursor(-8);
+        }
+        return;
+    }
     if (EP->view == cEuclidParams::View::mod)
     {
         if (EP->selectedModRow > 0)
@@ -889,6 +923,21 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::shift)
+    {
+        if (EP->shiftSettings)
+        {
+            if (EP->selectedShiftRow + 1 < cEuclidParams::shiftRowCount)
+                EP->selectedShiftRow++;
+            EP->refreshFrame();
+            EP->refreshPads();
+        }
+        else
+        {
+            EP->moveShiftCursor(8);
+        }
+        return;
+    }
     if (EP->view == cEuclidParams::View::mod)
     {
         if (EP->selectedModRow + 1 < EP->modVisibleCount)
@@ -918,6 +967,11 @@ static void functDown()
 
 static void functLeft()
 {
+    if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
+    {
+        EP->moveShiftCursor(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
     {
         EP->moveSetCursor(-1);
@@ -933,6 +987,11 @@ static void functLeft()
 
 static void functRight()
 {
+    if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
+    {
+        EP->moveShiftCursor(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
     {
         EP->moveSetCursor(1);
@@ -948,6 +1007,12 @@ static void functRight()
 
 static void functDelete()
 {
+    if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
+    {
+        ShiftEdits shift;
+        EP->clearShiftStep(EP->buttons->isButtonPressed(interfaceButtonShift));
+        return;
+    }
     if (EP->view != cEuclidParams::View::notes)
         return;
     ShiftEdits shift;
@@ -969,6 +1034,19 @@ static void functParamsView()
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
+    EP->setDefaultScreenFunct();
+}
+
+static void functShiftView()
+{
+    if (EP->view == cEuclidParams::View::shift)
+    {
+        EP->shiftSettings = !EP->shiftSettings;
+        EP->setView(cEuclidParams::View::shift);
+        return;
+    }
+    EP->shiftSettings = false;
+    EP->setView(cEuclidParams::View::shift);
     EP->setDefaultScreenFunct();
 }
 

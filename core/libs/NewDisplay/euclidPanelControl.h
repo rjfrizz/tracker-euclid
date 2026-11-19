@@ -9,7 +9,7 @@
 struct strEuclidPanelData
 {
     static constexpr uint8_t kMaxRows = 20;
-    static constexpr uint8_t kMaxCells = 16;
+    static constexpr uint8_t kMaxCells = 32;
     static constexpr uint8_t kMaxHelpLines = 4;
 
     enum class Mode : uint8_t
@@ -43,7 +43,7 @@ struct strEuclidPanelData
     uint8_t columns = 4;
     uint8_t cells = 0;      // slots drawn
     uint8_t usedCells = 0;  // slots holding a value; the rest show a dash
-    uint16_t dimCells = 0;  // bit per cell: draw its text dimmed
+    uint32_t dimCells = 0;  // bit per cell: draw its text dimmed
     const char* cellText[kMaxCells] = {};
     int8_t cursorCell = -1;
     int8_t playingCell = -1;

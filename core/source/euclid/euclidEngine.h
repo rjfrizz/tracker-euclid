@@ -246,6 +246,37 @@ bool isEuclidShape(ModShape s);
 // The rate nearest to a period, in micro-steps (for older set files).
 ModRate modRateNearest(uint32_t microSteps);
 
+// Shift: a hand-drawn lane of transpositions over whatever the channel
+// plays. Per step, the lane follows the channel's step grid (so a lane of a
+// different length drifts against the rhythm); per pulse, each note takes
+// the next value. Scale steps move notes within the channel's key. Stored in
+// set files, so only add at the end of these enums.
+enum class ShiftAdvance : uint8_t
+{
+    perStep = 0,
+    perPulse,
+    count
+};
+
+enum class ShiftUnits : uint8_t
+{
+    semitones = 0,
+    scaleSteps,
+    count
+};
+
+constexpr int kShiftSteps = 32;
+constexpr int kMaxShift = 24;
+
+struct Shift
+{
+    bool on = false;
+    uint8_t length = 16; // 1-32
+    ShiftAdvance advance = ShiftAdvance::perStep;
+    ShiftUnits units = ShiftUnits::semitones;
+    int8_t step[kShiftSteps] = {};
+};
+
 struct Expression
 {
     bool enabled = false;
@@ -272,6 +303,7 @@ struct Expression
     uint8_t chordChance = 100; // percent of pulses that play the chord
 
     Mod mod[kModsPerChannel];
+    Shift shift;
 };
 
 // SEQ list entries.
@@ -444,6 +476,8 @@ class Engine
     int16_t getModValue(int ch, int mod) const;
     uint8_t getModStep(int ch, int mod) const;
     uint8_t getModRotation(int ch, int mod) const; // including auto-rotation
+    // The Shift step the channel last played (for the screen), or -1.
+    int8_t getShiftStep(int ch) const;
 
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
@@ -474,6 +508,8 @@ class Engine
         uint8_t step = 0;             // 0 .. active.steps-1
         uint8_t noteIndex = 0;
         int8_t pingPongDir = 1;
+        uint32_t shiftCounter = 0; // Shift steps advanced since the channel started
+        int8_t shiftPlayed = -1;   // Shift step used last, for the screen
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
 
@@ -506,6 +542,7 @@ class Engine
     uint8_t nextSeqNotes(Channel& c, uint8_t* notes);
     uint8_t nextGeneratedNotes(Channel& c, uint8_t* notes);
     bool rollChord(const Channel& c);
+    int shiftNote(const Channel& c, int note, int8_t amount) const;
     uint8_t modRotationAt(const Mod& m, uint32_t t) const;
     void updateMods(Channel& c);
     void resetMods(Channel& c);

@@ -111,6 +111,8 @@ void cEuclidParams::setView(View v)
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
     panelData.mode = isListView() ? strEuclidPanelData::Mode::list : strEuclidPanelData::Mode::grid;
     panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;
+    panelData.columns = kNoteColumns; // the Shift steps use 8, set in refreshShift
+    panelData.header = noteHeaderText;
     const char* const* help = view == View::sets ? kSetsHelp : kNoteHelp;
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
         panelData.help[i] = help[i];
@@ -155,6 +157,8 @@ void cEuclidParams::setView(View v)
         refreshSets();
     else if (view == View::mod)
         refreshMod();
+    else if (view == View::shift)
+        refreshShift();
     else
         refreshGlobal();
     refreshChannels();
@@ -182,6 +186,9 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "Global%s", hint);
     else if (view == View::mod)
         snprintf(titleText, sizeof(titleText), "Mod %c  Ch %d%s", 'A' + selectedMod, selectedChannel + 1, hint);
+    else if (view == View::shift)
+        snprintf(titleText, sizeof(titleText), "Shift%s  Ch %d%s", shiftSettings ? " settings" : "",
+                 selectedChannel + 1, hint);
     else
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
                  view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);
@@ -191,7 +198,8 @@ void cEuclidParams::refreshTitle()
 void cEuclidParams::refreshFrame()
 {
     panelData.focusRow = static_cast<int8_t>(focusedRow());
-    panelData.cursorCell = static_cast<int8_t>(view == View::sets ? setCursor : noteCursor);
+    panelData.cursorCell =
+      static_cast<int8_t>(view == View::sets ? setCursor : (view == View::shift ? shiftCursor : noteCursor));
     display.setControlData(panel, &panelData);
     display.refreshControl(panel);
 }
@@ -559,6 +567,15 @@ void cEuclidParams::refreshRing()
         snprintf(ringText2, sizeof(ringText2), "next %s: E(%d,%d)",
                  euclidEngine.getLaunch() == euclid::Launch::beat ? "beat" : "bar", live.pulses,
                  live.steps);
+        ringData.centerText2 = ringText2;
+    }
+    else if (view == View::shift)
+    {
+        const euclid::Shift& sh = x.shift;
+        if (sh.on)
+            snprintf(ringText2, sizeof(ringText2), "Shift: %d steps", sh.length);
+        else
+            snprintf(ringText2, sizeof(ringText2), "Shift off");
         ringData.centerText2 = ringText2;
     }
     else if (!x.enabled)
