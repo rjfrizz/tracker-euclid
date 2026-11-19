@@ -983,8 +983,29 @@ static void testTwoModulatorsOnOneCcAddUp()
     CHECK(ccs.size() == 1); // one stream for the CC, not one per modulator
 }
 
+static void testMuteAtLaunch()
+{
+    reset();
+    Engine e = makeFourOnTheFloor();
+    e.start();
+    run(e, 100);
+    e.setMutedAtLaunch(0, true);
+    CHECK(!e.getLiveExpression(0).muted); // not yet
+    e.commitAll();                         // a commit with nothing else staged keeps it
+    CHECK(e.hasPendingChange(0));
+    run(e, kMicroStepsPerBar - 100);
+    CHECK(!e.getLiveExpression(0).muted);
+    run(e, 1); // the bar line
+    CHECK(e.getLiveExpression(0).muted);
+    size_t heard = onTicks(1).size();
+    run(e, kMicroStepsPerBar);
+    CHECK(onTicks(1).size() == heard); // silent from the bar
+    e.stop();
+}
+
 int main()
 {
+    testMuteAtLaunch();
     testSineIsBipolarAndBarLocked();
     testPhaseOffset();
     testModAmountScalesAnother();

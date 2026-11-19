@@ -385,6 +385,9 @@ class Engine
 
     // Mute bypasses staging: it's a performance control.
     void setMuted(int ch, bool muted);
+    // A mute that changes at the next launch point (or now, while stopped),
+    // for loading sets and scenes in time with everything else.
+    void setMutedAtLaunch(int ch, bool muted);
 
     // A channel's name (channelName() index). Just a label: never staged.
     uint8_t getName(int ch) const;
@@ -462,6 +465,7 @@ class Engine
         Rhythm pending;
         Expression pendingExpr;
         bool pendingDirty = false;
+        bool pendingMute = false; // pendingExpr.muted applies at the launch point
 
         Rhythm active;
         Expression expr;

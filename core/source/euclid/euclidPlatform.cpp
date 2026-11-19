@@ -14,7 +14,9 @@
 #include "mtSequencer.h"
 #include "util_math.h"
 
+#include <cr_section_macros.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace
 {
@@ -59,6 +61,8 @@ void unlock()
 constexpr const char* kSetsDir = "Sets";
 constexpr const char* kCurrentPath = "Sets/current.eus";
 constexpr const char* kCurrentTempPath = "Sets/current.tmp";
+constexpr const char* kCurrentScenesPath = "Sets/current.scn";
+constexpr const char* kCurrentScenesTempPath = "Sets/currscn.tmp";
 constexpr uint32_t kAutosaveDelayMs = 2000;
 
 bool bootLoaded = false;
@@ -134,6 +138,94 @@ bool readSetFile(const char* path, uint8_t* slotOut)
     return euclid::deserializeSet(euclidEngine, buf, size, slotOut);
 }
 
+//------------------------------------------------------------------------------
+// Scenes. File layout (version 1):
+//   'E' 'U' 'S' 'N', version (1), scene count (4), 2 reserved
+//   per scene: length (2 bytes, little-endian; 0 = empty), then a set image
+//              of that length (euclid::serializeSet, with its own version
+//              and CRC, so older images still load after a format change)
+//   CRC-32 of everything before it
+constexpr uint8_t kScenesVersion = 1;
+constexpr size_t kScenesFileMax = 8 + euclidScenes::kScenes * (2 + euclid::kSetFileSize) + 4;
+
+__NOINIT(EXTERNAL_RAM) uint8_t sceneImage[euclidScenes::kScenes][euclid::kSetFileSize];
+uint16_t sceneLength[euclidScenes::kScenes] = {};
+bool scenesDirty = false;
+__NOINIT(EXTERNAL_RAM) uint8_t scenesFile[kScenesFileMax];
+
+size_t buildScenesFile()
+{
+    uint8_t* p = scenesFile;
+    p[0] = 'E';
+    p[1] = 'U';
+    p[2] = 'S';
+    p[3] = 'N';
+    p[4] = kScenesVersion;
+    p[5] = euclidScenes::kScenes;
+    p[6] = 0;
+    p[7] = 0;
+    size_t n = 8;
+    for (uint8_t i = 0; i < euclidScenes::kScenes; i++)
+    {
+        scenesFile[n++] = static_cast<uint8_t>(sceneLength[i]);
+        scenesFile[n++] = static_cast<uint8_t>(sceneLength[i] >> 8);
+        memcpy(scenesFile + n, sceneImage[i], sceneLength[i]);
+        n += sceneLength[i];
+    }
+    uint32_t crc = euclid::crc32(scenesFile, n);
+    for (int b = 0; b < 4; b++)
+        scenesFile[n++] = static_cast<uint8_t>(crc >> (8 * b));
+    return n;
+}
+
+void clearScenes()
+{
+    for (uint8_t i = 0; i < euclidScenes::kScenes; i++)
+        sceneLength[i] = 0;
+}
+
+// Reads a scenes file; a missing or damaged one leaves every scene empty.
+void readScenesFile(const char* path)
+{
+    clearScenes();
+    FileSystem* f = fs();
+    if (!f->exists(path))
+        return;
+    auto [isOpen, file] = f->openFile(path);
+    if (!isOpen)
+        return;
+    size_t size = f->getFileSize(file);
+    int32_t got = size <= kScenesFileMax ? f->readFile(scenesFile, size, file) : -1;
+    f->closeFile(file);
+    if (got != static_cast<int32_t>(size) || size < 12)
+        return;
+
+    uint32_t crc = 0;
+    for (int b = 0; b < 4; b++)
+        crc |= static_cast<uint32_t>(scenesFile[size - 4 + b]) << (8 * b);
+    if (crc != euclid::crc32(scenesFile, size - 4))
+        return;
+    if (scenesFile[0] != 'E' || scenesFile[1] != 'U' || scenesFile[2] != 'S' || scenesFile[3] != 'N' ||
+        scenesFile[4] != kScenesVersion)
+        return;
+
+    size_t n = 8;
+    for (uint8_t i = 0; i < euclidScenes::kScenes && i < scenesFile[5]; i++)
+    {
+        if (n + 2 > size - 4)
+            break;
+        uint16_t len = static_cast<uint16_t>(scenesFile[n] | (scenesFile[n + 1] << 8));
+        n += 2;
+        if (len > euclid::kSetFileSize || n + len > size - 4)
+            break;
+        memcpy(sceneImage[i], scenesFile + n, len);
+        sceneLength[i] = len;
+        n += len;
+    }
+}
+
+bool writeScenesFile(const char* path, const char* tempPath);
+
 bool saveCurrent()
 {
     uint8_t buf[euclid::kSetFileSize];
@@ -146,7 +238,20 @@ bool saveCurrent()
         return false;
     }
     changeCountSaved = count;
+    if (scenesDirty && writeScenesFile(kCurrentScenesPath, kCurrentScenesTempPath))
+        scenesDirty = false;
     return true;
+}
+
+bool writeScenesFile(const char* path, const char* tempPath)
+{
+    size_t n = buildScenesFile();
+    return writeFileSafely(path, tempPath, scenesFile, n);
+}
+
+void scenesPath(uint8_t slot, char* out, size_t len, bool temp)
+{
+    snprintf(out, len, "%s/set%d.%s", kSetsDir, slot, temp ? "sct" : "scn");
 }
 } // namespace
 
@@ -184,7 +289,7 @@ void euclidPlatformUpdate()
         lastChangeMs = nowMs();
     }
 
-    if (count != changeCountSaved && nowMs() - lastChangeMs >= kAutosaveDelayMs && cardReady())
+    if ((count != changeCountSaved || scenesDirty) && nowMs() - lastChangeMs >= kAutosaveDelayMs && cardReady())
     {
         saveCurrent();
     }
@@ -209,6 +314,7 @@ void bootLoad()
             slotOfState = slot;
             LOG("euclid: restored working state");
         }
+        readScenesFile(kCurrentScenesPath);
     }
 
     bootLoaded = true;
@@ -233,6 +339,12 @@ bool save(uint8_t slot)
     if (!writeFileSafely(path, temp, buf, sizeof(buf)))
         return false;
 
+    char scn[32];
+    char scnTemp[32];
+    scenesPath(slot, scn, sizeof(scn), false);
+    scenesPath(slot, scnTemp, sizeof(scnTemp), true);
+    writeScenesFile(scn, scnTemp);
+
     slotOfState = slot;
     changeCountAtSlot = euclidEngine.getChangeCount();
     saveCurrent(); // so the working copy remembers which slot it is
@@ -248,6 +360,11 @@ bool load(uint8_t slot)
     slotPath(slot, path, sizeof(path));
     if (!readSetFile(path, nullptr))
         return false;
+
+    char scn[32];
+    scenesPath(slot, scn, sizeof(scn), false);
+    readScenesFile(scn);
+    scenesDirty = true; // the working copy's scenes are now these
 
     slotOfState = slot;
     changeCountAtSlot = euclidEngine.getChangeCount();
@@ -276,3 +393,39 @@ bool editedSinceSlot()
     return euclidEngine.getChangeCount() != changeCountAtSlot;
 }
 } // namespace euclidSets
+
+namespace euclidScenes
+{
+bool save(uint8_t scene)
+{
+    if (scene >= kScenes)
+        return false;
+    size_t n = euclid::serializeSet(euclidEngine, 0, sceneImage[scene], sizeof(sceneImage[scene]));
+    sceneLength[scene] = static_cast<uint16_t>(n);
+    scenesDirty = n > 0;
+    lastChangeMs = nowMs();
+    return n > 0;
+}
+
+bool recall(uint8_t scene)
+{
+    if (scene >= kScenes || sceneLength[scene] == 0)
+        return false;
+
+    // A scene is the music; the Global page's settings for how things launch,
+    // freeze and layer stay as they are.
+    const euclid::Launch launch = euclidEngine.getLaunch();
+    const euclid::FreezeLength freezeLength = euclidEngine.getFreezeLength();
+    const bool layer = euclidEngine.getLayer();
+    bool ok = euclid::deserializeSet(euclidEngine, sceneImage[scene], sceneLength[scene]);
+    euclidEngine.setLaunch(launch);
+    euclidEngine.setFreezeLength(freezeLength);
+    euclidEngine.setLayer(layer);
+    return ok;
+}
+
+bool has(uint8_t scene)
+{
+    return scene < kScenes && sceneLength[scene] > 0;
+}
+} // namespace euclidScenes

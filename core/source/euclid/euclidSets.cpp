@@ -285,6 +285,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         // in a bad state.
         engine.setRhythm(ch, r);
         engine.setExpression(ch, x);
+        engine.setMutedAtLaunch(ch, x.muted);
     }
 
     // A loaded set replaces what's playing as a whole, at the launch point.

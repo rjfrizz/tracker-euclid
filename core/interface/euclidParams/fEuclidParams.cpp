@@ -42,6 +42,7 @@ static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
 static void functRec(uint8_t button, uint8_t state);
+static void functScene(uint8_t button);
 
 static constexpr uint8_t kAuditionVelocity = 100;
 
@@ -152,10 +153,12 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
 
     ip->setButtonObj(interfaceButtonPerformance, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonConfig, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonSamplePlay, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonSampleLoad, buttonPress, functSwitchModule);
+    // The four Sample keys are Scenes A-D here; the sample screens are still
+    // reachable from the stock screens.
+    ip->setButtonObj(interfaceButtonSampleLoad, buttonPress, functScene);
+    ip->setButtonObj(interfaceButtonSamplePlay, buttonPress, functScene);
+    ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functScene);
+    ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSong, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonPattern, buttonPress, functSwitchModule);
 
@@ -1135,6 +1138,52 @@ static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
             EP->commitAll();
         EP->recHeld = false;
     }
+}
+
+// Scenes: tap recalls (at the next launch point while playing), Shift + tap
+// saves what's on screen into the scene.
+static void functScene(uint8_t button)
+{
+    uint8_t scene = 0;
+    if (button == interfaceButtonSampleLoad)
+        scene = 0;
+    else if (button == interfaceButtonSamplePlay)
+        scene = 1;
+    else if (button == interfaceButtonSampleEdit)
+        scene = 2;
+    else
+        scene = 3;
+    const char letter = static_cast<char>('A' + scene);
+    char text[48];
+
+    if (EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        bool replaced = euclidScenes::has(scene);
+        euclidScenes::save(scene);
+        snprintf(text, sizeof(text), "%s Scene %c", replaced ? "Saved over" : "Saved", letter);
+        EP->showMessage(text);
+        return;
+    }
+
+    if (!euclidScenes::recall(scene))
+    {
+        snprintf(text, sizeof(text), "Scene %c is empty: Shift + key saves it", letter);
+        EP->showMessage(text);
+        return;
+    }
+
+    if (euclidEngine.isRunning())
+    {
+        euclid::Launch l = euclidEngine.getLaunch();
+        snprintf(text, sizeof(text), "Scene %c from the next %s", letter,
+                 l == euclid::Launch::beat ? "beat" : (l == euclid::Launch::bar ? "bar" : "phrase"));
+    }
+    else
+    {
+        snprintf(text, sizeof(text), "Scene %c", letter);
+    }
+    EP->showMessage(text);
+    EP->refreshAfterCommit();
 }
 
 static void functSwitchModule(uint8_t button)

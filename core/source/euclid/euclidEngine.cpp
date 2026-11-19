@@ -514,10 +514,11 @@ void Engine::applyPending(Channel& c)
 {
     bool restart = rhythmRestarts(c.active, c.pending);
     c.active = c.pending;
-    bool muted = c.expr.muted;
+    bool muted = c.pendingMute ? c.pendingExpr.muted : c.expr.muted;
     c.expr = c.pendingExpr;
     c.expr.muted = muted;
     c.pendingDirty = false;
+    c.pendingMute = false;
 
     if (restart)
     {
@@ -1357,7 +1358,7 @@ void Engine::commitLocked(int ch, bool immediate)
         c.expr = now;
     }
 
-    c.pendingDirty = rhythmRestarts(c.active, c.pending) || !sameNotes(c.active, c.pending) ||
+    c.pendingDirty = c.pendingMute || rhythmRestarts(c.active, c.pending) || !sameNotes(c.active, c.pending) ||
                      !sameExpression(c.expr, c.pendingExpr) || !sameKeySettings(c.expr, c.pendingExpr);
 }
 
@@ -1624,6 +1625,30 @@ void Engine::setName(int ch, uint8_t index)
         return;
     names[ch] = index < channelNameCount() ? index : 0;
     changeCount++;
+}
+
+void Engine::setMutedAtLaunch(int ch, bool muted)
+{
+    if (!validChannel(ch))
+        return;
+    lock();
+    Channel& c = channels[ch];
+    c.stagedExpr.muted = muted;
+    c.pendingExpr.muted = muted;
+    if (running)
+    {
+        if (muted != c.expr.muted)
+        {
+            c.pendingMute = true;
+            c.pendingDirty = true;
+        }
+    }
+    else
+    {
+        c.expr.muted = muted;
+    }
+    changeCount++;
+    unlock();
 }
 
 void Engine::setGlobalKey(const Key& k)
