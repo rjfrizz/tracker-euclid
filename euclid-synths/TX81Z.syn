@@ -9,6 +9,7 @@ port din
 template vced F0 43 d+10 12 p v F7
 template aced F0 43 d+10 13 p v F7
 request F0 43 d+20 7E 4C 4D 20 20 38 39 37 36 41 45 F7
+request F0 43 d+20 03 F7
 dump vced F0 43 d+00 03 00 5D [ data ] F7
 dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7
 name vced 77 10

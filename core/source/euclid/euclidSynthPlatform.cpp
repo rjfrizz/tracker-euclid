@@ -74,6 +74,13 @@ uint16_t inboxLength[kInbox];
 volatile uint8_t inboxHead = 0; // written by the audio callback
 volatile uint8_t inboxTail = 0; // written by the main loop
 
+// What came in, for "no reply" to say whether anything arrived at all.
+volatile uint32_t heardCount = 0;
+volatile uint16_t heardLength = 0;
+volatile uint8_t heardPort = 0;
+uint8_t heardStart[6];
+uint32_t heardAtRequest = 0;
+
 // A patch request waiting for its reply.
 int8_t requestChannel = -1;
 uint32_t requestDeadline = 0;
@@ -108,6 +115,10 @@ void receive(uint8_t port, const uint8_t* data, uint16_t length)
         if (b != 0xF7)
             continue;
         a.active = false;
+        memcpy(heardStart, buf, sizeof(heardStart));
+        heardLength = a.length;
+        heardPort = port;
+        heardCount = heardCount + 1;
         const uint8_t next = static_cast<uint8_t>((inboxHead + 1) % kInbox);
         if (a.overflow || next == inboxTail)
             continue; // too long, or the main loop is behind: dropped
@@ -257,9 +268,13 @@ namespace
 void finishRequest()
 {
     const Definition* d = definition(static_cast<uint8_t>(requestChannel));
-    if (dumpsReceived == 0)
-        snprintf(eventText, sizeof(eventText), "No reply: is SysEx on, Device %d?",
-                 channels[requestChannel].device);
+    const uint32_t heard = heardCount - heardAtRequest;
+    if (dumpsReceived == 0 && heard == 0)
+        snprintf(eventText, sizeof(eventText), "No SysEx came back (Device %d)", channels[requestChannel].device);
+    else if (dumpsReceived == 0)
+        snprintf(eventText, sizeof(eventText), "Not a dump: %s x%lu %02X %02X %02X %02X %02X %02X (%u)",
+                 heardPort == 0 ? "DIN" : "USB", static_cast<unsigned long>(heard), heardStart[0], heardStart[1],
+                 heardStart[2], heardStart[3], heardStart[4], heardStart[5], heardLength);
     else if (patchName[0] != 0)
         snprintf(eventText, sizeof(eventText), "Got \"%s\"", patchName);
     else
@@ -501,6 +516,7 @@ bool requestPatch(uint8_t ch, bool automatic)
     valuesReceived = 0;
     patchName[0] = 0;
     inboxTail = inboxHead; // anything older isn't the reply
+    heardAtRequest = heardCount;
     return true;
 }
 

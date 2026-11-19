@@ -107,6 +107,8 @@ def main():
     # One request gets the edit buffer as two replies, ACED then VCED (the
     # TX81Z's "LM  8976AE" request, as in Edisyn's requestCurrentDump).
     w("request F0 43 d+20 7E 4C 4D 20 20 38 39 37 36 41 45 F7")
+    # The plain VCED request too (the DX21's), in case the first is ignored.
+    w("request F0 43 d+20 03 F7")
     w("dump vced F0 43 d+00 03 00 5D [ data ] F7")
     w("dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7")
     w("name vced 77 10")
