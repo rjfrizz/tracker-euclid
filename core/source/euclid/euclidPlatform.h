@@ -86,9 +86,8 @@ void setValue(uint8_t ch, uint16_t param, int value); // and sends it
 void sendAll(uint8_t ch);                            // every param, to match the synth to the screen
 bool sending();
 // Asks the synth for its patch; the reply sets the values. False (see
-// error()) if the definition has no request. `automatic` skips channels
-// already asked once, so opening the page doesn't keep asking.
-bool requestPatch(uint8_t ch, bool automatic = false);
+// error()) if the definition has no request.
+bool requestPatch(uint8_t ch);
 bool receiving();
 uint32_t receiveEvents();     // counts replies and timeouts
 const char* receiveMessage(); // what the last one was

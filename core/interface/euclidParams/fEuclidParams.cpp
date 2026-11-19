@@ -282,8 +282,6 @@ void cEuclidParams::selectChannel(uint8_t ch)
     selectedChannel = ch;
     noteCursor = 0;
     replaceNextNote = false;
-    if (view == View::synth)
-        euclidSynth::requestPatch(ch, true); // the first time: fetch its patch
     refreshTitle();
     if (view == View::params)
         refreshParams();
@@ -1121,8 +1119,6 @@ static void functSynthView()
     euclidSynth::scan(); // pick up definition files added to the card
     EP->setView(cEuclidParams::View::synth);
     EP->setDefaultScreenFunct();
-    euclidSynth::requestPatch(EP->selectedChannel, true); // the first time: fetch its patch
-    EP->refreshTitle();
 }
 
 static void functShiftView()

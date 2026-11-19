@@ -87,7 +87,6 @@ uint32_t requestDeadline = 0;
 uint8_t dumpsReceived = 0;
 int valuesReceived = 0;
 char patchName[24] = "";
-bool asked[euclid::kChannels] = {};
 uint32_t events = 0;
 char eventText[64] = "";
 constexpr uint32_t kReplyWaitMs = 2500; // after the request goes out
@@ -409,7 +408,6 @@ bool assign(uint8_t ch, int fileIndex)
         c.device = definitions[slot].device;
         c.ports = definitions[slot].ports;
         resetValues(ch);
-        asked[ch] = false;
     }
     return true;
 }
@@ -487,14 +485,11 @@ bool sending()
     return sendAllChannel >= 0 || queue.waiting() > 0;
 }
 
-bool requestPatch(uint8_t ch, bool automatic)
+bool requestPatch(uint8_t ch)
 {
     const Definition* d = definition(ch);
     if (d == nullptr)
         return false;
-    if (automatic && asked[ch])
-        return true;
-    asked[ch] = true;
     if (d->requestCount == 0)
     {
         snprintf(lastError, sizeof(lastError), "%s can't send its patch", d->name);

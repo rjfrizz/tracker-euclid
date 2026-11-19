@@ -6,9 +6,8 @@ Instr on the Tracker+): one `.syn` file per hardware synth. Copy them to
 `core/source/euclid/synthDef.h`.
 
 On the Synth page, edits go out as you make them. Insert sends the whole
-patch; Shift + Insert gets the synth's patch, which also happens the first
-time a channel's synth is shown (for definitions with `request` and `dump`
-lines).
+patch; Shift + Insert gets the synth's patch (for definitions with
+`request` and `dump` lines).
 
 | File | Synth | Source |
 |---|---|---|
