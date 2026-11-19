@@ -39,6 +39,7 @@ static void functSetsView();
 static void functGlobalView();
 static void functModView();
 static void functShiftView();
+static void functSynthView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -78,6 +79,8 @@ void cEuclidParams::update()
             refreshMod();
         else if (view == View::shift)
             refreshShift();
+        else if (view == View::synth)
+            refreshSynth();
         else
             refreshGlobal();
         refreshTitle();
@@ -102,6 +105,13 @@ void cEuclidParams::update()
         else if (view == View::mod)
             refreshMod();
         refreshPads();
+    }
+
+    // The title says when a whole patch is on its way.
+    if (view == View::synth && euclidSynth::sending() != synthWasSending)
+    {
+        synthWasSending = euclidSynth::sending();
+        refreshTitle();
     }
 
     // The Shift grid follows the step being played.
@@ -183,10 +193,20 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // Fx 2 opens Shift (the firmware calls this button Fx1); pressing it
     // again switches between the steps and their settings.
     ip->setButtonObj(interfaceButtonFx1, buttonPress, functShiftView);
+    // Instr opens the Synth page: the channel's hardware synth.
+    ip->setButtonObj(interfaceButtonInstr, buttonPress, functSynthView);
 
     // The first time this screen opens the SD card is ready, so this is
     // where the working state from before the last power-off comes back.
     euclidSets::bootLoad();
+    {
+        static bool synthsLoaded = false;
+        if (!synthsLoaded)
+        {
+            euclidSynth::loadAssignments();
+            synthsLoaded = true;
+        }
+    }
     lastChangeCount = euclidEngine.getChangeCount();
 
     lastPlayhead = -2;
@@ -255,6 +275,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
         refreshMod();
     else if (view == View::shift)
         refreshShift();
+    else if (view == View::synth)
+        refreshSynth();
     else
         refreshNotes();
     refreshFrame();
@@ -845,6 +867,11 @@ void cEuclidParams::duplicateNote()
 static void functEncoder(int16_t value)
 {
     ShiftEdits shift;
+    if (EP->view == cEuclidParams::View::synth)
+    {
+        EP->changeSynth(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift)
     {
         EP->changeShift(value);
@@ -879,6 +906,14 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::synth)
+    {
+        if (EP->selectedSynthRow > 0)
+            EP->selectedSynthRow--;
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift)
     {
         if (EP->shiftSettings)
@@ -923,6 +958,14 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::synth)
+    {
+        if (EP->selectedSynthRow + 1 < EP->synthRowCount())
+            EP->selectedSynthRow++;
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift)
     {
         if (EP->shiftSettings)
@@ -1024,6 +1067,13 @@ static void functDelete()
 
 static void functInsert()
 {
+    // On the Synth page: send the whole patch, so the synth matches the screen.
+    if (EP->view == cEuclidParams::View::synth)
+    {
+        euclidSynth::sendAll(EP->selectedChannel);
+        EP->refreshTitle();
+        return;
+    }
     ShiftEdits shift;
     if (EP->view == cEuclidParams::View::notes)
         EP->duplicateNote();
@@ -1034,6 +1084,15 @@ static void functParamsView()
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
+    EP->setDefaultScreenFunct();
+}
+
+static void functSynthView()
+{
+    if (EP->view == cEuclidParams::View::synth)
+        return;
+    euclidSynth::scan(); // pick up definition files added to the card
+    EP->setView(cEuclidParams::View::synth);
     EP->setDefaultScreenFunct();
 }
 

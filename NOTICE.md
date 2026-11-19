@@ -48,3 +48,8 @@ Polyend Tracker Community Edition (CE) incorporates or links against the followi
 * **Location**: `synth/prebuilt/`
 * **License**: Polyend Precompiled Factory Synthesizer Plugins License (`synth/prebuilt/LICENSE-PROPRIETARY.txt`)
 * **Copyright**: Copyright (c) 2023-2026 Polyend Sp. z o.o. All rights reserved.
+
+## 10. Edisyn (synth parameter data for the EUCLID synth editor)
+* **Location**: `euclid-synths/` (synth definition files and the scripts that generate them)
+* **License**: Apache License 2.0 (`euclid-synths/LICENSE-Edisyn.txt`)
+* **Copyright**: Copyright 2017 by Sean Luke. Parameter names, ranges, numbering and choice lists are derived from Edisyn's editors (https://github.com/eclab/edisyn).

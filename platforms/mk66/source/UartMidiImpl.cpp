@@ -73,6 +73,11 @@ void UartMidiImpl::sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel)
     midiDriver.sendNoteOff(note, velocity, channel);
 }
 
+void UartMidiImpl::sendSysEx(const uint8_t* data, uint32_t length)
+{
+    midiDriver.sendSysEx(length, data, true); // the data includes F0 and F7
+}
+
 void UartMidiImpl::setReceiveNoteOnAction(void (*action)(uint8_t, uint8_t, uint8_t))
 {
     midiDriver.setHandleNoteOn(action);

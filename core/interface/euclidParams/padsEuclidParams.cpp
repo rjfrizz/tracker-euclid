@@ -63,6 +63,8 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         return modPadMap(row);
     if (isShiftSettings())
         return shiftPadMap(row);
+    if (view == View::synth)
+        return synthPadMap(row);
     if (view == View::global)
     {
         switch (row)
@@ -114,6 +116,8 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         return modRowValue(row, live);
     if (view == View::shift)
         return shiftSettings ? shiftRowValue(row, live) : kNoValue;
+    if (view == View::synth)
+        return synthRowValue(row); // not staged: live and staged are the same
     if (view == View::global)
     {
         euclid::Key k = live ? euclidEngine.getLiveGlobalKey() : euclidEngine.getGlobalKey();
@@ -170,6 +174,11 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
     if (isShiftSettings())
     {
         setShiftRowValue(row, v);
+        return;
+    }
+    if (view == View::synth)
+    {
+        setSynthRowValue(row, v);
         return;
     }
     if (view == View::global)

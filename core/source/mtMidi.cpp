@@ -736,6 +736,25 @@ void setHandleNoteOnAction(void (*action)(uint8_t, uint8_t, uint8_t))
     uartMidi->setReceiveNoteOnAction(action);
 }
 
+void sendSysExMessage(const uint8_t* data, uint32_t length, uint8_t ports)
+{
+    if (sequencer.isRenderMode())
+        return;
+
+    if (ports == 0)
+    {
+        bool usb = mtConfig.midi.notesOutMode == notesOut_mode_usb ||
+                   mtConfig.midi.notesOutMode == notesOut_mode_usb_and_jack;
+        bool jack = mtConfig.midi.notesOutMode == notesOut_mode_jack ||
+                    mtConfig.midi.notesOutMode == notesOut_mode_usb_and_jack;
+        ports = static_cast<uint8_t>((jack ? 1 : 0) | (usb ? 2 : 0));
+    }
+    if ((ports & 1) && uartMidi != nullptr)
+        uartMidi->sendSysEx(data, length);
+    if ((ports & 2) && usbMidi != nullptr)
+        usbMidi->sendSysEx(data, length);
+}
+
 void sendNoteOnRaw(uint8_t note, uint8_t velo, uint8_t channel)
 {
     uartMidi->sendNoteOn(note, velo, channel);

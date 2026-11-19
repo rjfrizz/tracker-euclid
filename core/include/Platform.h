@@ -107,6 +107,9 @@ class Midi
     virtual void sendPitchBend(int value, uint8_t channel) = 0;
     virtual void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) = 0;
     virtual void sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel) = 0;
+    // EUCLID: a complete SysEx message, F0 ... F7 included. Does nothing on
+    // platforms that don't implement it.
+    virtual void sendSysEx(const uint8_t* data, uint32_t length) { (void)data; (void)length; }
 };
 
 class UsbAudio

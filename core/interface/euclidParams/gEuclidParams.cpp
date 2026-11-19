@@ -117,9 +117,24 @@ void cEuclidParams::setView(View v)
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
         panelData.help[i] = help[i];
 
-    // Point the panel at the right list (the Mod page fills its own rows).
+    // Point the panel at the right list (Mod and Synth fill their own rows).
     if (view == View::mod)
         buildModRows();
+    if (view == View::synth)
+    {
+        panelData.rows = 0;
+        panelData.meterCount = 0;
+        panelData.firstRow = 0;
+        panelData.dimRows = 0;
+        panelData.stagedRows = 0;
+        refreshTitle();
+        refreshSynth();
+        refreshChannels();
+        refreshRing();
+        refreshPads();
+        display.synchronizeRefresh();
+        return;
+    }
     panelData.rows = listRowCount();
     panelData.meterCount = 0;
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
@@ -159,6 +174,8 @@ void cEuclidParams::setView(View v)
         refreshMod();
     else if (view == View::shift)
         refreshShift();
+    else if (view == View::synth)
+        refreshSynth();
     else
         refreshGlobal();
     refreshChannels();
@@ -189,6 +206,9 @@ void cEuclidParams::refreshTitle()
     else if (view == View::shift)
         snprintf(titleText, sizeof(titleText), "Shift%s  Ch %d%s", shiftSettings ? " settings" : "",
                  selectedChannel + 1, hint);
+    else if (view == View::synth)
+        snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
+                 euclidSynth::sending() ? "  -  sending" : hint);
     else
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
                  view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);

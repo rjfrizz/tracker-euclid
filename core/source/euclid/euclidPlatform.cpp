@@ -274,11 +274,14 @@ void euclidPlatformInit()
     out.unlock = unlock;
     euclidEngine.init(out);
     euclidFreezeInit();
+    euclidSynth::init();
     euclid::loadDemoDefaults(euclidEngine);
 }
 
 void euclidPlatformUpdate()
 {
+    euclidSynth::update();
+
     if (!bootLoaded)
         return;
 

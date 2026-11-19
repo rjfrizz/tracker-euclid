@@ -46,6 +46,7 @@ class cEuclidParams : public ModuleBase
         global,
         mod,
         shift,
+        synth,
     };
 
     // The Shift page's settings rows (Fx 2 again switches to them).
@@ -84,12 +85,15 @@ class cEuclidParams : public ModuleBase
     bool isShiftSettings() const { return view == View::shift && shiftSettings; }
     bool isListView() const
     {
-        return view == View::params || view == View::global || view == View::mod || isShiftSettings();
+        return view == View::params || view == View::global || view == View::mod || view == View::synth ||
+               isShiftSettings();
     }
     uint8_t focusedRow() const
     {
         if (view == View::shift)
             return selectedShiftRow;
+        if (view == View::synth)
+            return selectedSynthRow;
         return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
     }
     uint8_t listRowCount() const
@@ -100,6 +104,8 @@ class cEuclidParams : public ModuleBase
             return modVisibleCount;
         if (isShiftSettings())
             return shiftRowCount;
+        if (view == View::synth)
+            return synthRowCount();
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
     }
 
@@ -222,6 +228,19 @@ class cEuclidParams : public ModuleBase
     void setModRowValue(uint8_t row, int value);
     void changeMod(int16_t delta);
     uint32_t modDimMask() const;
+    // Synth view (synthEuclidParams.cpp).
+    void refreshSynth();
+    uint8_t synthRowCount() const;
+    int synthParamAt(uint8_t row) const;
+    PadMap synthPadMap(uint8_t row) const;
+    int synthRowValue(uint8_t row) const;
+    void setSynthRowValue(uint8_t row, int value);
+    void changeSynth(int16_t delta);
+    uint8_t selectedSynthRow = 0;
+    uint8_t synthGroup[8] = {};
+    char synthText[strEuclidPanelData::kMaxRows][20];
+    bool synthWasSending = false;
+
     // Shift view (shiftEuclidParams.cpp).
     void refreshShift();
     PadMap shiftPadMap(uint8_t row) const;

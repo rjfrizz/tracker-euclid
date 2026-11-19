@@ -53,6 +53,43 @@ bool recall(uint8_t scene); // false if the scene is empty
 bool has(uint8_t scene);
 } // namespace euclidScenes
 
+// The synth editor (euclidSynthPlatform.cpp): synth definitions from
+// Synths/*.syn, which one each channel edits, and the values being edited.
+// Edits go out straight away (they aren't staged): the synth plays them.
+namespace euclid
+{
+namespace synth
+{
+struct Definition;
+}
+} // namespace euclid
+namespace euclidSynth
+{
+constexpr int kMaxFiles = 24;
+constexpr int kNameLength = 24;
+
+void init();
+void pump(uint32_t nowUs); // audio callback: sends queued SysEx
+void update();             // main loop: feeds a whole-patch send to the queue
+void scan();               // re-reads the list of definition files
+uint8_t files();
+const char* file(uint8_t index);
+bool assign(uint8_t ch, int fileIndex); // -1 for none; false (see error()) if it can't load
+int assignedFile(uint8_t ch);           // -1 for none
+const euclid::synth::Definition* definition(uint8_t ch);
+uint8_t device(uint8_t ch);
+void setDevice(uint8_t ch, uint8_t device);
+uint8_t ports(uint8_t ch); // 0 wherever notes go, 1 DIN, 2 USB, 3 both
+void setPorts(uint8_t ch, uint8_t ports);
+int16_t value(uint8_t ch, uint16_t param);
+void setValue(uint8_t ch, uint16_t param, int value); // and sends it
+void sendAll(uint8_t ch);                            // every param, to match the synth to the screen
+bool sending();
+const char* error();
+void saveAssignments();
+void loadAssignments();
+} // namespace euclidSynth
+
 namespace euclidFreeze
 {
 // Freezes the notes played in [start, end) micro-steps (whole bars) into a

@@ -13,6 +13,8 @@
 
 #include "euclid/euclidEngine.h"
 #include "euclid/euclidPlatform.h"
+#include "Platform.h"
+#include "TrackerImpl.h"
 
 #include "configEditor/configEditor.h"
 #include "core/songTimer.h"
@@ -96,6 +98,9 @@ void Sequencer::clearAllPatternSlots()
 
 AUDIO_CORE_RAM void Sequencer::tick(float intervalSeconds)
 {
+    // EUCLID: the synth editor's SysEx goes out here, between notes, so the
+    // two never interleave on a port.
+    euclidSynth::pump(TrackerImpl::getInstance()->getPlatform()->getTimer()->micros());
 
     updateExternalClockTempo((seqtimesec_t)intervalSeconds);
 

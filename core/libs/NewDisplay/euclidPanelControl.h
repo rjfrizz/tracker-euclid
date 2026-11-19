@@ -8,7 +8,7 @@
 // list of name/value rows (settings) or a grid of cells (the note list).
 struct strEuclidPanelData
 {
-    static constexpr uint8_t kMaxRows = 20;
+    static constexpr uint8_t kMaxRows = 28;
     static constexpr uint8_t kMaxCells = 32;
     static constexpr uint8_t kMaxHelpLines = 4;
 
