@@ -266,18 +266,17 @@ namespace
 {
 void finishRequest()
 {
-    const Definition* d = definition(static_cast<uint8_t>(requestChannel));
     const uint32_t heard = heardCount - heardAtRequest;
     if (dumpsReceived == 0 && heard == 0)
-        snprintf(eventText, sizeof(eventText), "No SysEx came back (Device %d)", channels[requestChannel].device);
+        snprintf(eventText, sizeof(eventText), "No reply (Device %d)", channels[requestChannel].device);
     else if (dumpsReceived == 0)
-        snprintf(eventText, sizeof(eventText), "Not a dump: %s x%lu %02X %02X %02X %02X %02X %02X (%u)",
+        snprintf(eventText, sizeof(eventText), "%s x%lu: %02X %02X %02X %02X %02X %02X",
                  heardPort == 0 ? "DIN" : "USB", static_cast<unsigned long>(heard), heardStart[0], heardStart[1],
-                 heardStart[2], heardStart[3], heardStart[4], heardStart[5], heardLength);
+                 heardStart[2], heardStart[3], heardStart[4], heardStart[5]);
     else if (patchName[0] != 0)
         snprintf(eventText, sizeof(eventText), "Got \"%s\"", patchName);
     else
-        snprintf(eventText, sizeof(eventText), "Got the patch from the %s", d ? d->name : "synth");
+        snprintf(eventText, sizeof(eventText), "Got the patch");
     requestChannel = -1;
     events++;
 }
