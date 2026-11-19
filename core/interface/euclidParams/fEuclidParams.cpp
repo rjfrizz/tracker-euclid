@@ -193,7 +193,8 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // Fx 2 opens Shift (the firmware calls this button Fx1); pressing it
     // again switches between the steps and their settings.
     ip->setButtonObj(interfaceButtonFx1, buttonPress, functShiftView);
-    // Instr opens the Synth page: the channel's hardware synth.
+    // Instr opens the Synth page: the channel's hardware synth. The Original
+    // has no Instr key, so Shift + Params does the same (functParamsView).
     ip->setButtonObj(interfaceButtonInstr, buttonPress, functSynthView);
 
     // The first time this screen opens the SD card is ready, so this is
@@ -1081,6 +1082,13 @@ static void functInsert()
 
 static void functParamsView()
 {
+    // The Original has no Instr key: like the stock firmware, Shift + Params
+    // is the instrument key, and here it opens the Synth page.
+    if (EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        functSynthView();
+        return;
+    }
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
