@@ -110,6 +110,12 @@ class Midi
     // EUCLID: a complete SysEx message, F0 ... F7 included. Does nothing on
     // platforms that don't implement it.
     virtual void sendSysEx(const uint8_t* data, uint32_t length) { (void)data; (void)length; }
+    // EUCLID: incoming SysEx, in pieces: the first starts with F0, the last
+    // ends with F7 (complete). Called from wherever read() is.
+    virtual void setReceiveSysExAction(void (*action)(const uint8_t* data, uint16_t length, bool complete))
+    {
+        (void)action;
+    }
 };
 
 class UsbAudio

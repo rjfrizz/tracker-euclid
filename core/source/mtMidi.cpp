@@ -10,6 +10,7 @@
 
 #include "Platform.h"
 #include "TrackerImpl.h"
+#include "euclid/euclidPlatform.h"
 #include "core/interface.h"
 #include "util_math.h"
 #include <cmath>
@@ -58,6 +59,10 @@ void midiInit(UartMidi* uartMidi, UsbMidi* usbMidi)
     usbMidiReceiveActions.controlChange = handleUSBControlChange;
 
     usbMidi->setReceiveActions(&usbMidiReceiveActions);
+
+    // EUCLID: synth patch dumps for the synth editor.
+    uartMidi->setReceiveSysExAction(euclidSynth::receiveDin);
+    usbMidi->setReceiveSysExAction(euclidSynth::receiveUsb);
 }
 
 void midiUpdate()

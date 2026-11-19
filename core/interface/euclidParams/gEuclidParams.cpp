@@ -208,7 +208,7 @@ void cEuclidParams::refreshTitle()
                  selectedChannel + 1, hint);
     else if (view == View::synth)
         snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
-                 euclidSynth::sending() ? "  -  sending" : hint);
+                 euclidSynth::receiving() ? "  -  receiving" : (euclidSynth::sending() ? "  -  sending" : hint));
     else
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
                  view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);

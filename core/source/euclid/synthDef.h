@@ -16,6 +16,10 @@
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
+//   request F0 43 d+20 03 F7        asks the synth for its patch (up to 4)
+//   dump vced F0 43 d+00 03 00 5D [ data ] F7
+//                                   a reply holding vced params' values
+//   name vced 77 10                 the patch name: 10 bytes at vced 77
 //
 // A param line gives its template, its number (decimal or 0x hex: the
 // parameter number, or a Roland address as printed), its name and its
@@ -27,6 +31,12 @@
 // bytes 2, 1 and 0: Roland addresses as the manuals print them, so 0x040010
 // is 04 00 10); v, vh, vl (the value: low 7 bits, bits 7-13, bits 0-6); and
 // [ ... ], which emits a Roland checksum of the bytes inside after them.
+//
+// A request uses only hex bytes, d+XX and [ ]. A dump is matched against
+// incoming SysEx: its hex bytes and d+XX must match, [ ] checks the
+// checksum, a2 a1 a0 read the address of the first data byte, and `data`
+// is the values, one byte each. A param of the dump's template takes the
+// byte at its number (minus the address for a dump with one), less send=.
 //
 // Platform independent, so it's tested on a host (core/tests/euclid/).
 
@@ -42,6 +52,8 @@ constexpr int kMaxTokens = 32;
 constexpr int kMaxLists = 64;
 constexpr int kStringPool = 12288;
 constexpr int kMaxMessage = 32;
+constexpr int kMaxRequests = 4;
+constexpr int kMaxDumps = 8;
 
 enum class Token : uint8_t
 {
@@ -58,6 +70,7 @@ enum class Token : uint8_t
     valueLow,
     sumStart, // [
     checksum, // ]
+    data,     // dumps: the values
 };
 
 struct TemplateToken
@@ -85,6 +98,13 @@ struct Param
     int16_t send;
     int16_t init;
     uint8_t list; // 0xFF for none
+};
+
+struct Dump
+{
+    uint8_t templ; // whose params it holds
+    bool hasAddress;
+    Template pattern;
 };
 
 struct Group
@@ -116,6 +136,13 @@ struct Definition
     uint8_t listCount;
     List lists[kMaxLists];
     char listNames[kMaxLists][12];
+    uint8_t requestCount;
+    Template requests[kMaxRequests];
+    uint8_t dumpCount;
+    Dump dumps[kMaxDumps];
+    uint8_t nameTempl; // 0xFF for none
+    uint32_t nameNumber;
+    uint8_t nameLength;
 
     uint16_t poolUsed;
     char pool[kStringPool];
@@ -134,6 +161,27 @@ bool parse(const char* text, size_t length, Definition& out);
 // Returns its length, or 0 if it doesn't fit.
 size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t* out,
                     size_t maxLength);
+
+// Request message i (0 .. requestCount-1). Returns its length, or 0.
+size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t* out, size_t maxLength);
+
+// An incoming message recognised as one of the definition's dumps.
+struct DumpData
+{
+    uint8_t dump;
+    const uint8_t* data; // points into the message
+    size_t length;
+    uint32_t address; // of data[0], for dumps with a2 a1 a0
+};
+
+// Whether message (F0 ... F7) is one of d's dumps from that device.
+bool matchDump(const Definition& d, const uint8_t* message, size_t length, uint8_t device, DumpData& out);
+
+// Sets the values of the params the dump holds; returns how many.
+int applyDump(const Definition& d, const DumpData& dump, int16_t* values);
+
+// The patch name, if this dump holds it. False otherwise.
+bool dumpName(const Definition& d, const DumpData& dump, char* out, size_t length);
 
 // The value as shown: a list name, or the number plus `show`.
 void formatValue(const Definition& d, uint16_t param, int value, char* out, size_t length);

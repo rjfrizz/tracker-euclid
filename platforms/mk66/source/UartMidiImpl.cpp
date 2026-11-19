@@ -1,9 +1,42 @@
 #include "UartMidiImpl.h"
 #include "MIDI.h"
 
+// EUCLID: room for synth patch dumps (the stock 128 bytes is less than some
+// synths' dump messages). Longer ones arrive in pieces.
+struct EuclidMidiSettings : public MIDI_NAMESPACE::DefaultSettings
+{
+    static const unsigned SysExMaxSize = 512;
+};
+
 static MIDI_NAMESPACE::SerialMIDI<HardwareSerial5> serialMIDI(Serial5);
-static MIDI_NAMESPACE::MidiInterface<MIDI_NAMESPACE::SerialMIDI<HardwareSerial5>> midiDriver(
+static MIDI_NAMESPACE::MidiInterface<MIDI_NAMESPACE::SerialMIDI<HardwareSerial5>, EuclidMidiSettings> midiDriver(
   (MIDI_NAMESPACE::SerialMIDI<HardwareSerial5>&)serialMIDI);
+
+static void (*sysExAction)(const uint8_t*, uint16_t, bool) = nullptr;
+
+// The library splits long SysEx as F0 ... F0, F7 ... F0, F7 ... F7, where the
+// F7 and F0 at the joins are markers, not data.
+static void receiveSysEx(byte* array, unsigned size)
+{
+    if (sysExAction == nullptr || size == 0)
+        return;
+    const uint8_t* p = array;
+    if (p[0] == 0xF7)
+    {
+        p++;
+        size--;
+    }
+    bool complete = size > 0 && p[size - 1] == 0xF7;
+    if (!complete && size > 0 && p[size - 1] == 0xF0)
+        size--;
+    sysExAction(p, static_cast<uint16_t>(size), complete);
+}
+
+void UartMidiImpl::setReceiveSysExAction(void (*action)(const uint8_t* data, uint16_t length, bool complete))
+{
+    sysExAction = action;
+    midiDriver.setHandleSystemExclusive(action != nullptr ? receiveSysEx : nullptr);
+}
 
 void UartMidiImpl::init()
 {

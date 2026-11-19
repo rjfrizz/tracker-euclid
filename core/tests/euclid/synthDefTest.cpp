@@ -166,6 +166,120 @@ static void testQueue()
     CHECK(!q.push(1000, big, sizeof(big), 1, 0));
 }
 
+// A TX81Z-style dump: a request, then replies with a header, data and a
+// Yamaha checksum (the same sum as Roland's).
+static void testYamahaDump()
+{
+    auto d = load("synth \"4op\"\n"
+                  "template vced F0 43 d+10 12 p v F7\n"
+                  "template aced F0 43 d+10 13 p v F7\n"
+                  "request F0 43 d+20 7E 4C 4D 20 20 38 39 37 36 41 45 F7\n"
+                  "dump vced F0 43 d+00 03 00 5D [ data ] F7\n"
+                  "dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7\n"
+                  "name vced 77 10\n"
+                  "group \"G\"\n"
+                  "param vced 52 \"Algorithm\" 0 7\n"
+                  "param vced 62 \"Transpose\" 0 48 show=-24\n"
+                  "param aced 20 \"Reverb\" 0 7\n"
+                  "param vced 0 \"Offset\" -5 5 send=5\n");
+    CHECK(d->requestCount == 1 && d->dumpCount == 2 && d->nameTempl == 0);
+
+    uint8_t req[kMaxMessage];
+    size_t n = buildRequest(*d, 0, 3, req, sizeof(req));
+    CHECK(n == 15 && req[2] == 0x22 && req[3] == 0x7E && req[4] == 'L' && req[14] == 0xF7);
+
+    // VCED from device 3: 93 values, the name "BRASS" at 77.
+    std::vector<uint8_t> vced = { 0xF0, 0x43, 0x02, 0x03, 0x00, 0x5D };
+    std::vector<uint8_t> data(93, 0);
+    data[0] = 8; // Offset: 8 - send 5 = 3
+    data[52] = 5;
+    data[62] = 30;
+    const char* name = "BRASS     ";
+    for (int i = 0; i < 10; i++)
+        data[77 + i] = static_cast<uint8_t>(name[i]);
+    vced.insert(vced.end(), data.begin(), data.end());
+    vced.push_back(rolandChecksum(data.data(), data.size()));
+    vced.push_back(0xF7);
+
+    DumpData dd;
+    CHECK(matchDump(*d, vced.data(), vced.size(), 3, dd) && dd.dump == 0 && dd.length == 93);
+    int16_t values[4] = { -1, -1, -1, -1 };
+    CHECK(applyDump(*d, dd, values) == 3);
+    CHECK(values[0] == 5 && values[1] == 30 && values[2] == -1 && values[3] == 3);
+    char text[24];
+    CHECK(dumpName(*d, dd, text, sizeof(text)) && std::strcmp(text, "BRASS") == 0);
+
+    // Wrong device, or a bad checksum: not ours.
+    CHECK(!matchDump(*d, vced.data(), vced.size(), 1, dd));
+    vced[vced.size() - 2] ^= 1;
+    CHECK(!matchDump(*d, vced.data(), vced.size(), 3, dd));
+
+    // ACED: the checksum covers the header too.
+    std::vector<uint8_t> acedData = { 'L', 'M', ' ', ' ', '8', '9', '7', '6', 'A', 'E' };
+    for (int i = 0; i < 23; i++)
+        acedData.push_back(i == 20 ? 6 : 0);
+    std::vector<uint8_t> aced = { 0xF0, 0x43, 0x02, 0x7E, 0x00, 0x21 };
+    aced.insert(aced.end(), acedData.begin(), acedData.end());
+    aced.push_back(rolandChecksum(acedData.data(), acedData.size()));
+    aced.push_back(0xF7);
+    CHECK(matchDump(*d, aced.data(), aced.size(), 3, dd) && dd.dump == 1 && dd.length == 23);
+    CHECK(applyDump(*d, dd, values) == 1 && values[2] == 6);
+    CHECK(!dumpName(*d, dd, text, sizeof(text)));
+}
+
+// A Roland DT1 reply: the address says where the data starts.
+static void testRolandDump()
+{
+    auto d = load("synth \"R\"\n"
+                  "template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7\n"
+                  "request F0 41 d+10 16 11 [ 04 00 00 00 00 7F ] F7\n"
+                  "dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7\n"
+                  "group \"G\"\n"
+                  "param dt1 0x040000 \"First\" 0 127\n"
+                  "param dt1 0x040102 \"Over a byte\" 0 127\n"
+                  "param dt1 0x050000 \"Elsewhere\" 0 127\n");
+    uint8_t req[kMaxMessage];
+    size_t n = buildRequest(*d, 0, 1, req, sizeof(req));
+    CHECK(n == 13 && req[2] == 0x10 && req[11] == rolandChecksum(req + 5, 6));
+
+    // 200 bytes from 04 00 00: index 130 is 04 01 02 (address bytes are 7 bits).
+    std::vector<uint8_t> body = { 0x04, 0x00, 0x00 };
+    for (int i = 0; i < 200; i++)
+        body.push_back(static_cast<uint8_t>(i % 128));
+    std::vector<uint8_t> msg = { 0xF0, 0x41, 0x10, 0x16, 0x12 };
+    msg.insert(msg.end(), body.begin(), body.end());
+    msg.push_back(rolandChecksum(body.data(), body.size()));
+    msg.push_back(0xF7);
+
+    DumpData dd;
+    CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.length == 200 && dd.address == 0x040000);
+    int16_t values[3] = { -1, -1, -1 };
+    CHECK(applyDump(*d, dd, values) == 2);
+    CHECK(values[0] == 0 && values[1] == 130 % 128 && values[2] == -1);
+}
+
+static void testDumpErrors()
+{
+    auto bad = [](const char* text) {
+        Definition d;
+        return !parse(text, std::strlen(text), d);
+    };
+    const char* head = "template t F0 01 p v F7\ngroup \"G\"\nparam t 0 \"A\" 0 1\n";
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%srequest F0 01 v F7\n", head);
+    CHECK(bad(buf));
+    std::snprintf(buf, sizeof(buf), "%sdump t F0 01 F7\n", head);
+    CHECK(bad(buf));
+    std::snprintf(buf, sizeof(buf), "%sdump nope F0 data F7\n", head);
+    CHECK(bad(buf));
+    std::snprintf(buf, sizeof(buf), "%sdump t F0 data data F7\n", head);
+    CHECK(bad(buf));
+    std::snprintf(buf, sizeof(buf), "%sname t 5\n", head);
+    CHECK(bad(buf));
+    std::snprintf(buf, sizeof(buf), "%sdump t F0 01 data F7\nname t 0 4\n", head);
+    CHECK(!bad(buf));
+}
+
 int main()
 {
     testYamaha();
@@ -173,6 +287,9 @@ int main()
     testEmu14Bit();
     testErrors();
     testQueue();
+    testYamahaDump();
+    testRolandDump();
+    testDumpErrors();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

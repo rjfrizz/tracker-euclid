@@ -18,6 +18,7 @@ class UartMidiImpl : public UartMidi
     virtual void sendNoteOn(uint8_t note, uint8_t velocity, uint8_t channel) override;
     virtual void sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel) override;
     virtual void sendSysEx(const uint8_t* data, uint32_t length) override;
+    virtual void setReceiveSysExAction(void (*action)(const uint8_t* data, uint16_t length, bool complete)) override;
     virtual void setReceiveNoteOnAction(void (*action)(uint8_t, uint8_t, uint8_t)) override;
 };
 

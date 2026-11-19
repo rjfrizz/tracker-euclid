@@ -85,6 +85,15 @@ int16_t value(uint8_t ch, uint16_t param);
 void setValue(uint8_t ch, uint16_t param, int value); // and sends it
 void sendAll(uint8_t ch);                            // every param, to match the synth to the screen
 bool sending();
+// Asks the synth for its patch; the reply sets the values. False (see
+// error()) if the definition has no request. `automatic` skips channels
+// already asked once, so opening the page doesn't keep asking.
+bool requestPatch(uint8_t ch, bool automatic = false);
+bool receiving();
+uint32_t receiveEvents();     // counts replies and timeouts
+const char* receiveMessage(); // what the last one was
+void receiveDin(const uint8_t* data, uint16_t length, bool complete); // from MIDI input
+void receiveUsb(const uint8_t* data, uint16_t length, bool complete);
 const char* error();
 void saveAssignments();
 void loadAssignments();

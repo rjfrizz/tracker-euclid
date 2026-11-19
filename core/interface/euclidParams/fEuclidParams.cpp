@@ -107,11 +107,24 @@ void cEuclidParams::update()
         refreshPads();
     }
 
-    // The title says when a whole patch is on its way.
-    if (view == View::synth && euclidSynth::sending() != synthWasSending)
+    // The title says when a whole patch is on its way, either way.
+    const bool synthBusy = euclidSynth::sending() || euclidSynth::receiving();
+    if (view == View::synth && synthBusy != synthWasSending)
     {
-        synthWasSending = euclidSynth::sending();
+        synthWasSending = synthBusy;
         refreshTitle();
+    }
+
+    // A patch arrived from the synth, or it didn't answer.
+    if (euclidSynth::receiveEvents() != lastSynthEvents)
+    {
+        lastSynthEvents = euclidSynth::receiveEvents();
+        if (view == View::synth)
+        {
+            showMessage(euclidSynth::receiveMessage());
+            refreshSynth();
+            refreshPads();
+        }
     }
 
     // The Shift grid follows the step being played.
@@ -269,6 +282,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
     selectedChannel = ch;
     noteCursor = 0;
     replaceNextNote = false;
+    if (view == View::synth)
+        euclidSynth::requestPatch(ch, true); // the first time: fetch its patch
     refreshTitle();
     if (view == View::params)
         refreshParams();
@@ -1068,10 +1083,14 @@ static void functDelete()
 
 static void functInsert()
 {
-    // On the Synth page: send the whole patch, so the synth matches the screen.
+    // On the Synth page: send the whole patch, so the synth matches the
+    // screen. Shift + Insert does the opposite: it gets the synth's patch.
     if (EP->view == cEuclidParams::View::synth)
     {
-        euclidSynth::sendAll(EP->selectedChannel);
+        if (!EP->buttons->isButtonPressed(interfaceButtonShift))
+            euclidSynth::sendAll(EP->selectedChannel);
+        else if (!euclidSynth::requestPatch(EP->selectedChannel))
+            EP->showMessage(euclidSynth::error());
         EP->refreshTitle();
         return;
     }
@@ -1102,6 +1121,8 @@ static void functSynthView()
     euclidSynth::scan(); // pick up definition files added to the card
     EP->setView(cEuclidParams::View::synth);
     EP->setDefaultScreenFunct();
+    euclidSynth::requestPatch(EP->selectedChannel, true); // the first time: fetch its patch
+    EP->refreshTitle();
 }
 
 static void functShiftView()

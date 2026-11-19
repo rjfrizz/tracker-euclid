@@ -1,8 +1,14 @@
 # EUCLID synth definitions
 
-Definition files for the EUCLID Synth page (the Instr key): one `.syn` file per
-hardware synth. Copy them to `Synths/` on the Tracker's SD card. The format is
-described at the top of `core/source/euclid/synthDef.h`.
+Definition files for the EUCLID Synth page (Shift + Params on the Original,
+Instr on the Tracker+): one `.syn` file per hardware synth. Copy them to
+`Synths/` on the Tracker's SD card. The format is described at the top of
+`core/source/euclid/synthDef.h`.
+
+On the Synth page, edits go out as you make them. Insert sends the whole
+patch; Shift + Insert gets the synth's patch, which also happens the first
+time a channel's synth is shown (for definitions with `request` and `dump`
+lines).
 
 | File | Synth | Source |
 |---|---|---|
@@ -12,6 +18,15 @@ To regenerate a file, fetch Edisyn (https://github.com/eclab/edisyn) and run
 its script, e.g.
 
     python3 tools/edisyn_tx81z.py path/to/edisyn/synth/yamaha4op/Yamaha4Op.java > TX81Z.syn
+
+## Setting up the TX81Z
+
+- UTILITY > Sys Info: AVAIL. Otherwise it plays notes but ignores edits and
+  dump requests.
+- UTILITY > receive channel: a channel number (not OMNI), matching Device on
+  the Synth page. It's also the channel the notes must use.
+- Single (Play) mode. In Performance mode the edits may not be heard.
+- The edits change the edit buffer: STORE on the TX81Z keeps them.
 
 ## Credits
 

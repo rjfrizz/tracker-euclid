@@ -240,6 +240,7 @@ class cEuclidParams : public ModuleBase
     uint8_t synthGroup[8] = {};
     char synthText[strEuclidPanelData::kMaxRows][20];
     bool synthWasSending = false;
+    uint32_t lastSynthEvents = 0;
 
     // Shift view (shiftEuclidParams.cpp).
     void refreshShift();

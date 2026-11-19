@@ -57,6 +57,71 @@ euclid::SysexQueue queue;
 int8_t sendAllChannel = -1;
 uint16_t sendAllNext = 0;
 
+// Incoming SysEx. MIDI input is read in the audio callback, which puts whole
+// messages in the inbox; the main loop takes them out.
+constexpr size_t kInMax = 1024; // longest message kept
+constexpr uint8_t kInbox = 4;
+struct Assembly
+{
+    uint16_t length;
+    bool active;
+    bool overflow;
+};
+__NOINIT(EXTERNAL_RAM) uint8_t assemblyData[2][kInMax];
+Assembly assembly[2] = {};
+__NOINIT(EXTERNAL_RAM) uint8_t inbox[kInbox][kInMax];
+uint16_t inboxLength[kInbox];
+volatile uint8_t inboxHead = 0; // written by the audio callback
+volatile uint8_t inboxTail = 0; // written by the main loop
+
+// A patch request waiting for its reply.
+int8_t requestChannel = -1;
+uint32_t requestDeadline = 0;
+uint8_t dumpsReceived = 0;
+int valuesReceived = 0;
+char patchName[24] = "";
+bool asked[euclid::kChannels] = {};
+uint32_t events = 0;
+char eventText[64] = "";
+constexpr uint32_t kReplyWaitMs = 2500; // after the request goes out
+constexpr uint32_t kMoreWaitMs = 400;   // after a reply, for the rest
+
+void receive(uint8_t port, const uint8_t* data, uint16_t length)
+{
+    Assembly& a = assembly[port];
+    uint8_t* buf = assemblyData[port];
+    for (uint16_t i = 0; i < length; i++)
+    {
+        const uint8_t b = data[i];
+        if (b == 0xF0)
+        {
+            a.active = true;
+            a.overflow = false;
+            a.length = 0;
+        }
+        if (!a.active)
+            continue;
+        if (a.length < kInMax)
+            buf[a.length++] = b;
+        else
+            a.overflow = true;
+        if (b != 0xF7)
+            continue;
+        a.active = false;
+        const uint8_t next = static_cast<uint8_t>((inboxHead + 1) % kInbox);
+        if (a.overflow || next == inboxTail)
+            continue; // too long, or the main loop is behind: dropped
+        memcpy(inbox[inboxHead], buf, a.length);
+        inboxLength[inboxHead] = a.length;
+        inboxHead = next;
+    }
+}
+
+uint32_t nowMs()
+{
+    return TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+}
+
 void lockIrq()
 {
     DISABLE_GLOBAL_INTERRUPTS();
@@ -175,8 +240,71 @@ void pump(uint32_t nowUs)
     queue.pump(nowUs, send);
 }
 
+void receiveDin(const uint8_t* data, uint16_t length, bool complete)
+{
+    (void)complete; // the F7 says so
+    receive(0, data, length);
+}
+
+void receiveUsb(const uint8_t* data, uint16_t length, bool complete)
+{
+    (void)complete;
+    receive(1, data, length);
+}
+
+namespace
+{
+void finishRequest()
+{
+    const Definition* d = definition(static_cast<uint8_t>(requestChannel));
+    if (dumpsReceived == 0)
+        snprintf(eventText, sizeof(eventText), "No reply: is SysEx on, Device %d?",
+                 channels[requestChannel].device);
+    else if (patchName[0] != 0)
+        snprintf(eventText, sizeof(eventText), "Got \"%s\"", patchName);
+    else
+        snprintf(eventText, sizeof(eventText), "Got the patch from the %s", d ? d->name : "synth");
+    requestChannel = -1;
+    events++;
+}
+
+// Replies to a request: the values go straight onto the page.
+void takeInbox()
+{
+    while (inboxTail != inboxHead)
+    {
+        const uint8_t slot = inboxTail;
+        if (requestChannel >= 0)
+        {
+            const uint8_t ch = static_cast<uint8_t>(requestChannel);
+            const Definition* d = definition(ch);
+            euclid::synth::DumpData dump;
+            if (d != nullptr &&
+                euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], channels[ch].device, dump))
+            {
+                valuesReceived += euclid::synth::applyDump(*d, dump, values[ch]);
+                euclid::synth::dumpName(*d, dump, patchName, sizeof(patchName));
+                dumpsReceived++;
+                requestDeadline = nowMs() + kMoreWaitMs;
+            }
+        }
+        inboxTail = static_cast<uint8_t>((slot + 1) % kInbox);
+    }
+}
+} // namespace
+
 void update()
 {
+    takeInbox();
+    if (requestChannel >= 0)
+    {
+        // The wait starts once the request has gone out.
+        if (requestDeadline == 0 && queue.waiting() == 0)
+            requestDeadline = nowMs() + kReplyWaitMs;
+        if (requestDeadline != 0 && static_cast<int32_t>(nowMs() - requestDeadline) >= 0)
+            finishRequest();
+    }
+
     // A whole-patch send, fed to the queue as it empties.
     if (sendAllChannel < 0)
         return;
@@ -266,6 +394,7 @@ bool assign(uint8_t ch, int fileIndex)
         c.device = definitions[slot].device;
         c.ports = definitions[slot].ports;
         resetValues(ch);
+        asked[ch] = false;
     }
     return true;
 }
@@ -341,6 +470,53 @@ void sendAll(uint8_t ch)
 bool sending()
 {
     return sendAllChannel >= 0 || queue.waiting() > 0;
+}
+
+bool requestPatch(uint8_t ch, bool automatic)
+{
+    const Definition* d = definition(ch);
+    if (d == nullptr)
+        return false;
+    if (automatic && asked[ch])
+        return true;
+    asked[ch] = true;
+    if (d->requestCount == 0)
+    {
+        snprintf(lastError, sizeof(lastError), "%s can't send its patch", d->name);
+        return false;
+    }
+    if (requestChannel >= 0 && requestChannel != ch)
+        finishRequest();
+    const Channel& c = channels[ch];
+    for (uint8_t i = 0; i < d->requestCount; i++)
+    {
+        uint8_t msg[euclid::synth::kMaxMessage];
+        size_t n = euclid::synth::buildRequest(*d, i, c.device, msg, sizeof(msg));
+        if (n > 0)
+            queue.push((static_cast<uint32_t>(ch) << 16) | (0xFF00u + i), msg, n, c.ports, d->pauseMs);
+    }
+    requestChannel = static_cast<int8_t>(ch);
+    requestDeadline = 0;
+    dumpsReceived = 0;
+    valuesReceived = 0;
+    patchName[0] = 0;
+    inboxTail = inboxHead; // anything older isn't the reply
+    return true;
+}
+
+bool receiving()
+{
+    return requestChannel >= 0;
+}
+
+uint32_t receiveEvents()
+{
+    return events;
+}
+
+const char* receiveMessage()
+{
+    return eventText;
 }
 
 const char* error()

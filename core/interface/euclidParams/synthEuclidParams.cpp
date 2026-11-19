@@ -1,7 +1,9 @@
 // The Synth page (Instr): the selected channel's hardware synth. The first
 // rows choose the synth (a definition file in Synths/), its device number,
 // the port and a group of parameters; the rest are that group's parameters.
-// Edits go out over SysEx straight away. Insert sends the whole patch.
+// Edits go out over SysEx straight away. Insert sends the whole patch;
+// Shift + Insert gets the synth's patch, which also happens the first time
+// a channel's synth is shown.
 
 #include "euclidParams/euclidParams.h"
 
@@ -93,6 +95,7 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
                 showMessage(euclidSynth::error());
             synthGroup[ch] = 0;
             euclidSynth::saveAssignments();
+            euclidSynth::requestPatch(ch, true);
             break;
         }
         case 1:

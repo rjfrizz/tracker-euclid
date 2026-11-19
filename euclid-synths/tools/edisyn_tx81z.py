@@ -75,7 +75,6 @@ def main():
     src = open(sys.argv[1]).read()
     vced = string_array(src, "vcedParameters")
     aced = string_array(src, "acedParameters")
-    aced2 = string_array(src, "aced2Parameters")
     ctl = controls(src)
     lists = {name: string_array(src, name) for name in ("WAVES", "LFO_WAVES", "SHIFTS")}
     ratios = double_array(src, "FREQUENCY_RATIOS")
@@ -85,8 +84,6 @@ def main():
             return ("vced", vced.index(key))
         if key in aced:
             return ("aced", aced.index(key))
-        if key in aced2:
-            return ("aced", 23 + aced2.index(key))  # ACED2 continues the ACED numbers
         raise SystemExit("no number for " + key)
 
     def control(key):
@@ -107,6 +104,12 @@ def main():
     w("port din")
     w("template vced F0 43 d+10 12 p v F7")
     w("template aced F0 43 d+10 13 p v F7")
+    # One request gets the edit buffer as two replies, ACED then VCED (the
+    # TX81Z's "LM  8976AE" request, as in Edisyn's requestCurrentDump).
+    w("request F0 43 d+20 7E 4C 4D 20 20 38 39 37 36 41 45 F7")
+    w("dump vced F0 43 d+00 03 00 5D [ data ] F7")
+    w("dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7")
+    w("name vced 77 10")
     w('list offon "Off" "On"')
     w("list waves " + " ".join('"%s"' % s for s in lists["WAVES"]))
     w("list lfowaves " + " ".join('"%s"' % s for s in lists["LFO_WAVES"]))
@@ -189,10 +192,7 @@ def main():
     param("footcontrolvolume", "Foot volume")
     param("footcontrolpitch", "Foot pitch")
     param("footcontrolamplitude", "Foot amp")
-    param("aftertouchpitch", "AT pitch")
-    param("aftertouchamplitude", "AT amp")
-    param("aftertouchpitchbias", "AT pitch bias")
-    param("aftertouchenvelopebias", "AT EG bias")
+    # The aftertouch settings are the DX11's (ACED2); the TX81Z has none.
 
     print("\n".join(out))
 

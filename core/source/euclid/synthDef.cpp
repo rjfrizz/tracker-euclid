@@ -169,6 +169,8 @@ bool parseToken(const char* w, TemplateToken& t)
         t.type = Token::sumStart;
     else if (strcmp(w, "]") == 0)
         t.type = Token::checksum;
+    else if (strcmp(w, "data") == 0)
+        t.type = Token::data;
     else if (w[0] == 'd' && w[1] == '+')
     {
         t.type = Token::device;
@@ -180,6 +182,99 @@ bool parseToken(const char* w, TemplateToken& t)
         return parseHexByte(w, t.value);
     }
     return true;
+}
+
+enum Use : uint8_t
+{
+    useTemplate, // a param's message
+    useRequest,
+    useDump,
+};
+
+// The rest of the line as message words. Null if fine, or what's wrong.
+const char* readTokens(Line& line, Template& t, Use use)
+{
+    char w[64];
+    t.count = 0;
+    int depth = 0;
+    int data = 0;
+    while (line.word(w, sizeof(w)))
+    {
+        if (t.count >= kMaxTokens)
+            return "message too long";
+        TemplateToken& tok = t.tokens[t.count];
+        if (!parseToken(w, tok))
+            return "bad word in message";
+        switch (tok.type)
+        {
+            case Token::sumStart: depth++; break;
+            case Token::checksum:
+                if (--depth < 0)
+                    return "] without [";
+                break;
+            case Token::data:
+                if (use != useDump)
+                    return "data only goes in a dump";
+                data++;
+                break;
+            case Token::literal:
+            case Token::device: break;
+            case Token::address2:
+            case Token::address1:
+            case Token::address0:
+                if (use == useRequest)
+                    return "a request takes bytes, d+XX, [ ]";
+                break;
+            default:
+                if (use != useTemplate)
+                    return "no p or v in a request or dump";
+                break;
+        }
+        t.count++;
+    }
+    if (t.count == 0 || depth != 0)
+        return "message empty or [ unclosed";
+    if (use == useDump && data != 1)
+        return "a dump needs one data";
+    return nullptr;
+}
+
+// Roland addresses are 7 bits a byte; this makes them plain numbers.
+uint32_t linearAddress(uint32_t a)
+{
+    return ((a >> 16) & 0x7F) * 16384u + ((a >> 8) & 0x7F) * 128u + (a & 0x7F);
+}
+
+size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* out, size_t maxLength)
+{
+    size_t len = 0;
+    size_t sumFrom = 0;
+    for (uint8_t i = 0; i < t.count; i++)
+    {
+        const TemplateToken& tok = t.tokens[i];
+        uint8_t b = 0;
+        switch (tok.type)
+        {
+            case Token::literal: b = tok.value; break;
+            case Token::device: b = static_cast<uint8_t>(tok.value + device - 1); break;
+            case Token::paramLow7: b = static_cast<uint8_t>(n & 0x7F); break;
+            case Token::paramHigh: b = static_cast<uint8_t>((n >> 7) & 0x7F); break;
+            case Token::paramLow: b = static_cast<uint8_t>(n & 0x7F); break;
+            case Token::address2: b = static_cast<uint8_t>((n >> 16) & 0x7F); break;
+            case Token::address1: b = static_cast<uint8_t>((n >> 8) & 0x7F); break;
+            case Token::address0: b = static_cast<uint8_t>(n & 0x7F); break;
+            case Token::value7: b = static_cast<uint8_t>(v & 0x7F); break;
+            case Token::valueHigh: b = static_cast<uint8_t>((v >> 7) & 0x7F); break;
+            case Token::valueLow: b = static_cast<uint8_t>(v & 0x7F); break;
+            case Token::sumStart: sumFrom = len; continue;
+            case Token::checksum: b = rolandChecksum(out + sumFrom, len - sumFrom); break;
+            case Token::data: return 0; // never sent
+        }
+        if (len >= maxLength)
+            return 0;
+        out[len++] = b;
+    }
+    return len;
 }
 } // namespace
 
@@ -197,6 +292,7 @@ bool parse(const char* text, size_t length, Definition& d)
     snprintf(d.name, sizeof(d.name), "Synth");
     d.pauseMs = 20;
     d.device = 1;
+    d.nameTempl = 0xFF;
 
     uint8_t group = 0xFF;
     uint16_t lineNumber = 0;
@@ -258,23 +354,48 @@ bool parse(const char* text, size_t length, Definition& d)
             Template& t = d.templates[d.templateCount];
             if (!line.word(t.name, sizeof(t.name)))
                 return fail(d, lineNumber, "template: name missing");
-            t.count = 0;
-            int depth = 0;
-            while (line.word(w, sizeof(w)))
-            {
-                if (t.count >= kMaxTokens)
-                    return fail(d, lineNumber, "template too long");
-                if (!parseToken(w, t.tokens[t.count]))
-                    return fail(d, lineNumber, "template: bad word");
-                if (t.tokens[t.count].type == Token::sumStart)
-                    depth++;
-                if (t.tokens[t.count].type == Token::checksum && --depth < 0)
-                    return fail(d, lineNumber, "template: ] without [");
-                t.count++;
-            }
-            if (t.count == 0 || depth != 0)
-                return fail(d, lineNumber, "template: empty or [ unclosed");
+            if (const char* e = readTokens(line, t, useTemplate))
+                return fail(d, lineNumber, e);
             d.templateCount++;
+        }
+        else if (strcmp(key, "request") == 0)
+        {
+            if (d.requestCount >= kMaxRequests)
+                return fail(d, lineNumber, "too many requests");
+            Template& t = d.requests[d.requestCount];
+            if (const char* e = readTokens(line, t, useRequest))
+                return fail(d, lineNumber, e);
+            d.requestCount++;
+        }
+        else if (strcmp(key, "dump") == 0)
+        {
+            if (d.dumpCount >= kMaxDumps)
+                return fail(d, lineNumber, "too many dumps");
+            Dump& dump = d.dumps[d.dumpCount];
+            int t = line.word(w, sizeof(w)) ? findTemplate(d, w) : -1;
+            if (t < 0)
+                return fail(d, lineNumber, "dump: unknown template");
+            dump.templ = static_cast<uint8_t>(t);
+            if (const char* e = readTokens(line, dump.pattern, useDump))
+                return fail(d, lineNumber, e);
+            dump.hasAddress = false;
+            for (uint8_t i = 0; i < dump.pattern.count; i++)
+                if (dump.pattern.tokens[i].type >= Token::address2 && dump.pattern.tokens[i].type <= Token::address0)
+                    dump.hasAddress = true;
+            d.dumpCount++;
+        }
+        else if (strcmp(key, "name") == 0)
+        {
+            long number, len;
+            int t = line.word(w, sizeof(w)) ? findTemplate(d, w) : -1;
+            if (t < 0)
+                return fail(d, lineNumber, "name: unknown template");
+            if (!line.word(w, sizeof(w)) || !parseInt(w, number) || number < 0 || !line.word(w, sizeof(w)) ||
+                !parseInt(w, len) || len < 1 || len > 24)
+                return fail(d, lineNumber, "name: number and length expected");
+            d.nameTempl = static_cast<uint8_t>(t);
+            d.nameNumber = static_cast<uint32_t>(number);
+            d.nameLength = static_cast<uint8_t>(len);
         }
         else if (strcmp(key, "list") == 0)
         {
@@ -391,35 +512,119 @@ size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t devi
     if (value > p.max)
         value = p.max;
     const unsigned v = static_cast<unsigned>(value + p.send) & 0x3FFF;
-    const uint32_t n = p.number;
+    return emit(t, p.number, v, device, out, maxLength);
+}
 
-    size_t len = 0;
-    size_t sumFrom = 0;
-    for (uint8_t i = 0; i < t.count; i++)
+size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t* out, size_t maxLength)
+{
+    if (request >= d.requestCount)
+        return 0;
+    return emit(d.requests[request], 0, 0, device, out, maxLength);
+}
+
+bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t device, DumpData& out)
+{
+    for (uint8_t k = 0; k < d.dumpCount; k++)
     {
-        const TemplateToken& tok = t.tokens[i];
-        uint8_t b = 0;
-        switch (tok.type)
+        const Template& t = d.dumps[k].pattern;
+        size_t fixed = 0; // bytes besides the data
+        for (uint8_t i = 0; i < t.count; i++)
+            if (t.tokens[i].type != Token::sumStart && t.tokens[i].type != Token::data)
+                fixed++;
+        if (length <= fixed)
+            continue;
+        const size_t dataLength = length - fixed;
+
+        size_t pos = 0;
+        size_t sumFrom = 0;
+        uint32_t address = 0;
+        const uint8_t* data = nullptr;
+        bool ok = true;
+        for (uint8_t i = 0; i < t.count && ok; i++)
         {
-            case Token::literal: b = tok.value; break;
-            case Token::device: b = static_cast<uint8_t>(tok.value + device - 1); break;
-            case Token::paramLow7: b = static_cast<uint8_t>(n & 0x7F); break;
-            case Token::paramHigh: b = static_cast<uint8_t>((n >> 7) & 0x7F); break;
-            case Token::paramLow: b = static_cast<uint8_t>(n & 0x7F); break;
-            case Token::address2: b = static_cast<uint8_t>((n >> 16) & 0x7F); break;
-            case Token::address1: b = static_cast<uint8_t>((n >> 8) & 0x7F); break;
-            case Token::address0: b = static_cast<uint8_t>(n & 0x7F); break;
-            case Token::value7: b = static_cast<uint8_t>(v & 0x7F); break;
-            case Token::valueHigh: b = static_cast<uint8_t>((v >> 7) & 0x7F); break;
-            case Token::valueLow: b = static_cast<uint8_t>(v & 0x7F); break;
-            case Token::sumStart: sumFrom = len; continue;
-            case Token::checksum: b = rolandChecksum(out + sumFrom, len - sumFrom); break;
+            const TemplateToken& tok = t.tokens[i];
+            switch (tok.type)
+            {
+                case Token::literal: ok = msg[pos++] == tok.value; break;
+                case Token::device: ok = msg[pos++] == static_cast<uint8_t>(tok.value + device - 1); break;
+                case Token::address2: address |= static_cast<uint32_t>(msg[pos++]) << 16; break;
+                case Token::address1: address |= static_cast<uint32_t>(msg[pos++]) << 8; break;
+                case Token::address0: address |= msg[pos++]; break;
+                case Token::sumStart: sumFrom = pos; break;
+                case Token::checksum:
+                    ok = rolandChecksum(msg + sumFrom, pos - sumFrom) == msg[pos];
+                    pos++;
+                    break;
+                case Token::data:
+                    data = msg + pos;
+                    pos += dataLength;
+                    break;
+                default: ok = false; break;
+            }
         }
-        if (len >= maxLength)
-            return 0;
-        out[len++] = b;
+        if (ok && data != nullptr)
+        {
+            out.dump = k;
+            out.data = data;
+            out.length = dataLength;
+            out.address = address;
+            return true;
+        }
     }
-    return len;
+    return false;
+}
+
+namespace
+{
+// Where a template's number falls in a dump's data, or -1.
+long dumpIndex(const Definition& d, const DumpData& dump, uint32_t number)
+{
+    long i = d.dumps[dump.dump].hasAddress
+               ? static_cast<long>(linearAddress(number)) - static_cast<long>(linearAddress(dump.address))
+               : static_cast<long>(number);
+    return i >= 0 && static_cast<size_t>(i) < dump.length ? i : -1;
+}
+} // namespace
+
+int applyDump(const Definition& d, const DumpData& dump, int16_t* values)
+{
+    if (dump.dump >= d.dumpCount)
+        return 0;
+    const uint8_t templ = d.dumps[dump.dump].templ;
+    int count = 0;
+    for (uint16_t i = 0; i < d.paramCount; i++)
+    {
+        const Param& p = d.params[i];
+        if (p.templ != templ)
+            continue;
+        long at = dumpIndex(d, dump, p.number);
+        if (at < 0)
+            continue;
+        int v = dump.data[at] - p.send;
+        values[i] = static_cast<int16_t>(v < p.min ? p.min : (v > p.max ? p.max : v));
+        count++;
+    }
+    return count;
+}
+
+bool dumpName(const Definition& d, const DumpData& dump, char* out, size_t length)
+{
+    if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl)
+        return false;
+    long first = dumpIndex(d, dump, d.nameNumber);
+    long last = dumpIndex(d, dump, d.nameNumber + d.nameLength - 1);
+    if (first < 0 || last < 0)
+        return false;
+    size_t n = 0;
+    for (long i = first; i <= last && n + 1 < length; i++)
+    {
+        char c = static_cast<char>(dump.data[i]);
+        out[n++] = c >= 32 && c < 127 ? c : ' ';
+    }
+    while (n > 0 && out[n - 1] == ' ')
+        n--;
+    out[n] = 0;
+    return true;
 }
 
 void formatValue(const Definition& d, uint16_t param, int value, char* out, size_t length)

@@ -52,6 +52,11 @@ void UsbMidiImpl::sendSysEx(const uint8_t* data, uint32_t length)
     usbMIDI.sendSysEx(length, data, true); // the data includes F0 and F7
 }
 
+void UsbMidiImpl::setReceiveSysExAction(void (*action)(const uint8_t* data, uint16_t length, bool complete))
+{
+    usbMIDI.setHandleSysEx(action); // pieces of the raw message, F0 and F7 included
+}
+
 void UsbMidiImpl::sendNoteOff(uint8_t note, uint8_t velocity, uint8_t channel)
 {
     usbMIDI.sendNoteOff(note, velocity, channel);

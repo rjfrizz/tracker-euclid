@@ -8,6 +8,10 @@ device 1
 port din
 template vced F0 43 d+10 12 p v F7
 template aced F0 43 d+10 13 p v F7
+request F0 43 d+20 7E 4C 4D 20 20 38 39 37 36 41 45 F7
+dump vced F0 43 d+00 03 00 5D [ data ] F7
+dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7
+name vced 77 10
 list offon "Off" "On"
 list waves "W1" "W2" "W3" "W4" "W5" "W6" "W7" "W8"
 list lfowaves "Sawtooth" "Square" "Triangle" "Sample & Hold"
@@ -118,7 +122,3 @@ param vced 76 "Breath EG bias" 0 99
 param vced 67 "Foot volume" 0 99
 param aced 21 "Foot pitch" 0 99
 param aced 22 "Foot amp" 0 99
-param aced 23 "AT pitch" 0 99
-param aced 24 "AT amp" 0 99
-param aced 25 "AT pitch bias" 0 99 show=-50
-param aced 26 "AT EG bias" 0 99
