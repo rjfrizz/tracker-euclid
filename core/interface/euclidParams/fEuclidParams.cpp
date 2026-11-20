@@ -1325,7 +1325,9 @@ static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
 
 // Scenes: tap recalls (at the next launch point while playing), Shift + tap
 // saves what's on screen into the scene. Params goes back to what was
-// playing before the first scene.
+// playing before the first scene. From any other page a tap also opens the
+// scene's Params page, and tapping the scene that's playing only does that
+// (so its edits stay).
 static void functScene(uint8_t button)
 {
     uint8_t scene = 0;
@@ -1349,11 +1351,24 @@ static void functScene(uint8_t button)
         return;
     }
 
+    const bool onParams = EP->view == cEuclidParams::View::params;
+    if (!onParams && euclidScenes::active() == scene)
+    {
+        EP->setView(cEuclidParams::View::params);
+        EP->setDefaultScreenFunct();
+        return;
+    }
+
     if (!euclidScenes::recall(scene))
     {
         snprintf(text, sizeof(text), "Scene %c is empty: Shift + key saves it", letter);
         EP->showMessage(text);
         return;
+    }
+    if (!onParams)
+    {
+        EP->setView(cEuclidParams::View::params);
+        EP->setDefaultScreenFunct();
     }
 
     if (euclidEngine.isRunning())
