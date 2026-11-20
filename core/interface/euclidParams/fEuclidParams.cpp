@@ -1106,6 +1106,27 @@ static void functParamsView()
         functSynthView();
         return;
     }
+    // While a scene plays, Params goes back to what was playing before it.
+    if (euclidScenes::returnHome())
+    {
+        char text[48];
+        if (euclidEngine.isRunning())
+        {
+            euclid::Launch l = euclidEngine.getLaunch();
+            snprintf(text, sizeof(text), "Back to yours from the next %s",
+                     l == euclid::Launch::beat ? "beat" : (l == euclid::Launch::bar ? "bar" : "phrase"));
+        }
+        else
+            snprintf(text, sizeof(text), "Back to your settings");
+        EP->showMessage(text);
+        if (EP->view != cEuclidParams::View::params)
+        {
+            EP->setView(cEuclidParams::View::params);
+            EP->setDefaultScreenFunct();
+        }
+        EP->refreshAfterCommit();
+        return;
+    }
     if (EP->view == cEuclidParams::View::params)
         return;
     EP->setView(cEuclidParams::View::params);
@@ -1303,7 +1324,8 @@ static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
 }
 
 // Scenes: tap recalls (at the next launch point while playing), Shift + tap
-// saves what's on screen into the scene.
+// saves what's on screen into the scene. Params goes back to what was
+// playing before the first scene.
 static void functScene(uint8_t button)
 {
     uint8_t scene = 0;

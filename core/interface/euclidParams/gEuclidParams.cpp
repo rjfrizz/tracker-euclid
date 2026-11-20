@@ -210,8 +210,13 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
                  euclidSynth::receiving() ? "  -  receiving" : (euclidSynth::sending() ? "  -  sending" : hint));
     else
-        snprintf(titleText, sizeof(titleText), "%s  Ch %d%s",
-                 view == View::params ? "Params" : "Notes", selectedChannel + 1, hint);
+    {
+        // While a scene plays, the Params title names it (Params goes back).
+        char sceneName[12];
+        snprintf(sceneName, sizeof(sceneName), "Scene %c", 'A' + euclidScenes::active());
+        const char* name = view == View::params ? (euclidScenes::active() >= 0 ? sceneName : "Params") : "Notes";
+        snprintf(titleText, sizeof(titleText), "%s  Ch %d%s", name, selectedChannel + 1, hint);
+    }
     titleBar->setTitle(titleText);
 }
 

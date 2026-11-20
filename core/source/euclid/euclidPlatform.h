@@ -44,13 +44,17 @@ bool editedSinceSlot();
 
 // Scenes A-D: snapshots of all 8 channels and the global key, kept in
 // memory and saved with the working state and with sets (a .scn file next
-// to the set). Recalling one lands at the next launch point.
+// to the set). Recalling one lands at the next launch point. What was
+// playing before the first recall is kept: returnHome() goes back to it,
+// and edits made in a scene don't change it (or the scene, unless saved).
 namespace euclidScenes
 {
 constexpr uint8_t kScenes = 4;
 bool save(uint8_t scene);   // 0-3
 bool recall(uint8_t scene); // false if the scene is empty
 bool has(uint8_t scene);
+bool returnHome(); // false if no scene was playing
+int8_t active();   // the scene playing, or -1 for home
 } // namespace euclidScenes
 
 // The synth editor (euclidSynthPlatform.cpp): synth definitions from

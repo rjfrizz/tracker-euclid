@@ -151,6 +151,12 @@ constexpr size_t kScenesFileMax = 8 + euclidScenes::kScenes * (2 + euclid::kSetF
 __NOINIT(EXTERNAL_RAM) uint8_t sceneImage[euclidScenes::kScenes][euclid::kSetFileSize];
 uint16_t sceneLength[euclidScenes::kScenes] = {};
 bool scenesDirty = false;
+
+// While a scene plays, what was playing before it (the Params key goes back
+// to it). Autosave keeps this, not the scene, as the working state.
+int8_t activeScene = -1;
+__NOINIT(EXTERNAL_RAM) uint8_t homeImage[euclid::kSetFileSize];
+uint16_t homeLength = 0;
 __NOINIT(EXTERNAL_RAM) uint8_t scenesFile[kScenesFileMax];
 
 size_t buildScenesFile()
@@ -230,7 +236,9 @@ bool saveCurrent()
 {
     uint8_t buf[euclid::kSetFileSize];
     uint32_t count = euclidEngine.getChangeCount();
-    if (euclid::serializeSet(euclidEngine, slotOfState, buf, sizeof(buf)) == 0)
+    if (activeScene >= 0 && homeLength == sizeof(buf))
+        memcpy(buf, homeImage, sizeof(buf));
+    else if (euclid::serializeSet(euclidEngine, slotOfState, buf, sizeof(buf)) == 0)
         return false;
     if (!writeFileSafely(kCurrentPath, kCurrentTempPath, buf, sizeof(buf)))
     {
@@ -368,6 +376,7 @@ bool load(uint8_t slot)
     scenesPath(slot, scn, sizeof(scn), false);
     readScenesFile(scn);
     scenesDirty = true; // the working copy's scenes are now these
+    activeScene = -1;   // a loaded set is the new home
 
     slotOfState = slot;
     changeCountAtSlot = euclidEngine.getChangeCount();
@@ -410,21 +419,53 @@ bool save(uint8_t scene)
     return n > 0;
 }
 
+namespace
+{
+// A scene or home image is the music; the Global page's settings for how
+// things launch, freeze and layer stay as they are.
+bool loadImage(const uint8_t* image, size_t length)
+{
+    const euclid::Launch launch = euclidEngine.getLaunch();
+    const euclid::FreezeLength freezeLength = euclidEngine.getFreezeLength();
+    const bool layer = euclidEngine.getLayer();
+    bool ok = euclid::deserializeSet(euclidEngine, image, length);
+    euclidEngine.setLaunch(launch);
+    euclidEngine.setFreezeLength(freezeLength);
+    euclidEngine.setLayer(layer);
+    return ok;
+}
+} // namespace
+
 bool recall(uint8_t scene)
 {
     if (scene >= kScenes || sceneLength[scene] == 0)
         return false;
 
-    // A scene is the music; the Global page's settings for how things launch,
-    // freeze and layer stay as they are.
-    const euclid::Launch launch = euclidEngine.getLaunch();
-    const euclid::FreezeLength freezeLength = euclidEngine.getFreezeLength();
-    const bool layer = euclidEngine.getLayer();
-    bool ok = euclid::deserializeSet(euclidEngine, sceneImage[scene], sceneLength[scene]);
-    euclidEngine.setLaunch(launch);
-    euclidEngine.setFreezeLength(freezeLength);
-    euclidEngine.setLayer(layer);
-    return ok;
+    // Leaving home: keep it to come back to.
+    if (activeScene < 0)
+    {
+        size_t n = euclid::serializeSet(euclidEngine, slotOfState, homeImage, sizeof(homeImage));
+        homeLength = static_cast<uint16_t>(n);
+        if (n == 0)
+            return false;
+    }
+    if (!loadImage(sceneImage[scene], sceneLength[scene]))
+        return false;
+    activeScene = static_cast<int8_t>(scene);
+    return true;
+}
+
+bool returnHome()
+{
+    if (activeScene < 0)
+        return false;
+    activeScene = -1;
+    return homeLength > 0 && loadImage(homeImage, homeLength);
+}
+
+int8_t active()
+{
+    return activeScene;
 }
 
 bool has(uint8_t scene)
