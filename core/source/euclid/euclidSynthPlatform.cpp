@@ -81,6 +81,8 @@ volatile uint16_t heardLength = 0;
 volatile uint8_t heardPort = 0;
 uint8_t heardStart[6];
 uint32_t heardAtRequest = 0;
+uint32_t jackAtRequest = 0;
+uint32_t usbAtRequest = 0;
 
 // A patch request waiting for its reply.
 int8_t requestChannel = -1;
@@ -269,7 +271,15 @@ void finishRequest()
 {
     const uint32_t heard = heardCount - heardAtRequest;
     if (dumpsReceived == 0 && heard == 0)
-        snprintf(eventText, sizeof(eventText), "No reply (Device %d)", channels[requestChannel].device);
+    {
+        // Short, to fit the title: what reached each input while waiting.
+        const unsigned long din = midiJackReads() - jackAtRequest;
+        const unsigned long usb = midiUsbReads() - usbAtRequest;
+        if (usb > 0)
+            snprintf(eventText, sizeof(eventText), "No reply. In: %lu, USB %lu", din, usb);
+        else
+            snprintf(eventText, sizeof(eventText), "No reply. DIN in: %lu", din);
+    }
     else if (dumpsReceived == 0)
         snprintf(eventText, sizeof(eventText), "%s x%lu: %02X %02X %02X %02X %02X %02X",
                  heardPort == 0 ? "DIN" : "USB", static_cast<unsigned long>(heard), heardStart[0], heardStart[1],
@@ -528,6 +538,8 @@ bool requestPatch(uint8_t ch)
     patchName[0] = 0;
     inboxTail = inboxHead; // anything older isn't the reply
     heardAtRequest = heardCount;
+    jackAtRequest = midiJackReads();
+    usbAtRequest = midiUsbReads();
     return true;
 }
 

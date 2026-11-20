@@ -65,6 +65,21 @@ void midiInit(UartMidi* uartMidi, UsbMidi* usbMidi)
     usbMidi->setReceiveSysExAction(euclidSynth::receiveUsb);
 }
 
+// EUCLID: reads of each port (about a byte each on the jack), so the synth
+// editor can tell "nothing arrived" from "something arrived".
+static volatile uint32_t jackReads = 0;
+static volatile uint32_t usbReads = 0;
+
+uint32_t midiJackReads()
+{
+    return jackReads;
+}
+
+uint32_t midiUsbReads()
+{
+    return usbReads;
+}
+
 void midiUpdate()
 {
     if (sequencer.isRenderMode())
@@ -75,6 +90,7 @@ void midiUpdate()
         while (uartMidi->isReadAvailable())
         {
             uartMidi->read();
+            jackReads = jackReads + 1;
         }
     }
 
@@ -83,6 +99,7 @@ void midiUpdate()
         while (usbMidi->isReadAvailable())
         {
             usbMidi->read();
+            usbReads = usbReads + 1;
         }
     }
 }

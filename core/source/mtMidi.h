@@ -101,6 +101,8 @@ void sendMidiNoteOff(uint8_t note, uint8_t velo, uint8_t channel, bool toSynth);
 // EUCLID: a complete SysEx message (F0 ... F7) to the DIN port (ports bit 0),
 // USB (bit 1), or, with ports 0, wherever notes go (Config > MIDI).
 void sendSysExMessage(const uint8_t* data, uint32_t length, uint8_t ports);
+uint32_t midiJackReads(); // EUCLID: input activity, for the synth editor
+uint32_t midiUsbReads();
 
 void resetMidi();
 void setHandleNoteOnAction(void (*action)(uint8_t, uint8_t, uint8_t));
