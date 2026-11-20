@@ -7,7 +7,8 @@ synth "Roland D-110"
 pause 30
 device 1
 port din
-parts 8 246
+# Part 1 listens on MIDI channel 2 by default, part 2 on 3 and so on.
+parts 8 246 channel=2
 template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7
 request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
 dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7

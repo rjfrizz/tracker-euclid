@@ -37,9 +37,10 @@ its script, e.g.
 
 - Device on the Synth page is the D-110's unit number less 16: unit 17 (the
   usual) is Device 1.
-- Part picks which of the D-110's 8 parts the channel edits; it starts as
-  the channel's number. The notes must go to that part's MIDI channel
-  (by default Part 1 listens on channel 2, Part 2 on 3, and so on).
+- Part picks which of the D-110's 8 parts the channel edits. Auto (the
+  default) follows the channel's MIDI channel, the D-110's default layout:
+  channel 2 is Part 1, 3 is Part 2 ... 9 is Part 8. On other MIDI channels
+  Auto shows "none" and nothing is sent; pick a part number to override.
 - Memory Protect OFF, and (Edisyn's notes) Overflow OFF: older ROMs fail
   dumps otherwise. Edisyn recommends ROM 1.10 or later; it had a report of
   real-time edits crashing a 1.06 ROM.

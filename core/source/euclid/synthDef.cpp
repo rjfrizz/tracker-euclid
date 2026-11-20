@@ -456,6 +456,13 @@ bool parse(const char* text, size_t length, Definition& d)
                 return fail(d, lineNumber, "parts: count (1-16) and distance");
             d.partCount = static_cast<uint8_t>(count);
             d.partStride = static_cast<uint16_t>(stride);
+            if (line.word(w, sizeof(w)))
+            {
+                long ch;
+                if (strncmp(w, "channel=", 8) != 0 || !parseInt(w + 8, ch) || ch < 1 || ch > 16)
+                    return fail(d, lineNumber, "parts: channel=1-16 expected");
+                d.partChannel = static_cast<uint8_t>(ch);
+            }
         }
         else if (strcmp(key, "name") == 0)
         {

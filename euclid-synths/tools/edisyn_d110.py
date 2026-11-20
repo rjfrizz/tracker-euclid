@@ -88,7 +88,8 @@ def main():
     w("pause 30")
     w("device 1")
     w("port din")
-    w("parts 8 %d" % TONE_LENGTH)
+    # Part 1 listens on MIDI channel 2 by default, part 2 on 3 and so on.
+    w("parts 8 %d channel=2" % TONE_LENGTH)
     w("template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7")
     # The whole temporary tone (246 bytes, 01 76 in 7-bit steps), as Edisyn asks.
     w("request addr=0x%06X F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7" % printed(TONE_BASE))

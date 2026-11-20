@@ -17,7 +17,8 @@
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
 //                              [stride=16] [reload=1]
-//   parts 8 246                     8 copies of the params, 246 apart
+//   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
+//                                   part 1 listens on MIDI channel 2...
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 4)
 //   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
 //                                   a request with an address (and stride=)
@@ -154,6 +155,7 @@ struct Definition
     char listNames[kMaxLists][12];
     uint8_t partCount; // 0: no parts
     uint16_t partStride;
+    uint8_t partChannel; // the MIDI channel part 1 listens on, 0 if none
     uint8_t requestCount;
     Template requests[kMaxRequests];
     uint32_t requestAddress[kMaxRequests];

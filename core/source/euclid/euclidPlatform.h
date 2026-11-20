@@ -85,7 +85,11 @@ uint8_t device(uint8_t ch);
 void setDevice(uint8_t ch, uint8_t device);
 uint8_t ports(uint8_t ch); // 0 wherever notes go, 1 DIN, 2 USB, 3 both
 void setPorts(uint8_t ch, uint8_t ports);
-uint8_t part(uint8_t ch); // which of a multitimbral synth's parts, 1 ..
+// Which of a multitimbral synth's parts the channel edits, 1 .. With the
+// setting 0 (Auto, for synths that say which MIDI channel part 1 is on) it
+// follows the channel's MIDI channel, and is 0 when that isn't a part.
+uint8_t part(uint8_t ch);
+uint8_t partSetting(uint8_t ch);
 void setPart(uint8_t ch, uint8_t part);
 int16_t value(uint8_t ch, uint16_t param);
 void setValue(uint8_t ch, uint16_t param, int value); // and sends it

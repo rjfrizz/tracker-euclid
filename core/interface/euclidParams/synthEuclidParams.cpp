@@ -82,7 +82,10 @@ cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
         case Header::synth: return { PadMap::list, static_cast<uint8_t>(euclidSynth::files() + 1), 0, 0 };
         case Header::device: return { PadMap::list, 16, 1, 0 };
         case Header::port: return { PadMap::list, 4, 0, 0 };
-        case Header::part: return { PadMap::list, d->partCount, 1, 0 };
+        case Header::part:
+            // With Auto (0) first, for synths whose parts follow MIDI channels.
+            return d->partChannel > 0 ? PadMap{ PadMap::list, static_cast<uint8_t>(d->partCount + 1), 0, 0 }
+                                      : PadMap{ PadMap::list, d->partCount, 1, 0 };
         case Header::group: return { PadMap::list, d->groupCount, 0, 0 };
         case Header::none: break;
     }
@@ -103,7 +106,7 @@ int cEuclidParams::synthRowValue(uint8_t row) const
         case Header::synth: return euclidSynth::assignedFile(selectedChannel) + 1; // 0 = none
         case Header::device: return euclidSynth::device(selectedChannel);
         case Header::port: return euclidSynth::ports(selectedChannel);
-        case Header::part: return euclidSynth::part(selectedChannel);
+        case Header::part: return euclidSynth::partSetting(selectedChannel);
         case Header::group: return synthGroup[selectedChannel];
         case Header::none: break;
     }
@@ -136,7 +139,7 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
         case Header::part:
         {
             const euclid::synth::Definition* d = euclidSynth::definition(ch);
-            euclidSynth::setPart(ch, static_cast<uint8_t>(clampInt(v, 1, d->partCount)));
+            euclidSynth::setPart(ch, static_cast<uint8_t>(clampInt(v, d->partChannel > 0 ? 0 : 1, d->partCount)));
             euclidSynth::saveAssignments();
             break;
         }
@@ -209,7 +212,14 @@ void cEuclidParams::refreshSynth()
                     break;
                 case Header::device: snprintf(t, n, "%d", euclidSynth::device(ch)); break;
                 case Header::port: snprintf(t, n, "%s", kPortNames[euclidSynth::ports(ch) & 3]); break;
-                case Header::part: snprintf(t, n, "%d", euclidSynth::part(ch)); break;
+                case Header::part:
+                    if (euclidSynth::partSetting(ch) != 0)
+                        snprintf(t, n, "%d", euclidSynth::partSetting(ch));
+                    else if (euclidSynth::part(ch) != 0)
+                        snprintf(t, n, "Auto: %d", euclidSynth::part(ch));
+                    else
+                        snprintf(t, n, "Auto: none");
+                    break;
                 case Header::group: snprintf(t, n, "%s", d->str(d->groups[synthGroup[ch]].name)); break;
                 case Header::none: break;
             }
