@@ -256,11 +256,11 @@ bool hasAddress(const Template& t)
 }
 
 // A number or address moved to a part.
-uint32_t forPart(const Definition& d, uint32_t n, bool address, uint8_t part)
+uint32_t forPart(const Definition& d, uint32_t n, bool address, uint8_t part, uint16_t stride)
 {
     if (d.partCount == 0 || part <= 1 || part > d.partCount)
         return n;
-    const uint32_t offset = static_cast<uint32_t>(part - 1) * d.partStride;
+    const uint32_t offset = static_cast<uint32_t>(part - 1) * (stride != 0 ? stride : d.partStride);
     return address ? printedAddress(linearAddress(n) + offset) : n + offset;
 }
 
@@ -383,16 +383,30 @@ bool parse(const char* text, size_t length, Definition& d)
                 return fail(d, lineNumber, "too many requests");
             Template& t = d.requests[d.requestCount];
             d.requestAddress[d.requestCount] = 0;
-            const char* save = line.p;
-            if (line.word(w, sizeof(w)) && strncmp(w, "addr=", 5) == 0)
+            d.requestStride[d.requestCount] = 0;
+            for (;;)
             {
+                const char* save = line.p;
                 long a;
-                if (!parseInt(w + 5, a) || a < 0)
-                    return fail(d, lineNumber, "request: bad addr=");
-                d.requestAddress[d.requestCount] = static_cast<uint32_t>(a);
+                const bool got = line.word(w, sizeof(w));
+                if (got && strncmp(w, "addr=", 5) == 0)
+                {
+                    if (!parseInt(w + 5, a) || a < 0)
+                        return fail(d, lineNumber, "request: bad addr=");
+                    d.requestAddress[d.requestCount] = static_cast<uint32_t>(a);
+                }
+                else if (got && strncmp(w, "stride=", 7) == 0)
+                {
+                    if (!parseInt(w + 7, a) || a < 1 || a > 65535)
+                        return fail(d, lineNumber, "request: bad stride=");
+                    d.requestStride[d.requestCount] = static_cast<uint16_t>(a);
+                }
+                else
+                {
+                    line.p = save;
+                    break;
+                }
             }
-            else
-                line.p = save;
             if (const char* e = readTokens(line, t, useRequest))
                 return fail(d, lineNumber, e);
             d.requestCount++;
@@ -473,6 +487,8 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.list = 0xFF;
             prm.show = 0;
             prm.send = 0;
+            prm.stride = 0;
+            prm.reload = false;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -518,6 +534,10 @@ bool parse(const char* text, size_t length, Definition& d)
                     prm.send = static_cast<int16_t>(v);
                 else if (strcmp(w, "init") == 0)
                     prm.init = static_cast<int16_t>(v);
+                else if (strcmp(w, "stride") == 0 && v >= 1 && v <= 65535)
+                    prm.stride = static_cast<uint16_t>(v);
+                else if (strcmp(w, "reload") == 0)
+                    prm.reload = v != 0;
                 else
                     return fail(d, lineNumber, "param: unknown option");
             }
@@ -549,7 +569,7 @@ size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t devi
     if (value > p.max)
         value = p.max;
     const unsigned v = static_cast<unsigned>(value + p.send) & 0x3FFF;
-    return emit(t, forPart(d, p.number, hasAddress(t), part), v, device, out, maxLength);
+    return emit(t, forPart(d, p.number, hasAddress(t), part, p.stride), v, device, out, maxLength);
 }
 
 size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,
@@ -558,7 +578,8 @@ size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_
     if (request >= d.requestCount)
         return 0;
     const Template& t = d.requests[request];
-    return emit(t, forPart(d, d.requestAddress[request], hasAddress(t), part), 0, device, out, maxLength);
+    return emit(t, forPart(d, d.requestAddress[request], hasAddress(t), part, d.requestStride[request]), 0, device,
+                out, maxLength);
 }
 
 bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t device, DumpData& out)
@@ -616,10 +637,10 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
 namespace
 {
 // Where a template's number falls in a dump's data, or -1.
-long dumpIndex(const Definition& d, const DumpData& dump, uint32_t number, uint8_t part)
+long dumpIndex(const Definition& d, const DumpData& dump, uint32_t number, uint8_t part, uint16_t stride)
 {
     const bool address = d.dumps[dump.dump].hasAddress;
-    number = forPart(d, number, address, part);
+    number = forPart(d, number, address, part, stride);
     long i = address ? static_cast<long>(linearAddress(number)) - static_cast<long>(linearAddress(dump.address))
                      : static_cast<long>(number);
     return i >= 0 && static_cast<size_t>(i) < dump.length ? i : -1;
@@ -637,7 +658,7 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
         const Param& p = d.params[i];
         if (p.templ != templ)
             continue;
-        long at = dumpIndex(d, dump, p.number, part);
+        long at = dumpIndex(d, dump, p.number, part, p.stride);
         if (at < 0)
             continue;
         int v = dump.data[at] - p.send;
@@ -651,7 +672,7 @@ bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out
 {
     if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl)
         return false;
-    long first = dumpIndex(d, dump, d.nameNumber, part);
+    long first = dumpIndex(d, dump, d.nameNumber, part, 0);
     long last = first < 0 ? -1 : first + d.nameLength - 1;
     if (last >= static_cast<long>(dump.length))
         last = -1;

@@ -93,6 +93,11 @@ char patchName[24] = "";
 uint32_t events = 0;
 char eventText[64] = "";
 constexpr uint32_t kReplyWaitMs = 2500; // after the request goes out
+constexpr uint32_t kReloadDelayMs = 500; // after the last change to a reload= param
+
+// A tone selection changed: get the new patch once the encoder rests.
+int8_t reloadChannel = -1;
+uint32_t reloadAt = 0;
 constexpr uint32_t kMoreWaitMs = 400;   // after a reply, for the rest
 
 void receive(uint8_t port, const uint8_t* data, uint16_t length)
@@ -320,6 +325,12 @@ void takeInbox()
 void update()
 {
     takeInbox();
+    if (reloadChannel >= 0 && queue.waiting() == 0 && static_cast<int32_t>(nowMs() - reloadAt) >= 0)
+    {
+        const uint8_t ch = static_cast<uint8_t>(reloadChannel);
+        reloadChannel = -1;
+        requestPatch(ch);
+    }
     if (requestChannel >= 0)
     {
         // The wait starts once the request has gone out.
@@ -495,6 +506,11 @@ void setValue(uint8_t ch, uint16_t param, int v)
         v = p.max;
     values[ch][param] = static_cast<int16_t>(v);
     queueParam(ch, param);
+    if (p.reload && d->requestCount > 0)
+    {
+        reloadChannel = static_cast<int8_t>(ch);
+        reloadAt = nowMs() + kReloadDelayMs;
+    }
 }
 
 void sendAll(uint8_t ch)

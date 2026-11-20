@@ -16,10 +16,11 @@
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
+//                              [stride=16] [reload=1]
 //   parts 8 246                     8 copies of the params, 246 apart
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 4)
 //   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
-//                                   a request with an address
+//                                   a request with an address (and stride=)
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
 //   name vced 77 10                 the patch name: 10 bytes at vced 77
@@ -28,6 +29,8 @@
 // parameter number, or a Roland address as printed), its name and its
 // range. show= is added to the value for display, send= to the value sent,
 // and init= is the value before anything is known about the patch.
+// stride= gives the param its own distance between parts (see parts), and
+// reload=1 asks for the patch again after it changes (a tone selection).
 //
 // Template words: a hex byte; d+XX (device number - 1, plus XX); p (the
 // number's low 7 bits); ph / pl (bits 7-13 / 0-6); a2 a1 a0 (the number's
@@ -106,6 +109,8 @@ struct Param
     int16_t send;
     int16_t init;
     uint8_t list; // 0xFF for none
+    uint16_t stride; // between parts; 0 for the definition's
+    bool reload;
 };
 
 struct Dump
@@ -149,6 +154,7 @@ struct Definition
     uint8_t requestCount;
     Template requests[kMaxRequests];
     uint32_t requestAddress[kMaxRequests];
+    uint16_t requestStride[kMaxRequests]; // 0 for the definition's
     uint8_t dumpCount;
     Dump dumps[kMaxDumps];
     uint8_t nameTempl; // 0xFF for none

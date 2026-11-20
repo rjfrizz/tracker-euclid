@@ -18,7 +18,8 @@ To regenerate a file, fetch Edisyn (https://github.com/eclab/edisyn) and run
 its script, e.g.
 
     python3 tools/edisyn_tx81z.py path/to/edisyn/synth/yamaha4op/Yamaha4Op.java > TX81Z.syn
-    python3 tools/edisyn_d110.py path/to/edisyn/synth/rolandd110/RolandD110Tone.java > D110.syn
+    python3 tools/edisyn_d110.py path/to/edisyn/synth/rolandd110/RolandD110Tone.java \
+        path/to/edisyn/synth/rolandd110/RolandD110Multi.java > D110.syn
 
 ## Setting up the TX81Z
 
@@ -39,6 +40,9 @@ its script, e.g.
 - Memory Protect OFF, and (Edisyn's notes) Overflow OFF: older ROMs fail
   dumps otherwise. Edisyn recommends ROM 1.10 or later; it had a report of
   real-time edits crashing a 1.06 ROM.
+- The Part group picks the tone the part plays (Tone group, Tone number)
+  and its level, pan, key shift and so on. Choosing a tone gets it, so
+  the other groups show the new tone.
 - Edits change the part's temporary tone. Write it on the D-110 to keep it.
 - Insert sends all 236 parameters one by one, which takes about 7 seconds.
 

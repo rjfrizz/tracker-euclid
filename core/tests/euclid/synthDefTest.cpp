@@ -325,6 +325,35 @@ static void testParts()
     CHECK(applyDump(*d, dd, 1, values) == 0);
 }
 
+// A param with its own stride: the D-110's part settings, 16 bytes a part
+// from 03 00 00, next to tones 246 apart from 04 00 00.
+static void testPartStride()
+{
+    auto d = load("synth \"D\"\n"
+                  "parts 8 246\n"
+                  "template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7\n"
+                  "request addr=0x030000 stride=16 F0 41 d+10 16 11 [ a2 a1 a0 00 00 0C ] F7\n"
+                  "dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7\n"
+                  "group \"Part\"\n"
+                  "param dt1 0x030001 \"Tone\" 0 63 stride=16 reload=1\n"
+                  "param dt1 0x04000A \"Structure\" 0 12\n");
+    CHECK(d->params[0].stride == 16 && d->params[0].reload && !d->params[1].reload);
+    uint8_t m[kMaxMessage];
+    CHECK(buildMessage(*d, 0, 9, 1, 3, m, sizeof(m)) == 11 && m[5] == 0x03 && m[6] == 0x00 && m[7] == 0x21);
+    CHECK(buildRequest(*d, 0, 1, 8, m, sizeof(m)) == 13 && m[7] == 0x70);
+
+    // Part 3's settings come back; the tone param ignores them.
+    std::vector<uint8_t> body = { 0x03, 0x00, 0x20, 1, 42, 24, 50, 12, 0, 0, 0, 80, 7, 0, 127 };
+    std::vector<uint8_t> msg = { 0xF0, 0x41, 0x10, 0x16, 0x12 };
+    msg.insert(msg.end(), body.begin(), body.end());
+    msg.push_back(rolandChecksum(body.data(), body.size()));
+    msg.push_back(0xF7);
+    DumpData dd;
+    int16_t values[2] = { -1, -1 };
+    CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd));
+    CHECK(applyDump(*d, dd, 3, values) == 1 && values[0] == 42 && values[1] == -1);
+}
+
 int main()
 {
     testYamaha();
@@ -336,6 +365,7 @@ int main()
     testRolandDump();
     testDumpErrors();
     testParts();
+    testPartStride();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

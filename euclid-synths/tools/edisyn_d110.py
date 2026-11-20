@@ -16,13 +16,19 @@ Two of Edisyn's controls are split back into the bytes the D-110 stores:
 the partial switches (one byte, a bit each) and the waveform with its PCM
 bank (one byte) next to the PCM wave number (the next byte).
 
-Usage: edisyn_d110.py path/to/edisyn/synth/rolandd110/RolandD110Tone.java > D110.syn
+Each part's own settings (which tone it plays, its level, pan and so on)
+come from Edisyn's RolandD110Multi.java: 16 bytes a part from 03 00 00, in
+the order of allPartParameters. Choosing a tone there gets the new tone.
+
+Usage: edisyn_d110.py path/to/RolandD110Tone.java path/to/RolandD110Multi.java > D110.syn
 """
 
 import re
 import sys
 
 TONE_BASE = 4 * 16384  # 04 00 00, as a plain number
+PART_BASE = 3 * 16384  # 03 00 00: each part's settings, 16 bytes a part
+PART_LENGTH = 16
 TONE_LENGTH = 246
 PARTIAL_START = 0x0E
 PARTIAL_LENGTH = 58
@@ -38,9 +44,9 @@ def string_array(src, name):
 
 def controls(src):
     """key -> (label, min, max, subtract) for the partial controls ("p" +
-    partial + key) and the common ones."""
+    partial + key, or part in the Multi editor) and the common ones."""
     out = {}
-    key_expr = r'(?:"p" \+ partial \+ "([a-z0-9]+)"|"([a-z0-9]+)")'
+    key_expr = r'(?:"p" \+ (?:partial|part) \+ "([a-z0-9]+)"|"([a-z0-9]+)")'
     for m in re.finditer(r'new LabelledDial\("([^"]*)", this, ' + key_expr + r', color, (-?\d+), (-?\d+)(?:, (-?\d+))?', src):
         label, pkey, ckey, lo, hi, sub = m.groups()
         out.setdefault(pkey or ckey, (label, int(lo), int(hi), int(sub) if sub else 0))
@@ -57,6 +63,12 @@ def printed(linear):
 
 def main():
     src = open(sys.argv[1]).read()
+    multi = open(sys.argv[2]).read()
+    part_params = string_array(multi, "allPartParameters")
+    if len(part_params) != 12 or part_params[0] != "tonegroup":
+        raise SystemExit("unexpected part parameters: %r" % part_params)
+    multi_ctl = controls(multi)
+    tone_groups = string_array(src, "TONE_GROUP")
     partial_params = [p for p in string_array(src, "allPartialParameters")]
     if len(partial_params) != PARTIAL_LENGTH:
         raise SystemExit("expected %d partial parameters, found %d" % (PARTIAL_LENGTH, len(partial_params)))
@@ -81,6 +93,8 @@ def main():
     # The whole temporary tone (246 bytes, 01 76 in 7-bit steps), as Edisyn asks.
     w("request addr=0x%06X F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7" % printed(TONE_BASE))
     w("dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7")
+    # The part's settings (12 bytes), to know which tone it plays.
+    w("request addr=0x%06X stride=%d F0 41 d+10 16 11 [ a2 a1 a0 00 00 0C ] F7" % (printed(PART_BASE), PART_LENGTH))
     w("name dt1 0x%06X 10" % printed(TONE_BASE))
     w('list onoff "Off" "On"')
     w('list wave "Square b1" "Saw b1" "Square b2" "Saw b2"')
@@ -100,6 +114,41 @@ def main():
         if extra:
             opts.append(extra)
         param(offset, name or label, lo, hi, " ".join(opts))
+
+    w("list tonegroup " + " ".join('"%s"' % g for g in tone_groups))
+    w("list assign " + " ".join('"%s"' % a for a in string_array(multi, "ASSIGN_MODE")))
+    # As Edisyn's Output Assign and Pan dials show them.
+    w('list outassign "Mix" "Min" "Mult" "2" "3" "4" "5" "6"')
+    w("list pan " + " ".join('"%s"' % ("--" if v == 7 else ("< %d" % (6 - v) if v < 7 else "%d >" % (v - 7))) for v in range(15)))
+
+    # The part: which tone it plays (choosing one gets it), and how.
+    w('group "Part"')
+    part_names = {
+        "tonegroup": ("Tone group", "list=tonegroup reload=1"),
+        "tonenumber": ("Tone number", "reload=1"),
+        "keyshift": ("Key shift", "init=24"),
+        "finetune": ("Fine tune", "init=50"),
+        "benderrange": ("Bend range", "init=2"),
+        "assignmode": ("Assign mode", "list=assign"),
+        "outputassign": ("Output", "list=outassign"),
+        "outputlevel": ("Level", "init=80"),
+        "panpot": ("Pan", "list=pan init=7"),
+        "keyrangelower": ("Key low", ""),
+        "keyrangeupper": ("Key high", "init=127"),
+    }
+    for i, key in enumerate(part_params):
+        if key == "-":
+            continue
+        name, extra = part_names[key]
+        label, lo, hi, sub = multi_ctl.get(key, (name, 0, 3, 0))
+        if key == "tonegroup":
+            lo, hi = 0, len(tone_groups) - 1
+        opts = ["stride=%d" % PART_LENGTH]
+        if sub:
+            opts.append("show=%d" % -sub)
+        if extra:
+            opts.append(extra)
+        w('param dt1 0x%06X "%s" %d %d %s' % (printed(PART_BASE + i), name, lo, hi, " ".join(opts)))
 
     w('group "Common"')
     edisyn("structure1and2", 0x0A, "Structure 1-2")
