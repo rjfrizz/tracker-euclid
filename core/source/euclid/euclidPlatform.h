@@ -81,6 +81,8 @@ uint8_t device(uint8_t ch);
 void setDevice(uint8_t ch, uint8_t device);
 uint8_t ports(uint8_t ch); // 0 wherever notes go, 1 DIN, 2 USB, 3 both
 void setPorts(uint8_t ch, uint8_t ports);
+uint8_t part(uint8_t ch); // which of a multitimbral synth's parts, 1 ..
+void setPart(uint8_t ch, uint8_t part);
 int16_t value(uint8_t ch, uint16_t param);
 void setValue(uint8_t ch, uint16_t param, int value); // and sends it
 void sendAll(uint8_t ch);                            // every param, to match the synth to the screen

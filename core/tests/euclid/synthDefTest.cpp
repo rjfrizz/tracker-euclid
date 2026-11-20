@@ -37,7 +37,7 @@ static std::unique_ptr<Definition> load(const char* text)
 static std::vector<uint8_t> message(const Definition& d, uint16_t param, int value, uint8_t device)
 {
     uint8_t buf[kMaxMessage];
-    size_t n = buildMessage(d, param, value, device, buf, sizeof(buf));
+    size_t n = buildMessage(d, param, value, device, 1, buf, sizeof(buf));
     return std::vector<uint8_t>(buf, buf + n);
 }
 
@@ -185,7 +185,7 @@ static void testYamahaDump()
     CHECK(d->requestCount == 1 && d->dumpCount == 2 && d->nameTempl == 0);
 
     uint8_t req[kMaxMessage];
-    size_t n = buildRequest(*d, 0, 3, req, sizeof(req));
+    size_t n = buildRequest(*d, 0, 3, 1, req, sizeof(req));
     CHECK(n == 15 && req[2] == 0x22 && req[3] == 0x7E && req[4] == 'L' && req[14] == 0xF7);
 
     // VCED from device 3: 93 values, the name "BRASS" at 77.
@@ -204,10 +204,10 @@ static void testYamahaDump()
     DumpData dd;
     CHECK(matchDump(*d, vced.data(), vced.size(), 3, dd) && dd.dump == 0 && dd.length == 93);
     int16_t values[4] = { -1, -1, -1, -1 };
-    CHECK(applyDump(*d, dd, values) == 3);
+    CHECK(applyDump(*d, dd, 1, values) == 3);
     CHECK(values[0] == 5 && values[1] == 30 && values[2] == -1 && values[3] == 3);
     char text[24];
-    CHECK(dumpName(*d, dd, text, sizeof(text)) && std::strcmp(text, "BRASS") == 0);
+    CHECK(dumpName(*d, dd, 1, text, sizeof(text)) && std::strcmp(text, "BRASS") == 0);
 
     // Wrong device, or a bad checksum: not ours.
     CHECK(!matchDump(*d, vced.data(), vced.size(), 1, dd));
@@ -223,8 +223,8 @@ static void testYamahaDump()
     aced.push_back(rolandChecksum(acedData.data(), acedData.size()));
     aced.push_back(0xF7);
     CHECK(matchDump(*d, aced.data(), aced.size(), 3, dd) && dd.dump == 1 && dd.length == 23);
-    CHECK(applyDump(*d, dd, values) == 1 && values[2] == 6);
-    CHECK(!dumpName(*d, dd, text, sizeof(text)));
+    CHECK(applyDump(*d, dd, 1, values) == 1 && values[2] == 6);
+    CHECK(!dumpName(*d, dd, 1, text, sizeof(text)));
 }
 
 // A Roland DT1 reply: the address says where the data starts.
@@ -239,7 +239,7 @@ static void testRolandDump()
                   "param dt1 0x040102 \"Over a byte\" 0 127\n"
                   "param dt1 0x050000 \"Elsewhere\" 0 127\n");
     uint8_t req[kMaxMessage];
-    size_t n = buildRequest(*d, 0, 1, req, sizeof(req));
+    size_t n = buildRequest(*d, 0, 1, 1, req, sizeof(req));
     CHECK(n == 13 && req[2] == 0x10 && req[11] == rolandChecksum(req + 5, 6));
 
     // 200 bytes from 04 00 00: index 130 is 04 01 02 (address bytes are 7 bits).
@@ -254,7 +254,7 @@ static void testRolandDump()
     DumpData dd;
     CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.length == 200 && dd.address == 0x040000);
     int16_t values[3] = { -1, -1, -1 };
-    CHECK(applyDump(*d, dd, values) == 2);
+    CHECK(applyDump(*d, dd, 1, values) == 2);
     CHECK(values[0] == 0 && values[1] == 130 % 128 && values[2] == -1);
 }
 
@@ -280,6 +280,51 @@ static void testDumpErrors()
     CHECK(!bad(buf));
 }
 
+// Parts: the D-110's temporary tones, 246 bytes apart from 04 00 00.
+static void testParts()
+{
+    auto d = load("synth \"D\"\n"
+                  "parts 8 246\n"
+                  "template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7\n"
+                  "request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7\n"
+                  "dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7\n"
+                  "name dt1 0x040000 10\n"
+                  "group \"G\"\n"
+                  "param dt1 0x04000A \"Structure\" 0 12\n"
+                  "param dt1 0x04013C \"P4 coarse\" 0 96\n");
+    CHECK(d->partCount == 8 && d->partStride == 246);
+
+    // Part 2 starts at 04 01 76 (246 = 1 * 128 + 118).
+    uint8_t m[kMaxMessage];
+    size_t n = buildRequest(*d, 0, 1, 2, m, sizeof(m));
+    CHECK(n == 13 && m[5] == 0x04 && m[6] == 0x01 && m[7] == 0x76 && m[11] == rolandChecksum(m + 5, 6));
+    n = buildMessage(*d, 0, 5, 1, 2, m, sizeof(m));
+    CHECK(n == 11 && m[5] == 0x04 && m[6] == 0x02 && m[7] == 0x00 && m[8] == 5); // 246 + 10 = 256
+    n = buildMessage(*d, 1, 7, 1, 8, m, sizeof(m));                             // 7 * 246 + 188 = 1910
+    CHECK(n == 11 && m[6] == 1910 / 128 && m[7] == 1910 % 128);
+    n = buildMessage(*d, 0, 5, 1, 1, m, sizeof(m));
+    CHECK(m[6] == 0x00 && m[7] == 0x0A);
+
+    // Part 3's dump, read for part 3.
+    std::vector<uint8_t> body = { 0x04, 0x03, 0x6C }; // 2 * 246 = 492 = 3 * 128 + 108
+    const char* name = "FANTASIA  ";
+    for (int i = 0; i < 246; i++)
+        body.push_back(i < 10 ? static_cast<uint8_t>(name[i]) : (i == 10 ? 4 : (i == 188 ? 60 : 0)));
+    std::vector<uint8_t> msg = { 0xF0, 0x41, 0x10, 0x16, 0x12 };
+    msg.insert(msg.end(), body.begin(), body.end());
+    msg.push_back(rolandChecksum(body.data(), body.size()));
+    msg.push_back(0xF7);
+    DumpData dd;
+    CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.length == 246);
+    int16_t values[2] = { -1, -1 };
+    CHECK(applyDump(*d, dd, 3, values) == 2 && values[0] == 4 && values[1] == 60);
+    char text[24];
+    CHECK(dumpName(*d, dd, 3, text, sizeof(text)) && std::strcmp(text, "FANTASIA") == 0);
+    // Read as part 1 it isn't that part's data.
+    values[0] = values[1] = -1;
+    CHECK(applyDump(*d, dd, 1, values) == 0);
+}
+
 int main()
 {
     testYamaha();
@@ -290,6 +335,7 @@ int main()
     testYamahaDump();
     testRolandDump();
     testDumpErrors();
+    testParts();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

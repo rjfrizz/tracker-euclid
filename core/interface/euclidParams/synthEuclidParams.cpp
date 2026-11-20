@@ -1,6 +1,7 @@
-// The Synth page (Instr): the selected channel's hardware synth. The first
-// rows choose the synth (a definition file in Synths/), its device number,
-// the port and a group of parameters; the rest are that group's parameters.
+// The Synth page (Instr, or Shift + Params): the selected channel's hardware
+// synth. The first rows choose the synth (a definition file in Synths/), its
+// device number, the port, the part (for multitimbral synths) and a group of
+// parameters; the rest are that group's parameters.
 // Edits go out over SysEx straight away. Insert sends the whole patch;
 // Shift + Insert gets the synth's patch.
 
@@ -14,7 +15,32 @@
 namespace
 {
 constexpr uint8_t kPads = 48;
-constexpr uint8_t kHeaderRows = 4; // Synth, Device, Port, Group
+
+enum class Header : uint8_t
+{
+    synth,
+    device,
+    port,
+    part,
+    group,
+    none, // a parameter
+};
+
+uint8_t headerRows(const euclid::synth::Definition* d)
+{
+    return d == nullptr ? 1 : (d->partCount > 0 ? 5 : 4);
+}
+
+Header headerAt(const euclid::synth::Definition* d, uint8_t row)
+{
+    if (row >= headerRows(d))
+        return Header::none;
+    if (row == 3 && d->partCount > 0)
+        return Header::part;
+    if (row == headerRows(d) - 1 && row > 0)
+        return Header::group;
+    return static_cast<Header>(row);
+}
 
 const char* const kPortNames[] = { "Notes port", "DIN", "USB", "DIN + USB" };
 
@@ -31,7 +57,7 @@ uint8_t cEuclidParams::synthRowCount() const
         return 1; // just the Synth row
     uint8_t group = synthGroup[selectedChannel];
     uint16_t params = group < d->groupCount ? d->groups[group].count : 0;
-    uint16_t rows = kHeaderRows + params;
+    uint16_t rows = headerRows(d) + params;
     return static_cast<uint8_t>(rows > strEuclidPanelData::kMaxRows ? strEuclidPanelData::kMaxRows : rows);
 }
 
@@ -39,24 +65,26 @@ uint8_t cEuclidParams::synthRowCount() const
 int cEuclidParams::synthParamAt(uint8_t row) const
 {
     const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
-    if (d == nullptr || row < kHeaderRows)
+    const uint8_t header = headerRows(d);
+    if (d == nullptr || row < header)
         return -1;
     uint8_t group = synthGroup[selectedChannel];
-    if (group >= d->groupCount || row - kHeaderRows >= d->groups[group].count)
+    if (group >= d->groupCount || row - header >= d->groups[group].count)
         return -1;
-    return d->groups[group].first + (row - kHeaderRows);
+    return d->groups[group].first + (row - header);
 }
 
 cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
 {
     const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
-    switch (row)
+    switch (headerAt(d, row))
     {
-        case 0: return { PadMap::list, static_cast<uint8_t>(euclidSynth::files() + 1), 0, 0 };
-        case 1: return { PadMap::list, 16, 1, 0 };
-        case 2: return { PadMap::list, 4, 0, 0 };
-        case 3: return { PadMap::list, d ? d->groupCount : static_cast<uint8_t>(0), 0, 0 };
-        default: break;
+        case Header::synth: return { PadMap::list, static_cast<uint8_t>(euclidSynth::files() + 1), 0, 0 };
+        case Header::device: return { PadMap::list, 16, 1, 0 };
+        case Header::port: return { PadMap::list, 4, 0, 0 };
+        case Header::part: return { PadMap::list, d->partCount, 1, 0 };
+        case Header::group: return { PadMap::list, d->groupCount, 0, 0 };
+        case Header::none: break;
     }
     int p = synthParamAt(row);
     if (p < 0)
@@ -70,13 +98,14 @@ cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
 
 int cEuclidParams::synthRowValue(uint8_t row) const
 {
-    switch (row)
+    switch (headerAt(euclidSynth::definition(selectedChannel), row))
     {
-        case 0: return euclidSynth::assignedFile(selectedChannel) + 1; // 0 = none
-        case 1: return euclidSynth::device(selectedChannel);
-        case 2: return euclidSynth::ports(selectedChannel);
-        case 3: return synthGroup[selectedChannel];
-        default: break;
+        case Header::synth: return euclidSynth::assignedFile(selectedChannel) + 1; // 0 = none
+        case Header::device: return euclidSynth::device(selectedChannel);
+        case Header::port: return euclidSynth::ports(selectedChannel);
+        case Header::part: return euclidSynth::part(selectedChannel);
+        case Header::group: return synthGroup[selectedChannel];
+        case Header::none: break;
     }
     int p = synthParamAt(row);
     return p < 0 ? kNoValue : euclidSynth::value(selectedChannel, static_cast<uint16_t>(p));
@@ -85,9 +114,9 @@ int cEuclidParams::synthRowValue(uint8_t row) const
 void cEuclidParams::setSynthRowValue(uint8_t row, int v)
 {
     const uint8_t ch = selectedChannel;
-    switch (row)
+    switch (headerAt(euclidSynth::definition(ch), row))
     {
-        case 0:
+        case Header::synth:
         {
             int file = clampInt(v, 0, euclidSynth::files()) - 1;
             if (!euclidSynth::assign(ch, file))
@@ -96,22 +125,29 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
             euclidSynth::saveAssignments();
             break;
         }
-        case 1:
+        case Header::device:
             euclidSynth::setDevice(ch, static_cast<uint8_t>(clampInt(v, 1, 16)));
             euclidSynth::saveAssignments();
             break;
-        case 2:
+        case Header::port:
             euclidSynth::setPorts(ch, static_cast<uint8_t>(clampInt(v, 0, 3)));
             euclidSynth::saveAssignments();
             break;
-        case 3:
+        case Header::part:
+        {
+            const euclid::synth::Definition* d = euclidSynth::definition(ch);
+            euclidSynth::setPart(ch, static_cast<uint8_t>(clampInt(v, 1, d->partCount)));
+            euclidSynth::saveAssignments();
+            break;
+        }
+        case Header::group:
         {
             const euclid::synth::Definition* d = euclidSynth::definition(ch);
             if (d != nullptr)
                 synthGroup[ch] = static_cast<uint8_t>(clampInt(v, 0, d->groupCount - 1));
             break;
         }
-        default:
+        case Header::none:
         {
             int p = synthParamAt(row);
             if (p >= 0)
@@ -154,25 +190,28 @@ void cEuclidParams::refreshSynth()
         panelData.values[i] = nullptr;
     }
 
-    static const char* const kHeaderNames[kHeaderRows] = { "Synth", "Device", "Port", "Group" };
+    static const char* const kHeaderNames[] = { "Synth", "Device", "Port", "Part", "Group" };
     for (uint8_t row = 0; row < panelData.rows; row++)
     {
         char* t = synthText[row];
         const size_t n = sizeof(synthText[row]);
-        if (row < kHeaderRows)
+        const Header h = headerAt(d, row);
+        if (h != Header::none)
         {
-            panelData.names[row] = kHeaderNames[row];
-            switch (row)
+            panelData.names[row] = kHeaderNames[static_cast<uint8_t>(h)];
+            switch (h)
             {
-                case 0:
+                case Header::synth:
                     if (euclidSynth::files() == 0)
                         snprintf(t, n, "None in Synths/");
                     else
                         snprintf(t, n, "%s", d ? d->name : "None");
                     break;
-                case 1: snprintf(t, n, "%d", euclidSynth::device(ch)); break;
-                case 2: snprintf(t, n, "%s", kPortNames[euclidSynth::ports(ch) & 3]); break;
-                case 3: snprintf(t, n, "%s", d ? d->str(d->groups[synthGroup[ch]].name) : "-"); break;
+                case Header::device: snprintf(t, n, "%d", euclidSynth::device(ch)); break;
+                case Header::port: snprintf(t, n, "%s", kPortNames[euclidSynth::ports(ch) & 3]); break;
+                case Header::part: snprintf(t, n, "%d", euclidSynth::part(ch)); break;
+                case Header::group: snprintf(t, n, "%s", d->str(d->groups[synthGroup[ch]].name)); break;
+                case Header::none: break;
             }
         }
         else

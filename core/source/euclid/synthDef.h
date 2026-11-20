@@ -16,7 +16,10 @@
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
+//   parts 8 246                     8 copies of the params, 246 apart
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 4)
+//   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
+//                                   a request with an address
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
 //   name vced 77 10                 the patch name: 10 bytes at vced 77
@@ -32,7 +35,12 @@
 // is 04 00 10); v, vh, vl (the value: low 7 bits, bits 7-13, bits 0-6); and
 // [ ... ], which emits a Roland checksum of the bytes inside after them.
 //
-// A request uses only hex bytes, d+XX and [ ]. A dump is matched against
+// With parts (a multitimbral synth's parts, each with its own copy of the
+// params), each channel picks one, and numbers and addresses move by
+// (part - 1) * the distance (in a Roland address's 7-bit steps, for
+// messages with a2 a1 a0).
+//
+// A request uses hex bytes, d+XX, [ ], and a2 a1 a0 for its addr=. A dump is matched against
 // incoming SysEx: its hex bytes and d+XX must match, [ ] checks the
 // checksum, a2 a1 a0 read the address of the first data byte, and `data`
 // is the values, one byte each. A param of the dump's template takes the
@@ -136,8 +144,11 @@ struct Definition
     uint8_t listCount;
     List lists[kMaxLists];
     char listNames[kMaxLists][12];
+    uint8_t partCount; // 0: no parts
+    uint16_t partStride;
     uint8_t requestCount;
     Template requests[kMaxRequests];
+    uint32_t requestAddress[kMaxRequests];
     uint8_t dumpCount;
     Dump dumps[kMaxDumps];
     uint8_t nameTempl; // 0xFF for none
@@ -159,11 +170,13 @@ bool parse(const char* text, size_t length, Definition& out);
 
 // The SysEx message that sets a param to value, for a device number 1-16.
 // Returns its length, or 0 if it doesn't fit.
-size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t* out,
+// part is 1 .. partCount (anything for a definition without parts).
+size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t part, uint8_t* out,
                     size_t maxLength);
 
 // Request message i (0 .. requestCount-1). Returns its length, or 0.
-size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t* out, size_t maxLength);
+size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,
+                    size_t maxLength);
 
 // An incoming message recognised as one of the definition's dumps.
 struct DumpData
@@ -178,10 +191,10 @@ struct DumpData
 bool matchDump(const Definition& d, const uint8_t* message, size_t length, uint8_t device, DumpData& out);
 
 // Sets the values of the params the dump holds; returns how many.
-int applyDump(const Definition& d, const DumpData& dump, int16_t* values);
+int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* values);
 
 // The patch name, if this dump holds it. False otherwise.
-bool dumpName(const Definition& d, const DumpData& dump, char* out, size_t length);
+bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out, size_t length);
 
 // The value as shown: a list name, or the number plus `show`.
 void formatValue(const Definition& d, uint16_t param, int value, char* out, size_t length);

@@ -43,6 +43,7 @@ struct Channel
     int8_t slot = -1;
     uint8_t device = 1;
     uint8_t ports = 0;
+    uint8_t part = 1; // for synths with parts
 };
 Channel channels[euclid::kChannels];
 
@@ -232,7 +233,7 @@ void queueParam(uint8_t ch, uint16_t param)
         return;
     const Definition& d = definitions[c.slot];
     uint8_t msg[euclid::synth::kMaxMessage];
-    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, msg, sizeof(msg));
+    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, c.part, msg, sizeof(msg));
     if (n > 0)
         queue.push((static_cast<uint32_t>(ch) << 16) | param, msg, n, c.ports, d.pauseMs);
 }
@@ -295,8 +296,8 @@ void takeInbox()
             if (d != nullptr &&
                 euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], channels[ch].device, dump))
             {
-                valuesReceived += euclid::synth::applyDump(*d, dump, values[ch]);
-                euclid::synth::dumpName(*d, dump, patchName, sizeof(patchName));
+                valuesReceived += euclid::synth::applyDump(*d, dump, channels[ch].part, values[ch]);
+                euclid::synth::dumpName(*d, dump, channels[ch].part, patchName, sizeof(patchName));
                 dumpsReceived++;
                 requestDeadline = nowMs() + kMoreWaitMs;
             }
@@ -406,6 +407,10 @@ bool assign(uint8_t ch, int fileIndex)
     {
         c.device = definitions[slot].device;
         c.ports = definitions[slot].ports;
+        // Parts default to the channel's own number, as far as they go.
+        c.part = definitions[slot].partCount > 0
+                   ? static_cast<uint8_t>(ch < definitions[slot].partCount ? ch + 1 : 1)
+                   : 1;
         resetValues(ch);
     }
     return true;
@@ -448,6 +453,18 @@ void setPorts(uint8_t ch, uint8_t p)
 {
     if (ch < euclid::kChannels && p <= 3)
         channels[ch].ports = p;
+}
+
+uint8_t part(uint8_t ch)
+{
+    return ch < euclid::kChannels ? channels[ch].part : 1;
+}
+
+void setPart(uint8_t ch, uint8_t p)
+{
+    const Definition* d = definition(ch);
+    if (d != nullptr && p >= 1 && p <= (d->partCount > 0 ? d->partCount : 1))
+        channels[ch].part = p;
 }
 
 int16_t value(uint8_t ch, uint16_t param)
@@ -500,7 +517,7 @@ bool requestPatch(uint8_t ch)
     for (uint8_t i = 0; i < d->requestCount; i++)
     {
         uint8_t msg[euclid::synth::kMaxMessage];
-        size_t n = euclid::synth::buildRequest(*d, i, c.device, msg, sizeof(msg));
+        size_t n = euclid::synth::buildRequest(*d, i, c.device, c.part, msg, sizeof(msg));
         if (n > 0)
             queue.push((static_cast<uint32_t>(ch) << 16) | (0xFF00u + i), msg, n, c.ports, d->pauseMs);
     }
@@ -534,7 +551,8 @@ const char* error()
     return lastError;
 }
 
-// Synths/assign.txt: one line per assigned channel, "channel file device ports".
+// Synths/assign.txt: one line per assigned channel, "channel file device
+// ports part" (files from before parts have no part).
 void saveAssignments()
 {
     FileSystem* f = fs();
@@ -549,8 +567,8 @@ void saveAssignments()
     {
         if (channels[ch].slot < 0)
             continue;
-        n += snprintf(text + n, sizeof(text) - n, "%d %s %d %d\n", ch + 1, slots[channels[ch].slot].file,
-                      channels[ch].device, channels[ch].ports);
+        n += snprintf(text + n, sizeof(text) - n, "%d %s %d %d %d\n", ch + 1, slots[channels[ch].slot].file,
+                      channels[ch].device, channels[ch].ports, channels[ch].part);
     }
     auto [isOpen, handle] = f->openFile(kAssignPath, FileSystem::FileOpenMode::kWriteCreateNew);
     if (!isOpen)
@@ -586,7 +604,7 @@ void loadAssignments()
             *next++ = 0;
         // "channel file device ports", read by hand (sscanf costs a lot of
         // flash for what it does here).
-        int ch = 0, dev = 1, prt = 0;
+        int ch = 0, dev = 1, prt = 0, prtNo = 0;
         char name[kNameLength] = "";
         const char* q = line;
         auto number = [&q](int& out) {
@@ -611,6 +629,7 @@ void loadAssignments()
             ok = n > 0;
             number(dev);
             number(prt);
+            number(prtNo);
         }
         if (ok && ch >= 1 && ch <= euclid::kChannels)
         {
@@ -619,6 +638,8 @@ void loadAssignments()
                 {
                     setDevice(static_cast<uint8_t>(ch - 1), static_cast<uint8_t>(dev));
                     setPorts(static_cast<uint8_t>(ch - 1), static_cast<uint8_t>(prt));
+                    if (prtNo > 0)
+                        setPart(static_cast<uint8_t>(ch - 1), static_cast<uint8_t>(prtNo));
                 }
         }
         line = next;
