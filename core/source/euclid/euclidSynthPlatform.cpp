@@ -241,8 +241,16 @@ void queueParam(uint8_t ch, uint16_t param)
     const Definition& d = definitions[c.slot];
     uint8_t msg[euclid::synth::kMaxMessage];
     size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, c.part, msg, sizeof(msg));
-    if (n > 0)
-        queue.push((static_cast<uint32_t>(ch) << 16) | param, msg, n, c.ports, d.pauseMs);
+    // One entry a message, each with its pause (a template can send several).
+    size_t at = 0;
+    for (uint32_t piece = 0; at < n; piece++)
+    {
+        size_t len = euclid::synth::messageLength(msg + at, n - at);
+        if (len == 0)
+            break;
+        queue.push((piece << 24) | (static_cast<uint32_t>(ch) << 16) | param, msg + at, len, c.ports, d.pauseMs);
+        at += len;
+    }
 }
 } // namespace
 
@@ -350,8 +358,14 @@ void update()
         return;
     }
     const Definition& d = definitions[c.slot];
+    // Selections (reload= params, such as which stored voice plays) aren't
+    // part of the patch: sending one would load that voice instead.
     while (sendAllNext < d.paramCount && queue.waiting() < euclid::SysexQueue::kCapacity - 4)
-        queueParam(static_cast<uint8_t>(sendAllChannel), sendAllNext++);
+    {
+        const uint16_t p = sendAllNext++;
+        if (!d.params[p].reload)
+            queueParam(static_cast<uint8_t>(sendAllChannel), p);
+    }
     if (sendAllNext >= d.paramCount)
         sendAllChannel = -1;
 }

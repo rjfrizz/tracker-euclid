@@ -771,6 +771,28 @@ void sendSysExMessage(const uint8_t* data, uint32_t length, uint8_t ports)
                     mtConfig.midi.notesOutMode == notesOut_mode_usb_and_jack;
         ports = static_cast<uint8_t>((jack ? 1 : 0) | (usb ? 2 : 0));
     }
+    // The synth editor also sends the odd channel message (a program change
+    // to select a voice), which isn't SysEx.
+    if (length >= 2 && (data[0] & 0xF0) == 0xC0)
+    {
+        const uint8_t channel = static_cast<uint8_t>((data[0] & 0x0F) + 1);
+        if ((ports & 1) && uartMidi != nullptr)
+            uartMidi->sendProgramChange(data[1], channel);
+        if ((ports & 2) && usbMidi != nullptr)
+            usbMidi->sendProgramChange(data[1], channel);
+        return;
+    }
+    if (length >= 3 && (data[0] & 0xF0) == 0xB0)
+    {
+        const uint8_t channel = static_cast<uint8_t>((data[0] & 0x0F) + 1);
+        if ((ports & 1) && uartMidi != nullptr)
+            uartMidi->sendControlChange(data[1], data[2], channel);
+        if ((ports & 2) && usbMidi != nullptr)
+            usbMidi->sendControlChange(data[1], data[2], channel);
+        return;
+    }
+    if (data[0] != 0xF0)
+        return;
     if ((ports & 1) && uartMidi != nullptr)
         uartMidi->sendSysEx(data, length);
     if ((ports & 2) && usbMidi != nullptr)

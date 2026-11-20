@@ -171,6 +171,8 @@ bool parseToken(const char* w, TemplateToken& t)
         t.type = Token::checksum;
     else if (strcmp(w, "data") == 0)
         t.type = Token::data;
+    else if (strcmp(w, "|") == 0)
+        t.type = Token::split;
     else if (w[0] == 'd' && w[1] == '+')
     {
         t.type = Token::device;
@@ -216,6 +218,10 @@ const char* readTokens(Line& line, Template& t, Use use)
                 if (use != useDump)
                     return "data only goes in a dump";
                 data++;
+                break;
+            case Token::split:
+                if (use != useTemplate || depth != 0)
+                    return "| only between a template's messages";
                 break;
             case Token::literal:
             case Token::device: break;
@@ -288,6 +294,7 @@ size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* 
             case Token::sumStart: sumFrom = len; continue;
             case Token::checksum: b = rolandChecksum(out + sumFrom, len - sumFrom); break;
             case Token::data: return 0; // never sent
+            case Token::split: sumFrom = len; continue;
         }
         if (len >= maxLength)
             return 0;
@@ -296,6 +303,22 @@ size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* 
     return len;
 }
 } // namespace
+
+size_t messageLength(const uint8_t* b, size_t count)
+{
+    if (count == 0)
+        return 0;
+    if (b[0] == 0xF0)
+    {
+        for (size_t i = 1; i < count; i++)
+            if (b[i] == 0xF7)
+                return i + 1;
+        return 0;
+    }
+    const uint8_t type = b[0] & 0xF0;
+    size_t n = type == 0xC0 || type == 0xD0 ? 2 : (type >= 0x80 && type < 0xF0 ? 3 : 0);
+    return n <= count ? n : 0;
+}
 
 uint8_t rolandChecksum(const uint8_t* bytes, size_t count)
 {

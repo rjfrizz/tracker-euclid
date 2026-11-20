@@ -32,7 +32,9 @@
 // stride= gives the param its own distance between parts (see parts), and
 // reload=1 asks for the patch again after it changes (a tone selection).
 //
-// Template words: a hex byte; d+XX (device number - 1, plus XX); p (the
+// A template can send several messages, split by | (each F0 ... F7, or a
+// channel message such as d+C0 7F, a program change on the device's
+// channel). Template words: a hex byte; d+XX (device number - 1, plus XX); p (the
 // number's low 7 bits); ph / pl (bits 7-13 / 0-6); a2 a1 a0 (the number's
 // bytes 2, 1 and 0: Roland addresses as the manuals print them, so 0x040010
 // is 04 00 10); v, vh, vl (the value: low 7 bits, bits 7-13, bits 0-6); and
@@ -82,6 +84,7 @@ enum class Token : uint8_t
     sumStart, // [
     checksum, // ]
     data,     // dumps: the values
+    split,    // | between the messages of a template
 };
 
 struct TemplateToken
@@ -204,6 +207,10 @@ bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out
 
 // The value as shown: a list name, or the number plus `show`.
 void formatValue(const Definition& d, uint16_t param, int value, char* out, size_t length);
+
+// The length of the first MIDI message in bytes (SysEx to its F7, or a
+// channel message), 0 if there isn't a whole one.
+size_t messageLength(const uint8_t* bytes, size_t count);
 
 // The Roland checksum of bytes: 128 minus their sum, mod 128.
 uint8_t rolandChecksum(const uint8_t* bytes, size_t count);

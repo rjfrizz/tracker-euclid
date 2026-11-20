@@ -354,6 +354,26 @@ static void testPartStride()
     CHECK(applyDump(*d, dd, 3, values) == 1 && values[0] == 42 && values[1] == -1);
 }
 
+// The TX81Z's voice select, as Edisyn does it: three messages in one.
+static void testMultiMessage()
+{
+    auto d = load("synth \"T\"\n"
+                  "template voice F0 43 d+10 10 7F 7F vh vl F7 | F0 43 d+10 13 44 7F F7 | d+C0 7F\n"
+                  "group \"G\"\n"
+                  "param voice 0 \"Voice\" 0 159 reload=1\n");
+    uint8_t m[kMaxMessage];
+    size_t n = buildMessage(*d, 0, 140, 2, 1, m, sizeof(m)); // D13: 4 * 32 + 12
+    CHECK(n == 18);
+    const uint8_t want[] = { 0xF0, 0x43, 0x11, 0x10, 0x7F, 0x7F, 0x01, 0x0C, 0xF7,
+                             0xF0, 0x43, 0x11, 0x13, 0x44, 0x7F, 0xF7, 0xC1, 0x7F };
+    CHECK(std::memcmp(m, want, sizeof(want)) == 0);
+    CHECK(messageLength(m, n) == 9 && messageLength(m + 9, n - 9) == 7 && messageLength(m + 16, 2) == 2);
+    CHECK(messageLength(m, 5) == 0 && messageLength(m + 16, 1) == 0);
+    Definition bad;
+    const char* t = "template t F0 [ | ] F7\ngroup \"G\"\nparam t 0 \"A\" 0 1\n";
+    CHECK(!parse(t, std::strlen(t), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -366,6 +386,7 @@ int main()
     testDumpErrors();
     testParts();
     testPartStride();
+    testMultiMessage();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

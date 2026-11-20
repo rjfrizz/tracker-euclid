@@ -28,6 +28,9 @@ its script, e.g.
 - UTILITY > receive channel: a channel number (not OMNI), matching Device on
   the Synth page. It's also the channel the notes must use.
 - Single (Play) mode. In Performance mode the edits may not be heard.
+- Voice > Memory picks a stored voice (I01 to D32), the way Edisyn does it
+  (it points program change 128 at the voice, presses PLAY remotely and
+  sends program change 128), then gets the voice so the page shows it.
 - The edits change the edit buffer: STORE on the TX81Z keeps them.
 
 ## Setting up the D-110

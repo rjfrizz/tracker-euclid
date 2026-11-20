@@ -112,7 +112,13 @@ def main():
     w("dump vced F0 43 d+00 03 00 5D [ data ] F7")
     w("dump aced F0 43 d+00 7E 00 21 [ 4C 4D 20 20 38 39 37 36 41 45 data ] F7")
     w("name vced 77 10")
+    # Choosing a stored voice, as Edisyn's changePatch does it: point program
+    # change slot 128 at the voice, press PLAY/PERFORM remotely (to leave the
+    # "edited over MIDI" state), then send program change 128.
+    w("template select F0 43 d+10 10 7F 7F vh vl F7 | F0 43 d+10 13 44 7F F7 | d+C0 7F")
     w('list offon "Off" "On"')
+    banks = string_array(src, "BANKS")
+    w("list voices " + " ".join('"%s%02d"' % (b, n) for b in banks for n in range(1, 33)))
     w("list waves " + " ".join('"%s"' % s for s in lists["WAVES"]))
     w("list lfowaves " + " ".join('"%s"' % s for s in lists["LFO_WAVES"]))
     w("list ratios " + " ".join('"%.2f"' % r for r in ratios))
@@ -140,6 +146,8 @@ def main():
         w('param %s %d "%s" %d %d%s' % (t, n, name or clean(label), lo, hi, (" " + " ".join(opts)) if opts else ""))
 
     w('group "Voice"')
+    # Which stored voice plays; choosing one gets it, so the page shows it.
+    w('param select 0 "Memory" 0 %d list=voices reload=1' % (len(banks) * 32 - 1))
     param("algorithm", extra="init=0")
     param("feedback")
     param("transpose", extra="init=24")
