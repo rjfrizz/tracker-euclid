@@ -599,6 +599,16 @@ bool recall(uint8_t scene)
     return true;
 }
 
+bool keepAsHome()
+{
+    if (activeScene < 0)
+        return false;
+    activeScene = -1; // the old home is let go; autosave keeps this now
+    lastChangeMs = nowMs();
+    changeCountSaved = 0; // save it soon
+    return true;
+}
+
 bool returnHome()
 {
     if (activeScene < 0)

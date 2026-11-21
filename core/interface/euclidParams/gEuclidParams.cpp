@@ -241,7 +241,12 @@ void cEuclidParams::refreshTitle()
                  shiftSettings ? " set" : "",
                  selectedChannel + 1, hint);
     else if (view == View::lines)
-        snprintf(titleText, sizeof(titleText), "Pattern  -  all channels");
+    {
+        if (euclidScenes::active() >= 0)
+            snprintf(titleText, sizeof(titleText), "Pattern  -  Scene %c", 'A' + euclidScenes::active());
+        else
+            snprintf(titleText, sizeof(titleText), "Pattern  -  all channels");
+    }
     else if (view == View::chain)
         snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on
                                                               ? "  -  playing"

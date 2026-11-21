@@ -1149,6 +1149,20 @@ static void functInsert()
 
 static void functParamsView()
 {
+    // Rec + Params: the scene playing (with its edits) becomes your settings.
+    if (EP->recHeld)
+    {
+        EP->recCommittedChannel = true; // Rec was for this, not a commit
+        char text[48];
+        const int8_t scene = euclidScenes::active();
+        if (euclidScenes::keepAsHome())
+            snprintf(text, sizeof(text), "Scene %c is now your settings", 'A' + scene);
+        else
+            snprintf(text, sizeof(text), "No scene playing to keep");
+        EP->showMessage(text);
+        EP->refreshTitle();
+        return;
+    }
     // While a scene plays, Params goes back to what was playing before it.
     if (euclidScenes::returnHome())
     {
@@ -1454,7 +1468,9 @@ static void functScene(uint8_t button)
         return;
     }
 
-    const bool onParams = EP->view == cEuclidParams::View::params;
+    // On the lines a scene changes and the lines stay; elsewhere it opens
+    // the scene's Params page.
+    const bool onParams = EP->view == cEuclidParams::View::params || EP->view == cEuclidParams::View::lines;
     if (!onParams && euclidScenes::active() == scene)
     {
         EP->setView(cEuclidParams::View::params);

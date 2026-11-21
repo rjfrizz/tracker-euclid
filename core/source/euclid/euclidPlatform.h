@@ -49,6 +49,7 @@ bool save(uint8_t scene);   // 0-3
 bool recall(uint8_t scene); // false if the scene is empty
 bool has(uint8_t scene);
 bool returnHome(); // false if no scene was playing
+bool keepAsHome(); // what's playing (a scene, edits and all) becomes home
 int8_t active();   // the scene playing, or -1 for home
 } // namespace euclidScenes
 
