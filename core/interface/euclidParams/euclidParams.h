@@ -286,6 +286,7 @@ class cEuclidParams : public ModuleBase
     char lineNames[8][12];
     char lineInfo[8][20];
     char lineShift[8][24];
+    char lineNote[8][8];
 
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();

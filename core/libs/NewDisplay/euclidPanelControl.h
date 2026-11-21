@@ -60,6 +60,7 @@ struct strEuclidPanelData
         // order, chord), and the values playing now.
         uint8_t shiftOn = 0;
         const char* shift = nullptr;
+        const char* note = nullptr; // the note it played last ("C4", "C4+2" for a chord)
         uint8_t modActive = 0;  // bit per modulator
         uint8_t modBipolar = 0; // bit per modulator
         int16_t mod[4] = {};

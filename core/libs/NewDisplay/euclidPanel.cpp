@@ -465,11 +465,22 @@ void cEuclidPanel::drawLanes()
                             l.pending ? theme.activeLabelsColors[0] : theme.orange);
         }
 
-        // The Shift lanes' values, only while they're playing.
-        if (l.shift != nullptr && !compact)
+        // The note it played last, then the Shift lanes' values (only while
+        // they're playing).
+        if (!compact)
         {
-            API_COLOR(kShiftColor);
-            API_CMD_TEXT(posX + width - shiftW + 6, cy, fonts[kFontBold].handle, OPT_CENTERY, l.shift);
+            int16_t sx = posX + width - shiftW + 6;
+            if (l.note != nullptr)
+            {
+                API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+                API_CMD_TEXT(sx, l.shift != nullptr ? y + 14 : cy, fonts[kFontBold].handle, OPT_CENTERY, l.note);
+            }
+            if (l.shift != nullptr)
+            {
+                API_COLOR(kShiftColor);
+                API_CMD_TEXT(sx, l.note != nullptr ? y + laneH - 14 : cy, fonts[kFontBold].handle, OPT_CENTERY,
+                             l.shift);
+            }
         }
     }
 }

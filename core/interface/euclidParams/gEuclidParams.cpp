@@ -351,6 +351,7 @@ uint32_t cEuclidParams::linesState() const
             if (x.mod[k].dest != euclid::ModDest::off)
                 state = state * 7 + static_cast<uint32_t>(coarse(euclidEngine.getModValue(i, k)) + 64);
         state = state * 11 + static_cast<uint32_t>(euclidEngine.getShiftStep(i) + 1) + 3u * x.shift.on;
+        state = state * 13 + euclidEngine.getNoteCount(i);
         for (int k = 0; k < euclid::kLaneKinds; k++)
             state = state * 5 + static_cast<uint32_t>(euclidEngine.getLaneStep(i, static_cast<euclid::LaneKind>(k)) + 1) +
                     2u * x.lanes[k].on;
@@ -449,6 +450,20 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         if (strlen(s0) > 13)
             s0[13] = 0; // as much as the column holds
         l.shift = s0[0] != 0 ? s0 : nullptr;
+
+        // The note it played last (and how many more, for a chord).
+        uint8_t last[8];
+        const uint8_t played = running ? euclidEngine.getLastNotes(i, last) : 0;
+        if (played > 0)
+        {
+            if (played > 1)
+                snprintf(lineNote[i], sizeof(lineNote[i]), "%s+%d", mtNotes[last[0] & 127], played - 1);
+            else
+                snprintf(lineNote[i], sizeof(lineNote[i]), "%s", mtNotes[last[0] & 127]);
+            l.note = lineNote[i];
+        }
+        else
+            l.note = nullptr;
 
         l.modActive = 0;
         l.modBipolar = 0;
