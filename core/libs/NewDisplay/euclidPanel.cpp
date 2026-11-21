@@ -300,7 +300,8 @@ void cEuclidPanel::drawBlocks()
         drawOutline(posX + 222, posY + 4, 220, topH - 8, theme.frameColors[0]);
 
     // Scroll to keep the selected step on screen.
-    const uint8_t visible = static_cast<uint8_t>((height - topH) / rowH);
+    const int16_t hintH = 26; // the key reminder along the bottom
+    const uint8_t visible = static_cast<uint8_t>((height - topH - hintH) / rowH);
     if (data->blockSelected >= 0)
     {
         if (data->blockSelected < data->blockFirst)
@@ -372,6 +373,11 @@ void cEuclidPanel::drawBlocks()
             drawOutline(fx[f] - 2, y + 2, fw[f] + 4, rowH - 4, theme.activeLabelsColors[0]);
         }
     }
+
+    // What the keys do, so adding a block isn't a secret.
+    API_COLOR(theme.inactiveLabelsColors[0]);
+    API_CMD_TEXT(posX + 12, posY + height - hintH / 2, fonts[kFontSmall].handle, OPT_CENTERY,
+                 "Insert: add a block   Delete: remove   Left/Right: part   Encoder: change");
 
     // More steps above or below.
     if (data->blockCount > visible)
