@@ -8,6 +8,7 @@
 #include "mtStructs.h"
 
 #include <stdio.h>
+#include <string.h>
 
 namespace
 {
@@ -209,8 +210,20 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "Shift%s  Ch %d%s", shiftSettings ? " settings" : "",
                  selectedChannel + 1, hint);
     else if (view == View::synth && synthPatches)
-        snprintf(titleText, sizeof(titleText), "Patches  Ch %d%s", selectedChannel + 1,
+    {
+        // Named after the synth's folder (TX81Z, D110), short enough to fit.
+        int file = euclidSynth::assignedFile(selectedChannel);
+        char synthName[euclidSynth::kNameLength] = "";
+        if (file >= 0)
+        {
+            snprintf(synthName, sizeof(synthName), "%s", euclidSynth::file(static_cast<uint8_t>(file)));
+            char* dot = strrchr(synthName, '.');
+            if (dot != nullptr)
+                *dot = 0;
+        }
+        snprintf(titleText, sizeof(titleText), "%s patches  Ch %d%s", synthName, selectedChannel + 1,
                  euclidSynth::sending() ? "  -  sending" : "");
+    }
     else if (view == View::synth)
         snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
                  euclidSynth::receiving() ? "  -  receiving" : (euclidSynth::sending() ? "  -  sending" : hint));
