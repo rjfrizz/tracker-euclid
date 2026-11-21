@@ -117,6 +117,8 @@ void cEuclidParams::setView(View v)
 {
     if (v != View::synth)
         synthPatches = false;
+    // The Synth page (Instr) in the Instr key's amber, apart from Params.
+    panelData.accent = v == View::synth ? 0xF2A33A : 0;
     // The lines and the chain take the whole width; everywhere else the ring
     // is on the left.
     const bool wide = v == View::lines || v == View::chain;

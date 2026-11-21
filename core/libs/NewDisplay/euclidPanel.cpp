@@ -122,6 +122,10 @@ void cEuclidPanel::drawList()
     else if (data->firstRow > rows - visible)
         data->firstRow = static_cast<uint8_t>(rows - visible);
 
+    // A page's colour (the Synth page's amber, like its key) along the top.
+    if (data->accent != 0)
+        fillRect(posX, posY - 8, width, 4, data->accent);
+
     for (uint8_t row = 0; row < visible && data->firstRow + row < rows; row++)
     {
         const uint8_t i = static_cast<uint8_t>(data->firstRow + row);
@@ -129,10 +133,10 @@ void cEuclidPanel::drawList()
         int16_t cy = y + kRowH / 2;
 
         if (i == data->focusRow)
-            drawOutline(posX, y + 2, width, kRowH - 4, theme.frameColors[0]);
+            drawOutline(posX, y + 2, width, kRowH - 4, data->accent != 0 ? data->accent : theme.frameColors[0]);
 
         bool dim = data->dimRows & (1ul << i);
-        API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
+        API_COLOR(dim ? theme.inactiveLabelsColors[0] : (data->accent != 0 ? data->accent : theme.activeLabelsColors[0]));
         if (data->names[i] != nullptr)
             API_CMD_TEXT(posX + kPad, cy, fonts[kFontBold].handle, OPT_CENTERY, data->names[i]);
         if (data->stagedRows & (1ul << i))
@@ -456,19 +460,11 @@ void cEuclidPanel::drawLanes()
                             l.pending ? theme.activeLabelsColors[0] : theme.orange);
         }
 
-        // The Shift lanes: a letter each, lit when the lane is on (always
-        // shown), and under them the values playing.
-        const int16_t sx = posX + width - shiftW + 6;
-        static const char* const kLaneLetters[5] = { "P", "M", "D", "O", "C" };
-        for (uint8_t k = 0; k < 5; k++)
-        {
-            API_COLOR(((l.shiftOn >> k) & 1u) ? kShiftColor : theme.frameColors[1]);
-            API_CMD_TEXT(sx + k * 20, y + 13, fonts[kFontBold].handle, OPT_CENTERY, kLaneLetters[k]);
-        }
+        // The Shift lanes' values, only while they're playing.
         if (l.shift != nullptr)
         {
             API_COLOR(kShiftColor);
-            API_CMD_TEXT(sx, y + laneH - 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift);
+            API_CMD_TEXT(posX + width - shiftW + 6, cy, fonts[kFontBold].handle, OPT_CENTERY, l.shift);
         }
     }
 }
