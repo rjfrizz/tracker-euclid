@@ -106,6 +106,16 @@ void receiveUsb(const uint8_t* data, uint16_t length, bool complete);
 const char* error();
 void saveAssignments();
 void loadAssignments();
+
+// The patch library (Synths/<synth>/<name>.syx). Saving needs a patch got
+// from the synth (or loaded) first: it's those dumps with the page's values
+// written in. Loading sends the dumps to the channel's device and part.
+uint8_t scanPatches(uint8_t ch); // the channel's synth's patches; their count
+uint8_t patches();
+const char* patch(uint8_t index); // its name, without .syx
+bool savePatch(uint8_t ch, char* savedAs, size_t length);
+bool loadPatch(uint8_t ch, uint8_t index);
+bool deletePatch(uint8_t ch, uint8_t index);
 } // namespace euclidSynth
 
 namespace euclidFreeze

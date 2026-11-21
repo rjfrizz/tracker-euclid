@@ -698,6 +698,104 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
     return count;
 }
 
+namespace
+{
+// Writes a dump's device, address and checksums into a message of its
+// pattern (the data is already in place).
+void rewrite(const Template& t, uint8_t* msg, size_t length, uint8_t device, uint32_t address)
+{
+    size_t fixed = 0;
+    for (uint8_t i = 0; i < t.count; i++)
+        if (t.tokens[i].type != Token::sumStart && t.tokens[i].type != Token::data)
+            fixed++;
+    const size_t dataLength = length - fixed;
+    size_t pos = 0;
+    size_t sumFrom = 0;
+    for (uint8_t i = 0; i < t.count; i++)
+    {
+        const TemplateToken& tok = t.tokens[i];
+        switch (tok.type)
+        {
+            case Token::device: msg[pos++] = static_cast<uint8_t>(tok.value + device - 1); break;
+            case Token::address2: msg[pos++] = static_cast<uint8_t>((address >> 16) & 0x7F); break;
+            case Token::address1: msg[pos++] = static_cast<uint8_t>((address >> 8) & 0x7F); break;
+            case Token::address0: msg[pos++] = static_cast<uint8_t>(address & 0x7F); break;
+            case Token::sumStart: sumFrom = pos; break;
+            case Token::checksum:
+                msg[pos] = rolandChecksum(msg + sumFrom, pos - sumFrom);
+                pos++;
+                break;
+            case Token::data: pos += dataLength; break;
+            default: pos++; break;
+        }
+    }
+}
+} // namespace
+
+bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t device, uint8_t* msg, size_t length)
+{
+    DumpData dump;
+    if (!matchDump(d, msg, length, device, dump))
+        return false;
+    uint8_t* data = msg + (dump.data - msg);
+    const uint8_t templ = d.dumps[dump.dump].templ;
+    for (uint16_t i = 0; i < d.paramCount; i++)
+    {
+        const Param& p = d.params[i];
+        if (p.templ != templ)
+            continue;
+        long at = dumpIndex(d, dump, p.number, part, p.stride);
+        if (at < 0)
+            continue;
+        int v = values[i] < p.min ? p.min : (values[i] > p.max ? p.max : values[i]);
+        data[at] = static_cast<uint8_t>((v + p.send) & 0x7F);
+    }
+    rewrite(d.dumps[dump.dump].pattern, msg, length, device, dump.address);
+    return true;
+}
+
+bool moveDump(const Definition& d, uint8_t* msg, size_t length, uint8_t fromDevice, uint8_t fromPart,
+              uint8_t toDevice, uint8_t toPart)
+{
+    DumpData dump;
+    if (!matchDump(d, msg, length, fromDevice, dump))
+        return false;
+    uint32_t address = dump.address;
+    const Dump& pattern = d.dumps[dump.dump];
+    if (pattern.hasAddress && d.partCount > 0 && fromPart != toPart)
+    {
+        // The distance between parts of the params this dump holds.
+        uint16_t stride = d.partStride;
+        for (uint16_t i = 0; i < d.paramCount; i++)
+            if (d.params[i].templ == pattern.templ &&
+                dumpIndex(d, dump, d.params[i].number, fromPart, d.params[i].stride) >= 0)
+            {
+                stride = d.params[i].stride != 0 ? d.params[i].stride : d.partStride;
+                break;
+            }
+        long linear = static_cast<long>(linearAddress(address)) +
+                      (static_cast<long>(toPart) - static_cast<long>(fromPart)) * stride;
+        if (linear < 0)
+            return false;
+        address = printedAddress(static_cast<uint32_t>(linear));
+    }
+    rewrite(pattern.pattern, msg, length, toDevice, address);
+    return true;
+}
+
+bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part)
+{
+    if (dump.dump >= d.dumpCount)
+        return false;
+    for (uint16_t i = 0; i < d.paramCount; i++)
+    {
+        const Param& p = d.params[i];
+        if (p.reload && p.templ == d.dumps[dump.dump].templ && dumpIndex(d, dump, p.number, part, p.stride) >= 0)
+            return true;
+    }
+    return false;
+}
+
 bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out, size_t length)
 {
     if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl)

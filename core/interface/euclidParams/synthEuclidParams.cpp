@@ -52,6 +52,11 @@ int clampInt(int v, int lo, int hi)
 
 uint8_t cEuclidParams::synthRowCount() const
 {
+    if (synthPatches)
+    {
+        const uint8_t left = static_cast<uint8_t>(euclidSynth::patches() - patchFirst);
+        return euclidSynth::patches() == 0 ? 1 : (left > strEuclidPanelData::kMaxRows ? strEuclidPanelData::kMaxRows : left);
+    }
     const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
     if (d == nullptr)
         return 1; // just the Synth row
@@ -76,6 +81,8 @@ int cEuclidParams::synthParamAt(uint8_t row) const
 
 cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
 {
+    if (synthPatches)
+        return { PadMap::none, 0, 0, 0 };
     const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
     switch (headerAt(d, row))
     {
@@ -101,6 +108,8 @@ cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
 
 int cEuclidParams::synthRowValue(uint8_t row) const
 {
+    if (synthPatches)
+        return kNoValue;
     switch (headerAt(euclidSynth::definition(selectedChannel), row))
     {
         case Header::synth: return euclidSynth::assignedFile(selectedChannel) + 1; // 0 = none
@@ -116,6 +125,8 @@ int cEuclidParams::synthRowValue(uint8_t row) const
 
 void cEuclidParams::setSynthRowValue(uint8_t row, int v)
 {
+    if (synthPatches)
+        return;
     const uint8_t ch = selectedChannel;
     switch (headerAt(euclidSynth::definition(ch), row))
     {
@@ -164,6 +175,11 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
 
 void cEuclidParams::changeSynth(int16_t delta)
 {
+    if (synthPatches)
+    {
+        movePatchCursor(delta > 0 ? 1 : -1);
+        return;
+    }
     const uint8_t row = selectedSynthRow;
     const int step = delta > 0 ? 1 : -1;
     int p = synthParamAt(row);
@@ -184,6 +200,27 @@ void cEuclidParams::refreshSynth()
 
     const uint8_t ch = selectedChannel;
     const euclid::synth::Definition* d = euclidSynth::definition(ch);
+    if (synthPatches)
+    {
+        // The patch list: names only, a screenful at a time.
+        panelData.rows = synthRowCount();
+        for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
+        {
+            panelData.names[i] = nullptr;
+            panelData.values[i] = nullptr;
+        }
+        if (euclidSynth::patches() == 0)
+            panelData.names[0] = d != nullptr ? "None: Shift+File saves" : "No synth here";
+        else
+            for (uint8_t row = 0; row < panelData.rows; row++)
+                panelData.names[row] = euclidSynth::patch(static_cast<uint8_t>(patchFirst + row));
+        selectedSynthRow = static_cast<uint8_t>(patchCursor - patchFirst);
+        panelData.dimRows = 0;
+        panelData.stagedRows = 0;
+        panelData.meterCount = 0;
+        refreshFrame();
+        return;
+    }
     panelData.rows = synthRowCount();
     if (selectedSynthRow >= panelData.rows)
         selectedSynthRow = static_cast<uint8_t>(panelData.rows - 1);
@@ -238,4 +275,83 @@ void cEuclidParams::refreshSynth()
     panelData.stagedRows = 0; // synth edits aren't staged
     panelData.meterCount = 0;
     refreshFrame();
+}
+
+//------------------------------------------------------------------------------
+// The patch list (File on the Synth page).
+
+void cEuclidParams::openPatches(bool open)
+{
+    synthPatches = open && euclidSynth::definition(selectedChannel) != nullptr;
+    if (open && !synthPatches)
+        showMessage("No synth on this channel");
+    if (synthPatches)
+    {
+        euclidSynth::scanPatches(selectedChannel);
+        patchCursor = 0;
+        patchFirst = 0;
+    }
+    selectedSynthRow = 0;
+    refreshTitle();
+    refreshSynth();
+    refreshPads();
+}
+
+void cEuclidParams::movePatchCursor(int delta)
+{
+    const int count = euclidSynth::patches();
+    if (count == 0)
+        return;
+    int c = patchCursor + delta;
+    c = c < 0 ? 0 : (c >= count ? count - 1 : c);
+    patchCursor = static_cast<uint8_t>(c);
+    // Keep it on screen.
+    const int rows = strEuclidPanelData::kMaxRows;
+    if (patchCursor < patchFirst)
+        patchFirst = patchCursor;
+    else if (patchCursor >= patchFirst + rows)
+        patchFirst = static_cast<uint8_t>(patchCursor - rows + 1);
+    refreshSynth();
+}
+
+void cEuclidParams::savePatch()
+{
+    char name[24];
+    char text[48];
+    if (euclidSynth::savePatch(selectedChannel, name, sizeof(name)))
+        snprintf(text, sizeof(text), "Saved %s", name);
+    else
+        snprintf(text, sizeof(text), "%s", euclidSynth::error());
+    showMessage(text);
+    if (synthPatches)
+        refreshSynth();
+}
+
+void cEuclidParams::loadPatch()
+{
+    if (euclidSynth::patches() == 0)
+        return;
+    char text[48];
+    if (euclidSynth::loadPatch(selectedChannel, patchCursor))
+        snprintf(text, sizeof(text), "Sending %s", euclidSynth::patch(patchCursor));
+    else
+        snprintf(text, sizeof(text), "%s", euclidSynth::error());
+    showMessage(text);
+    refreshChannels(); // the channel takes the patch's name
+}
+
+void cEuclidParams::deletePatch()
+{
+    if (euclidSynth::patches() == 0)
+        return;
+    char text[48];
+    snprintf(text, sizeof(text), "Deleted %s", euclidSynth::patch(patchCursor));
+    if (!euclidSynth::deletePatch(selectedChannel, patchCursor))
+        snprintf(text, sizeof(text), "Couldn't delete it");
+    if (patchCursor >= euclidSynth::patches() && patchCursor > 0)
+        patchCursor--;
+    if (patchFirst > patchCursor)
+        patchFirst = patchCursor;
+    showMessage(text);
+    refreshSynth();
 }

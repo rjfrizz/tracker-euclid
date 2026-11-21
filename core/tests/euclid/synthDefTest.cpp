@@ -374,6 +374,55 @@ static void testMultiMessage()
     CHECK(!parse(t, std::strlen(t), bad));
 }
 
+// Patches: values written into a dump, and a dump moved between parts.
+static void testPatchRewrite()
+{
+    auto d = load("synth \"D\"\n"
+                  "parts 8 246 channel=2\n"
+                  "template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7\n"
+                  "dump dt1 F0 41 d+10 16 12 [ a2 a1 a0 data ] F7\n"
+                  "group \"G\"\n"
+                  "param dt1 0x030001 \"Tone\" 0 63 stride=16 reload=1\n"
+                  "param dt1 0x04000A \"Structure\" 0 12\n"
+                  "param dt1 0x04000B \"Offset\" -5 5 send=5\n");
+    auto dt1 = [](std::vector<uint8_t> body) {
+        std::vector<uint8_t> m = { 0xF0, 0x41, 0x10, 0x16, 0x12 };
+        m.insert(m.end(), body.begin(), body.end());
+        m.push_back(rolandChecksum(body.data(), body.size()));
+        m.push_back(0xF7);
+        return m;
+    };
+    std::vector<uint8_t> body = { 0x04, 0x00, 0x00 };
+    for (int i = 0; i < 20; i++)
+        body.push_back(static_cast<uint8_t>(i < 10 ? 'A' + i : 0));
+    std::vector<uint8_t> tone = dt1(body);
+
+    // Values in: Structure 7, Offset -2 (sent as 3). The name stays.
+    int16_t values[3] = { 9, 7, -2 };
+    CHECK(fillDump(*d, values, 1, 1, tone.data(), tone.size()));
+    DumpData dd;
+    CHECK(matchDump(*d, tone.data(), tone.size(), 1, dd)); // the checksum is mended
+    CHECK(dd.data[10] == 7 && dd.data[11] == 3 && dd.data[0] == 'A');
+    CHECK(!dumpHasSelection(*d, dd, 1));
+
+    // Part 1 at device 1 to part 3 at device 2: 2 * 246 = 492 = 03 6C.
+    CHECK(moveDump(*d, tone.data(), tone.size(), 1, 1, 2, 3));
+    CHECK(tone[2] == 0x11 && tone[5] == 0x04 && tone[6] == 0x03 && tone[7] == 0x6C);
+    int16_t back[3] = { -1, -1, -1 };
+    CHECK(matchDump(*d, tone.data(), tone.size(), 2, dd) && applyDump(*d, dd, 3, back) == 2);
+    CHECK(back[1] == 7 && back[2] == -2);
+
+    // A part's settings move by their own stride (16).
+    std::vector<uint8_t> settings = dt1({ 0x03, 0x00, 0x00, 1, 42, 24 });
+    CHECK(matchDump(*d, settings.data(), settings.size(), 1, dd) && dumpHasSelection(*d, dd, 1));
+    CHECK(moveDump(*d, settings.data(), settings.size(), 1, 1, 1, 4));
+    CHECK(settings[5] == 0x03 && settings[6] == 0x00 && settings[7] == 0x30);
+    CHECK(matchDump(*d, settings.data(), settings.size(), 1, dd) && applyDump(*d, dd, 4, back) == 1 && back[0] == 42);
+
+    // Not from that device: left alone.
+    CHECK(!moveDump(*d, settings.data(), settings.size(), 5, 1, 1, 1));
+}
+
 int main()
 {
     testYamaha();
@@ -387,6 +436,7 @@ int main()
     testParts();
     testPartStride();
     testMultiMessage();
+    testPatchRewrite();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

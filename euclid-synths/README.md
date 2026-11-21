@@ -5,7 +5,13 @@ Instr on the Tracker+): one `.syn` file per hardware synth. Copy them to
 `Synths/` on the Tracker's SD card. The format is described at the top of
 `core/source/euclid/synthDef.h`.
 
-On the Synth page, edits go out as you make them. Insert sends the whole
+On the Synth page, edits go out as you make them. File opens the
+channel's patch library (Synths/<synth>/, standard .syx files): Insert
+sends the selected patch, Shift + Delete deletes it, and Shift + File saves
+the page as a new patch, named after the channel (get or load a patch
+first: a patch is the synth's own dump with the page's values written in).
+Patches are kept at Device 1 and Part 1 and moved to the channel's on
+loading, so they work on any part. Insert sends the whole
 patch; Shift + Insert gets the synth's patch (for definitions with
 `request` and `dump` lines).
 

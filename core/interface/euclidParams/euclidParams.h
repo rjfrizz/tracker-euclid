@@ -241,6 +241,16 @@ class cEuclidParams : public ModuleBase
     char synthText[strEuclidPanelData::kMaxRows][20];
     bool synthWasSending = false;
     uint32_t lastSynthEvents = 0;
+    // The Synth page's patch list (File): the selected patch, and the first
+    // one on screen.
+    bool synthPatches = false;
+    uint8_t patchCursor = 0;
+    uint8_t patchFirst = 0;
+    void openPatches(bool open);
+    void movePatchCursor(int delta);
+    void savePatch();
+    void loadPatch();
+    void deletePatch();
 
     // Shift view (shiftEuclidParams.cpp).
     void refreshShift();

@@ -84,6 +84,30 @@ uint32_t heardAtRequest = 0;
 uint32_t jackAtRequest = 0;
 uint32_t usbAtRequest = 0;
 
+// Each channel's patch as the synth last sent it (or as last loaded), at
+// device 1 and part 1: the patch library saves these with the page's values
+// written in.
+constexpr uint8_t kImages = 4;
+constexpr size_t kImageMax = 512;
+__NOINIT(EXTERNAL_RAM) uint8_t images[euclid::kChannels][kImages][kImageMax];
+uint16_t imageLength[euclid::kChannels][kImages] = {};
+uint8_t imageCount[euclid::kChannels] = {};
+
+// Whole dumps to send (a patch from the card), one message at a time once
+// the queue is empty, each given time to go out.
+constexpr size_t kBulkMax = 2048;
+__NOINIT(EXTERNAL_RAM) uint8_t bulk[kBulkMax];
+volatile uint16_t bulkLength = 0;
+volatile uint16_t bulkSent = 0;
+uint8_t bulkPorts = 0;
+uint16_t bulkPauseMs = 0;
+uint32_t bulkNextUs = 0;
+
+// The patches in the channel's synth's folder (names without .syx).
+constexpr uint8_t kMaxPatches = 64;
+char patchNames[kMaxPatches][euclidSynth::kNameLength];
+uint8_t patchCount = 0;
+
 // A patch request waiting for its reply.
 int8_t requestChannel = -1;
 uint32_t requestDeadline = 0;
@@ -223,8 +247,34 @@ int loadDefinition(const char* file)
     return slot;
 }
 
+// Keeps a received dump as the channel's patch, at device 1 and part 1,
+// replacing one of the same kind and address.
+void keepImage(uint8_t ch, const uint8_t* msg, size_t len, uint8_t device, uint8_t part)
+{
+    const Definition* d = euclidSynth::definition(ch);
+    if (d == nullptr || len > kImageMax)
+        return;
+    uint8_t temp[kImageMax];
+    memcpy(temp, msg, len);
+    euclid::synth::DumpData mine, other;
+    if (!euclid::synth::moveDump(*d, temp, len, device, part, 1, 1) || !euclid::synth::matchDump(*d, temp, len, 1, mine))
+        return;
+    uint8_t slot = imageCount[ch];
+    for (uint8_t i = 0; i < imageCount[ch]; i++)
+        if (euclid::synth::matchDump(*d, images[ch][i], imageLength[ch][i], 1, other) && other.dump == mine.dump &&
+            other.address == mine.address)
+            slot = i;
+    if (slot >= kImages)
+        return;
+    memcpy(images[ch][slot], temp, len);
+    imageLength[ch][slot] = static_cast<uint16_t>(len);
+    if (slot == imageCount[ch])
+        imageCount[ch]++;
+}
+
 void resetValues(uint8_t ch)
 {
+    imageCount[ch] = 0;
     const Channel& c = channels[ch];
     if (c.slot < 0)
         return;
@@ -266,7 +316,22 @@ void init()
 
 void pump(uint32_t nowUs)
 {
+    // A whole dump going out has the port to itself until it's had time to.
+    if (bulkSent < bulkLength && static_cast<int32_t>(nowUs - bulkNextUs) < 0)
+        return;
     queue.pump(nowUs, send);
+    if (bulkSent >= bulkLength || queue.waiting() > 0)
+        return;
+    const size_t len = euclid::synth::messageLength(bulk + bulkSent, bulkLength - bulkSent);
+    if (len == 0)
+    {
+        bulkSent = bulkLength;
+        return;
+    }
+    send(bulk + bulkSent, static_cast<uint32_t>(len), bulkPorts);
+    // 320 us a byte at MIDI's speed, then the synth's pause.
+    bulkNextUs = nowUs + static_cast<uint32_t>(len) * 320u + bulkPauseMs * 1000u;
+    bulkSent = static_cast<uint16_t>(bulkSent + len);
 }
 
 void receiveDin(const uint8_t* data, uint16_t length, bool complete)
@@ -329,6 +394,7 @@ void takeInbox()
                 const uint8_t part = euclidSynth::part(ch);
                 valuesReceived += euclid::synth::applyDump(*d, dump, part, values[ch]);
                 euclid::synth::dumpName(*d, dump, part, patchName, sizeof(patchName));
+                keepImage(ch, inbox[slot], inboxLength[slot], channels[ch].device, part);
                 dumpsReceived++;
                 requestDeadline = nowMs() + kMoreWaitMs;
             }
@@ -562,7 +628,7 @@ void sendAll(uint8_t ch)
 
 bool sending()
 {
-    return sendAllChannel >= 0 || queue.waiting() > 0;
+    return sendAllChannel >= 0 || queue.waiting() > 0 || bulkSent < bulkLength;
 }
 
 bool requestPatch(uint8_t ch)
@@ -593,6 +659,7 @@ bool requestPatch(uint8_t ch)
             queue.push((static_cast<uint32_t>(ch) << 16) | (0xFF00u + i), msg, n, c.ports, d->pauseMs);
     }
     requestChannel = static_cast<int8_t>(ch);
+    imageCount[ch] = 0; // the reply is the patch now
     requestDeadline = 0;
     dumpsReceived = 0;
     valuesReceived = 0;
@@ -622,6 +689,247 @@ const char* receiveMessage()
 const char* error()
 {
     return lastError;
+}
+
+//------------------------------------------------------------------------------
+// The patch library: Synths/<synth>/<name>.syx, the dumps as the synth sends
+// them (device 1, part 1), with the page's values written in.
+
+namespace
+{
+// Synths/TX81Z for TX81Z.syn.
+bool patchDir(uint8_t ch, char* out, size_t length)
+{
+    if (ch >= euclid::kChannels || channels[ch].slot < 0)
+        return false;
+    snprintf(out, length, "%s/%s", kSynthsDir, slots[channels[ch].slot].file);
+    char* dot = strrchr(out, '.');
+    if (dot != nullptr)
+        *dot = 0;
+    return true;
+}
+} // namespace
+
+uint8_t scanPatches(uint8_t ch)
+{
+    patchCount = 0;
+    char dir[64];
+    FileSystem* f = fs();
+    if (!patchDir(ch, dir, sizeof(dir)) || f == nullptr || !f->isSdCardInserted() || !f->exists(dir))
+        return 0;
+    static char names[kMaxPatches * kNameLength];
+    static char* list[kMaxPatches];
+    int count = kMaxPatches;
+    f->listDirContents(
+      dir, FileSystem::DirContentType::kFiles,
+      [](const char* name) {
+          size_t len = strlen(name);
+          return len > 4 && len < kNameLength && strcasecmp(name + len - 4, ".syx") == 0;
+      },
+      names, sizeof(names), kNameLength, count, list);
+    for (int i = 0; i < count && patchCount < kMaxPatches; i++)
+    {
+        snprintf(patchNames[patchCount], kNameLength, "%s", list[i]);
+        patchNames[patchCount][strlen(patchNames[patchCount]) - 4] = 0; // without .syx
+        patchCount++;
+    }
+    for (int a = 1; a < patchCount; a++)
+        for (int b = a; b > 0 && strcasecmp(patchNames[b], patchNames[b - 1]) < 0; b--)
+        {
+            char t[kNameLength];
+            memcpy(t, patchNames[b], kNameLength);
+            memcpy(patchNames[b], patchNames[b - 1], kNameLength);
+            memcpy(patchNames[b - 1], t, kNameLength);
+        }
+    return patchCount;
+}
+
+uint8_t patches()
+{
+    return patchCount;
+}
+
+const char* patch(uint8_t index)
+{
+    return index < patchCount ? patchNames[index] : "";
+}
+
+bool savePatch(uint8_t ch, char* savedAs, size_t length)
+{
+    const Definition* d = definition(ch);
+    char dir[64];
+    FileSystem* f = fs();
+    if (d == nullptr || !patchDir(ch, dir, sizeof(dir)))
+        return false;
+    if (imageCount[ch] == 0)
+    {
+        snprintf(lastError, sizeof(lastError), "Get the patch first: Shift + Insert");
+        return false;
+    }
+    if (f == nullptr || !f->isSdCardInserted())
+    {
+        snprintf(lastError, sizeof(lastError), "No SD card");
+        return false;
+    }
+
+    // The dumps with the page's values written in.
+    size_t n = 0;
+    for (uint8_t i = 0; i < imageCount[ch] && n + imageLength[ch][i] <= kFileMax; i++)
+    {
+        memcpy(fileBuffer + n, images[ch][i], imageLength[ch][i]);
+        euclid::synth::fillDump(*d, values[ch], 1, 1, reinterpret_cast<uint8_t*>(fileBuffer) + n,
+                                imageLength[ch][i]);
+        n += imageLength[ch][i];
+    }
+
+    // Named after the channel (a patch's name, usually), made safe for the
+    // card, with a number added if that name is taken.
+    char base[16];
+    const char* name = euclidEngine.getNameShown(ch);
+    size_t b = 0;
+    for (const char* c = name != nullptr ? name : "Patch"; *c != 0 && b + 1 < sizeof(base); c++)
+    {
+        const char k = *c;
+        const bool ok = (k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z') || (k >= '0' && k <= '9') || k == ' ' ||
+                        k == '-' || k == '_';
+        base[b++] = ok ? k : '_';
+    }
+    while (b > 0 && base[b - 1] == ' ')
+        b--;
+    base[b] = 0;
+    if (b == 0)
+        snprintf(base, sizeof(base), "Patch");
+
+    if (!f->exists(kSynthsDir))
+        f->mkdir(0, kSynthsDir);
+    if (!f->exists(dir))
+        f->mkdir(0, dir);
+    char path[96];
+    char file[24];
+    for (int k = 1; k < 100; k++)
+    {
+        if (k == 1)
+            snprintf(file, sizeof(file), "%s", base);
+        else
+            snprintf(file, sizeof(file), "%s %d", base, k);
+        snprintf(path, sizeof(path), "%s/%s.syx", dir, file);
+        if (!f->exists(path))
+            break;
+    }
+    auto [isOpen, handle] = f->openFile(path, FileSystem::FileOpenMode::kWriteCreateNew);
+    if (!isOpen)
+    {
+        snprintf(lastError, sizeof(lastError), "Can't write %s", file);
+        return false;
+    }
+    const int32_t wrote = f->writeFile(fileBuffer, n, handle);
+    f->closeFile(handle);
+    if (wrote != static_cast<int32_t>(n))
+    {
+        snprintf(lastError, sizeof(lastError), "Card full?");
+        return false;
+    }
+    snprintf(savedAs, length, "%s", file);
+    scanPatches(ch);
+    return true;
+}
+
+bool loadPatch(uint8_t ch, uint8_t index)
+{
+    const Definition* d = definition(ch);
+    char dir[64];
+    FileSystem* f = fs();
+    if (d == nullptr || index >= patchCount || !patchDir(ch, dir, sizeof(dir)) || f == nullptr)
+        return false;
+    const uint8_t part = euclidSynth::part(ch);
+    if (part == 0)
+    {
+        snprintf(lastError, sizeof(lastError), "MIDI ch %d isn't a %s part", euclidEngine.getLiveExpression(ch).midiChannel,
+                 d->name);
+        return false;
+    }
+    if (bulkSent < bulkLength)
+    {
+        snprintf(lastError, sizeof(lastError), "Still sending the last one");
+        return false;
+    }
+
+    char path[96];
+    snprintf(path, sizeof(path), "%s/%s.syx", dir, patchNames[index]);
+    auto [isOpen, handle] = f->openFile(path);
+    if (!isOpen)
+    {
+        snprintf(lastError, sizeof(lastError), "Can't open %s", patchNames[index]);
+        return false;
+    }
+    size_t size = f->getFileSize(handle);
+    int32_t got = size <= kBulkMax ? f->readFile(fileBuffer, size, handle) : -1;
+    f->closeFile(handle);
+    if (got != static_cast<int32_t>(size))
+    {
+        snprintf(lastError, sizeof(lastError), "%s is too big", patchNames[index]);
+        return false;
+    }
+
+    // Every dump in the file: kept as the channel's patch, read into the
+    // page, and moved to the channel's device and part to send. Selections
+    // (a part's tone) go first, or they'd load over the patch.
+    const Channel& c = channels[ch];
+    uint8_t* src = reinterpret_cast<uint8_t*>(fileBuffer);
+    size_t out = 0;
+    int dumps = 0;
+    char name[24] = "";
+    imageCount[ch] = 0;
+    for (int pass = 0; pass < 2; pass++)
+    {
+        size_t at = 0;
+        while (at < size)
+        {
+            size_t len = euclid::synth::messageLength(src + at, size - at);
+            if (len == 0)
+                break;
+            uint8_t* msg = src + at;
+            at += len;
+            euclid::synth::DumpData dump;
+            if (len > kImageMax || !euclid::synth::matchDump(*d, msg, len, 1, dump) ||
+                euclid::synth::dumpHasSelection(*d, dump, 1) != (pass == 0) || out + len > kBulkMax)
+                continue;
+            keepImage(ch, msg, len, 1, 1);
+            memcpy(bulk + out, msg, len);
+            euclid::synth::moveDump(*d, bulk + out, len, 1, 1, c.device, part);
+            if (euclid::synth::matchDump(*d, bulk + out, len, c.device, dump))
+            {
+                euclid::synth::applyDump(*d, dump, part, values[ch]);
+                euclid::synth::dumpName(*d, dump, part, name, sizeof(name));
+            }
+            out += len;
+            dumps++;
+        }
+    }
+    if (dumps == 0)
+    {
+        snprintf(lastError, sizeof(lastError), "Not a %s patch", d->name);
+        return false;
+    }
+    euclidEngine.setTextName(ch, name[0] != 0 ? name : patchNames[index]);
+    bulkPorts = c.ports;
+    bulkPauseMs = d->pauseMs;
+    bulkSent = 0;
+    bulkLength = static_cast<uint16_t>(out); // last: the audio callback starts on this
+    return true;
+}
+
+bool deletePatch(uint8_t ch, uint8_t index)
+{
+    char dir[64];
+    char path[96];
+    FileSystem* f = fs();
+    if (index >= patchCount || !patchDir(ch, dir, sizeof(dir)) || f == nullptr)
+        return false;
+    snprintf(path, sizeof(path), "%s/%s.syx", dir, patchNames[index]);
+    const bool ok = f->remove(path);
+    scanPatches(ch);
+    return ok;
 }
 
 // Synths/assign.txt: one line per assigned channel, "channel file device

@@ -106,6 +106,8 @@ void cEuclidParams::showDefaultScreen()
 
 void cEuclidParams::setView(View v)
 {
+    if (v != View::synth)
+        synthPatches = false;
     view = v;
     armedAction = SetAction::none;
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
@@ -206,6 +208,9 @@ void cEuclidParams::refreshTitle()
     else if (view == View::shift)
         snprintf(titleText, sizeof(titleText), "Shift%s  Ch %d%s", shiftSettings ? " settings" : "",
                  selectedChannel + 1, hint);
+    else if (view == View::synth && synthPatches)
+        snprintf(titleText, sizeof(titleText), "Patches  Ch %d%s", selectedChannel + 1,
+                 euclidSynth::sending() ? "  -  sending" : "");
     else if (view == View::synth)
         snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
                  euclidSynth::receiving() ? "  -  receiving" : (euclidSynth::sending() ? "  -  sending" : hint));

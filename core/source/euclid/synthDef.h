@@ -207,6 +207,18 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
 // The patch name, if this dump holds it. False otherwise.
 bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out, size_t length);
 
+// Patches on the card are dumps as the synth sent them. These rewrite one:
+// fillDump puts values into it (for the params it holds), and moveDump
+// readdresses it from one device and part to another; both mend its
+// checksums. False if the message isn't one of d's dumps from fromDevice.
+bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t device, uint8_t* message,
+              size_t length);
+bool moveDump(const Definition& d, uint8_t* message, size_t length, uint8_t fromDevice, uint8_t fromPart,
+              uint8_t toDevice, uint8_t toPart);
+// Whether a dump holds a selection (a reload= param, such as which tone a
+// part plays): those go to the synth before the patch they select.
+bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part);
+
 // The value as shown: a list name, or the number plus `show`.
 void formatValue(const Definition& d, uint16_t param, int value, char* out, size_t length);
 

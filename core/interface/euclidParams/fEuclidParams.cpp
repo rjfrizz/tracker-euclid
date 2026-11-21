@@ -282,6 +282,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
     selectedChannel = ch;
     noteCursor = 0;
     replaceNextNote = false;
+    if (view == View::synth && synthPatches)
+        openPatches(true); // that channel's synth's patches
     refreshTitle();
     if (view == View::params)
         refreshParams();
@@ -920,6 +922,11 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
+    {
+        EP->movePatchCursor(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
     {
         if (EP->selectedSynthRow > 0)
@@ -972,6 +979,11 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
+    {
+        EP->movePatchCursor(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
     {
         if (EP->selectedSynthRow + 1 < EP->synthRowCount())
@@ -1064,6 +1076,13 @@ static void functRight()
 
 static void functDelete()
 {
+    // Shift + Delete removes the selected patch from the card.
+    if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
+    {
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+            EP->deletePatch();
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
     {
         ShiftEdits shift;
@@ -1083,6 +1102,13 @@ static void functInsert()
 {
     // On the Synth page: send the whole patch, so the synth matches the
     // screen. Shift + Insert does the opposite: it gets the synth's patch.
+    // In the patch list, Insert loads the selected patch.
+    if (EP->view == cEuclidParams::View::synth && EP->synthPatches &&
+        !EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        EP->loadPatch();
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
     {
         if (!EP->buttons->isButtonPressed(interfaceButtonShift))
@@ -1179,6 +1205,16 @@ static void functGlobalView()
 
 static void functSetsView()
 {
+    // On the Synth page File is the channel's patches: File opens and closes
+    // the list, Shift + File saves the patch.
+    if (EP->view == cEuclidParams::View::synth)
+    {
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+            EP->savePatch();
+        else
+            EP->openPatches(!EP->synthPatches);
+        return;
+    }
     if (EP->view == cEuclidParams::View::sets)
         return;
     EP->viewBeforeSets = EP->view;
