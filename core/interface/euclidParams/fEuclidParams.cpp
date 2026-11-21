@@ -694,6 +694,52 @@ void cEuclidParams::showMessage(const char* text)
     refreshTitle();
 }
 
+void cEuclidParams::clearChannel(uint8_t ch)
+{
+    // What the channel is called and where it plays stay; the music goes.
+    const euclid::Expression old = euclidEngine.getExpression(ch);
+    euclid::Expression x;
+    x.enabled = old.enabled;
+    x.muted = old.muted;
+    x.midiChannel = old.midiChannel;
+    x.output = old.output;
+    x.instrument = old.instrument;
+    euclid::Rhythm r;
+    const euclid::Key k = euclidEngine.getGlobalKey();
+    r.homeRoot = k.root;
+    r.homeScale = k.scale;
+    euclidEngine.setRhythm(ch, r);
+    euclidEngine.setExpression(ch, x);
+}
+
+void cEuclidParams::requestClear(bool all)
+{
+    const int8_t target = all ? 8 : static_cast<int8_t>(selectedChannel);
+    char text[48];
+    if (armedClear != target || static_cast<int32_t>(nowMs() - armedClearUntil) > 0)
+    {
+        armedClear = target;
+        armedClearUntil = nowMs() + 3000;
+        if (all)
+            snprintf(text, sizeof(text), "Shift + Delete again: clear all channels");
+        else
+            snprintf(text, sizeof(text), "Shift + Delete again: clear channel %d", selectedChannel + 1);
+        showMessage(text);
+        return;
+    }
+    armedClear = -1;
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+        if (all || ch == selectedChannel)
+            clearChannel(ch);
+    const bool staged = euclidEngine.isRunning();
+    if (all)
+        snprintf(text, sizeof(text), "All channels cleared%s", staged ? ": Rec to apply" : "");
+    else
+        snprintf(text, sizeof(text), "Channel %d cleared%s", selectedChannel + 1, staged ? ": Rec to apply" : "");
+    showMessage(text);
+    refreshAfterCommit();
+}
+
 void cEuclidParams::updateMessage()
 {
     // Put the normal title back when a message runs out.
@@ -1092,6 +1138,13 @@ static void functRight()
 
 static void functDelete()
 {
+    // Shift + Delete on Params or Pattern: back to defaults (asks first).
+    if ((EP->view == cEuclidParams::View::params || EP->view == cEuclidParams::View::lines) &&
+        EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        EP->requestClear(EP->view == cEuclidParams::View::lines);
+        return;
+    }
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->deleteChainStep();

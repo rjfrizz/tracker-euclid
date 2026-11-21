@@ -192,6 +192,14 @@ class cEuclidParams : public ModuleBase
     void commitChannel(uint8_t ch);
     void refreshAfterCommit();
 
+    // Shift + Delete, pressed twice: the selected channel (Params page) or
+    // all of them (Pattern page) back to defaults, keeping names and where
+    // their notes go. Scenes, sets and the chain stay.
+    void requestClear(bool all);
+    void clearChannel(uint8_t ch);
+    int8_t armedClear = -1; // the channel waiting for a second press, 8 for all
+    uint32_t armedClearUntil = 0;
+
     void showMessage(const char* text);
     void updateMessage(); // puts the normal title back when one runs out
     char message[48] = "";
