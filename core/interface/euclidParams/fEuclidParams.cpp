@@ -432,6 +432,14 @@ void cEuclidParams::changeParam(int16_t delta)
         case paramMidiChannel:
             euclidEngine.setMidiChannel(ch, static_cast<uint8_t>(clampInt(x.midiChannel + delta, 1, 16)));
             break;
+        case paramOutput:
+            x.output = delta > 0 ? euclid::ChannelOutput::sampler : euclid::ChannelOutput::midi;
+            euclidEngine.setExpression(ch, x);
+            break;
+        case paramInstrument:
+            x.instrument = static_cast<uint8_t>(clampInt(x.instrument + delta, 0, euclid::kSampleInstruments - 1));
+            euclidEngine.setExpression(ch, x);
+            break;
         case paramEnabled: euclidEngine.setEnabled(ch, delta > 0); break;
         default: return;
     }

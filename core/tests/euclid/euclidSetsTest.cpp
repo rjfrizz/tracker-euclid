@@ -105,6 +105,8 @@ static void fill(Engine& e)
         l.length = static_cast<uint8_t>(3 + ch);
         l.advance = static_cast<ShiftAdvance>(ch % 3);
         l.step[1] = static_cast<int8_t>(ch % 3);
+        x.output = ch % 2 ? ChannelOutput::sampler : ChannelOutput::midi;
+        x.instrument = static_cast<uint8_t>(ch * 5);
         e.setExpression(ch, x);
     }
 }
@@ -128,7 +130,8 @@ static bool sameSettings(const Engine& a, const Engine& b)
             xa.ownRoot != xb.ownRoot || xa.ownScale != xb.ownScale || xa.octave != xb.octave ||
             xa.range != xb.range || xa.seqKeyMode != xb.seqKeyMode || xa.transpose != xb.transpose ||
             ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale || ra.tieMask != rb.tieMask ||
-            xa.chord != xb.chord || xa.chordChance != xb.chordChance)
+            xa.chord != xb.chord || xa.chordChance != xb.chordChance || xa.output != xb.output ||
+            xa.instrument != xb.instrument)
             return false;
         if (a.getName(ch) != b.getName(ch) || std::strcmp(a.getTextName(ch), b.getTextName(ch)) != 0)
             return false;

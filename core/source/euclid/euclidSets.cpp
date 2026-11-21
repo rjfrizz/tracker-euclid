@@ -95,6 +95,8 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         p[41] = static_cast<uint8_t>(r.tieMask >> 8);
         p[42] = static_cast<uint8_t>(x.chord);
         p[43] = x.chordChance;
+        p[44] = static_cast<uint8_t>(x.output);
+        p[45] = x.instrument;
         for (int k = 0; k < kModsPerChannel; k++)
         {
             const Mod& m = x.mod[k];
@@ -275,6 +277,8 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             r.tieMask = static_cast<uint16_t>(p[40] | (p[41] << 8));
             x.chord = enumOr(p[42], ChordType::count, ChordType::single);
             x.chordChance = p[43];
+            x.output = enumOr(p[44], ChannelOutput::count, ChannelOutput::midi);
+            x.instrument = p[45] < kSampleInstruments ? p[45] : 0;
         }
         if (version >= 6)
         {

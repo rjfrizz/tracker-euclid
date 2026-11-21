@@ -419,6 +419,10 @@ Expression Engine::clampExpression(const Expression& e) const
     if (x.chord >= ChordType::count)
         x.chord = ChordType::single;
     x.chordChance = clampValue<uint8_t>(x.chordChance, 0, 100);
+    if (x.output >= ChannelOutput::count)
+        x.output = ChannelOutput::midi;
+    if (x.instrument >= kSampleInstruments)
+        x.instrument = 0;
     x.shift.length = clampValue<uint8_t>(x.shift.length, 1, kShiftSteps);
     if (x.shift.advance >= ShiftAdvance::count)
         x.shift.advance = ShiftAdvance::perStep;
@@ -529,7 +533,8 @@ bool sameExpression(const Expression& a, const Expression& b)
            a.gate == b.gate && a.probability == b.probability && a.keyMode == b.keyMode &&
            a.keyOffset == b.keyOffset && a.ownRoot == b.ownRoot && a.ownScale == b.ownScale &&
            a.octave == b.octave && a.range == b.range && a.seqKeyMode == b.seqKeyMode &&
-           a.transpose == b.transpose && a.chord == b.chord && a.chordChance == b.chordChance;
+           a.transpose == b.transpose && a.chord == b.chord && a.chordChance == b.chordChance &&
+           a.output == b.output && a.instrument == b.instrument;
 }
 
 // Key settings change which notes are generated, so like rhythm they wait
@@ -583,7 +588,12 @@ void Engine::closeNote(Channel& c)
 {
     if (c.openCount == 0)
         return;
-    if (out.noteOff)
+    if (c.openSampler)
+    {
+        if (out.sampleOff)
+            out.sampleOff(static_cast<uint8_t>(&c - channels));
+    }
+    else if (out.noteOff)
         for (uint8_t i = 0; i < c.openCount; i++)
             out.noteOff(c.openNotes[i], c.openMidiChannel);
     c.openCount = 0;
@@ -1069,6 +1079,19 @@ void Engine::triggerStep(Channel& c)
         gate = 1;
 
     c.openMidiChannel = c.expr.midiChannel;
+    c.openSampler = c.expr.output == ChannelOutput::sampler;
+    if (c.openSampler)
+    {
+        // One voice a track: the chord's first note.
+        if (count > 0)
+        {
+            if (out.sampleOn)
+                out.sampleOn(static_cast<uint8_t>(&c - channels), c.expr.instrument, notes[0],
+                             static_cast<uint8_t>(velocity));
+            c.openNotes[c.openCount++] = notes[0];
+        }
+        count = 0;
+    }
     for (uint8_t i = 0; i < count; i++)
     {
         // The same note twice in a chord would cut itself off.
@@ -1310,7 +1333,7 @@ void Engine::updateMods(Channel& c)
         if (value != c.lastCc[k])
         {
             c.lastCc[k] = static_cast<int16_t>(value);
-            if (out.controlChange)
+            if (out.controlChange && c.expr.output == ChannelOutput::midi)
                 out.controlChange(m.cc, static_cast<uint8_t>(value), c.expr.midiChannel);
         }
     }

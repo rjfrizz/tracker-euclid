@@ -33,7 +33,9 @@ class cEuclidParams : public ModuleBase
         paramVelocity,
         paramGate,
         paramChance,
+        paramOutput,     // MIDI or the sampler
         paramMidiChannel,
+        paramInstrument, // the sampler's instrument
         paramEnabled,
         paramCount
     };

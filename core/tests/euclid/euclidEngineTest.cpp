@@ -1132,6 +1132,63 @@ static void testModeLaneAndNone()
     CHECK(laneValueName(LaneKind::chord, kLaneNone)[0] == '-');
 }
 
+static std::vector<std::pair<uint32_t, int>> sampleEvents; // (tick, note or -1 for off)
+static uint8_t sampleInstrument = 255;
+static void onSample(uint8_t ch, uint8_t instrument, uint8_t note, uint8_t)
+{
+    if (ch == 0)
+    {
+        sampleEvents.push_back({ now, note });
+        sampleInstrument = instrument;
+    }
+}
+static void offSample(uint8_t ch)
+{
+    if (ch == 0)
+        sampleEvents.push_back({ now, -1 });
+}
+
+static void testSamplerOutput()
+{
+    // A triad on the sampler: its first note only, on instrument 5, no MIDI.
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.sampleOn = onSample;
+    o.sampleOff = offSample;
+    o.randomPercent = zeroPercent;
+    e.init(o);
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    e.setEnabled(0, true);
+    Expression x = e.getExpression(0);
+    x.chord = ChordType::triad;
+    x.output = ChannelOutput::sampler;
+    x.instrument = 5;
+    x.gate = 50;
+    x.mod[0].dest = ModDest::cc; // CCs only go to MIDI
+    x.mod[0].amount = 100;
+    x.mod[0].shape = ModShape::sine;
+    e.setExpression(0, x);
+    reset();
+    sampleEvents.clear();
+    e.start();
+    run(e, 48 * 2);
+    e.stop();
+    CHECK(events.empty());
+    CHECK(sampleInstrument == 5);
+    CHECK(sampleEvents.size() >= 4);
+    CHECK(sampleEvents[0].first == 0 && sampleEvents[0].second == 60);
+    CHECK(sampleEvents[1].first == 24 && sampleEvents[1].second == -1); // half a 1/16
+    CHECK(sampleEvents[2].first == 48 && sampleEvents[2].second == 60);
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1166,6 +1223,7 @@ int main()
     testChordLanePerPulse();
     testDivisionLanePerCycle();
     testModeLaneAndNone();
+    testSamplerOutput();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

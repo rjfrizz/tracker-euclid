@@ -15,7 +15,7 @@ namespace
 const char* const kParamNames[cEuclidParams::paramCount] = {
     "Name",      "Steps",    "Pulses",   "Rotation", "Division", "Mode",   "Chord",  "Chord chance", "Note order",
     "Key",       "Own root", "Own scale", "Octave",  "Range",  "Transpose", "Velocity",
-    "Gate",      "Chance",   "MIDI channel", "Channel",
+    "Gate",      "Chance",   "Output",       "MIDI channel", "Instrument", "Channel",
 };
 
 const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch" };
@@ -298,7 +298,18 @@ void cEuclidParams::refreshParam(uint8_t param)
         case paramVelocity: snprintf(t, n, "%d", x.velocity); break;
         case paramGate: snprintf(t, n, "%d%%", x.gate); break;
         case paramChance: snprintf(t, n, "%d%%", x.probability); break;
+        case paramOutput: snprintf(t, n, "%s", x.output == euclid::ChannelOutput::sampler ? "Sampler" : "MIDI"); break;
         case paramMidiChannel: snprintf(t, n, "%d", x.midiChannel); break;
+        case paramInstrument:
+        {
+            // As the stock screens number them, with the sample's name.
+            const strInstrument& in = mtProject.instrument[x.instrument];
+            if (in.isActive == 1 && in.sample.file_name[0] != 0)
+                snprintf(t, n, "%d %s", x.instrument + 1, in.sample.file_name);
+            else
+                snprintf(t, n, "%d empty", x.instrument + 1);
+            break;
+        }
         case paramEnabled: snprintf(t, n, "%s", x.enabled ? "On" : "Off"); break;
         default: t[0] = 0; break;
     }
@@ -349,6 +360,13 @@ uint32_t cEuclidParams::paramDimMask() const
     bool arp = r.mode == euclid::NoteMode::arpUp || r.mode == euclid::NoteMode::arpUpDown;
     if (x.chord == euclid::ChordType::single || arp)
         dim |= 1ul << paramChordChance;
+
+    // The sampler plays one note at a time and has no MIDI channel; MIDI no
+    // instrument.
+    if (x.output == euclid::ChannelOutput::sampler)
+        dim |= (1ul << paramMidiChannel) | (1ul << paramChord) | (1ul << paramChordChance);
+    else
+        dim |= 1ul << paramInstrument;
     return dim;
 }
 

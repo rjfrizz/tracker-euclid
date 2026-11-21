@@ -11,6 +11,7 @@
 #include "fileManager.h"
 #include "log.h"
 #include "mtMidi.h"
+#include "mtAudioEngine.h"
 #include "mtSequencer.h"
 #include "util_math.h"
 
@@ -28,6 +29,23 @@ void noteOn(uint8_t note, uint8_t velocity, uint8_t channel)
 void noteOff(uint8_t note, uint8_t channel)
 {
     sendMidiNoteOff(note, 0, channel, false);
+}
+
+// Sampler output: the channel's audio track plays a project instrument
+// (a sample one), as the stock sequencer does for a step: velocity is the
+// step volume, 0-100.
+AUDIO_CORE_RAM void sampleOn(uint8_t ch, uint8_t instrument, uint8_t note, uint8_t velocity)
+{
+    if (ch >= kSampleTracks || !isSampleInstrument(instrument) || sequencer.isRenderMode())
+        return;
+    const int8_t volume = static_cast<int8_t>(velocity * 100 / 127);
+    instrumentPlayer[ch].noteOn(instrument, static_cast<int8_t>(note), volume, 0, 0, 0, 0);
+}
+
+AUDIO_CORE_RAM void sampleOff(uint8_t ch)
+{
+    if (ch < kSampleTracks)
+        instrumentPlayer[ch].noteOff();
 }
 
 void controlChange(uint8_t cc, uint8_t value, uint8_t channel)
@@ -278,6 +296,8 @@ void euclidPlatformInit()
     euclid::Output out;
     out.noteOn = noteOn;
     out.noteOff = noteOff;
+    out.sampleOn = sampleOn;
+    out.sampleOff = sampleOff;
     out.controlChange = controlChange;
     out.randomPercent = randomPercent;
     out.randomBelow = randomBelow;

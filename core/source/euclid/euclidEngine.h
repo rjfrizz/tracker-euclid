@@ -312,6 +312,15 @@ uint8_t laneValueCount(LaneKind k);
 // A step's value, short enough for a grid cell ("-" for none).
 const char* laneValueName(LaneKind k, int8_t value);
 
+// Stored in set files, so only add at the end.
+enum class ChannelOutput : uint8_t
+{
+    midi = 0,
+    sampler,
+    count
+};
+constexpr uint8_t kSampleInstruments = 48;
+
 struct Expression
 {
     bool enabled = false;
@@ -336,6 +345,12 @@ struct Expression
     // triad) and ignore chordChance.
     ChordType chord = ChordType::single;
     uint8_t chordChance = 100; // percent of pulses that play the chord
+
+    // Where the notes go: MIDI (the channel's MIDI channel), or the
+    // project's sample instrument on the audio track of the same number. A
+    // track plays one note at a time, so a chord plays its first note.
+    ChannelOutput output = ChannelOutput::midi;
+    uint8_t instrument = 0; // 0-based sample instrument
 
     Mod mod[kModsPerChannel];
     Shift shift;
@@ -394,6 +409,9 @@ struct Output
 {
     void (*noteOn)(uint8_t note, uint8_t velocity, uint8_t channel) = nullptr;
     void (*noteOff)(uint8_t note, uint8_t channel) = nullptr;
+    // Sampler output: a note on channel ch's audio track, and its end.
+    void (*sampleOn)(uint8_t ch, uint8_t instrument, uint8_t note, uint8_t velocity) = nullptr;
+    void (*sampleOff)(uint8_t ch) = nullptr;
     void (*controlChange)(uint8_t cc, uint8_t value, uint8_t channel) = nullptr;
     // Returns a value in [0, 100).
     uint8_t (*randomPercent)() = nullptr;
@@ -565,6 +583,7 @@ class Engine
         uint8_t openCount = 0; // notes sounding
         uint8_t openNotes[kMaxVoices] = {};
         uint8_t openMidiChannel = 1;
+        bool openSampler = false; // the open note is on the audio track
         uint16_t gateRemaining = 0;
 
         struct ModState

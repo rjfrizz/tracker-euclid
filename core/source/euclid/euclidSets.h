@@ -28,7 +28,8 @@
 //        35 seqKeyMode, transpose + 64, homeRoot, homeScale
 //        39 name (euclid::channelName index; 0 = none)
 //        40 tieMask (2 bytes, little-endian), chord, chordChance
-//        44 reserved (4 bytes of 0)
+//        44 output (euclid::ChannelOutput; 0 = MIDI), sample instrument, then
+//           2 reserved (0s; files before version 9 have 0s here too)
 //        48 4 modulators of 14 bytes: dest, shape, amount + 128, rate,
 //           phase, target, steps, pulses, rotation, division, autoRotate,
 //           length, cc, 1 reserved
