@@ -245,7 +245,8 @@ void cEuclidPanel::drawGrid()
 
         const char* t = used && data->cellText[i] != nullptr ? data->cellText[i] : "-";
         bool dim = !used || (data->dimCells & (1ul << i));
-        API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
+        const bool shifted = used && (data->shiftCells & (1ul << i));
+        API_COLOR(dim ? theme.inactiveLabelsColors[0] : (shifted ? kShiftColor : theme.activeLabelsColors[0]));
         API_CMD_TEXT(x + cellW / 2, y + kCellH / 2, fonts[kFontLarge].handle, OPT_CENTER, t);
     }
 

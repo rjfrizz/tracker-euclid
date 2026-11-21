@@ -1222,6 +1222,34 @@ static void testNotePoolAndLastNotes()
     (void)x;
 }
 
+static void testShiftedNoteShown()
+{
+    // Per cycle: 0 then +12 (4 pulses a cycle).
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 2;
+    x.shift.advance = ShiftAdvance::perCycle;
+    x.shift.step[1] = 12;
+    e.setExpression(0, x);
+    CHECK(e.getShiftAmount(0) == 0 && e.shiftedNote(0, 60) == 60); // stopped: as written
+    reset();
+    e.start();
+    run(e, 48 * 2);
+    CHECK(e.getShiftAmount(0) == 0 && e.shiftedNote(0, 62) == 62);
+    run(e, 48 * 3);
+    CHECK(e.getShiftAmount(0) == 12 && e.shiftedNote(0, 62) == 74);
+    // In scale steps: C major, +2 from E is G.
+    x.shift.units = ShiftUnits::scaleSteps;
+    x.shift.step[1] = 2;
+    e.setImmediate(true);
+    e.setExpression(0, x);
+    e.setImmediate(false);
+    run(e, 1);
+    CHECK(e.shiftedNote(0, 64) == 67);
+    e.stop();
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1258,6 +1286,7 @@ int main()
     testModeLaneAndNone();
     testSamplerOutput();
     testNotePoolAndLastNotes();
+    testShiftedNoteShown();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

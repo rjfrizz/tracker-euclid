@@ -198,7 +198,8 @@ void cEuclidParams::update()
     if (view == View::notes)
     {
         int8_t next = running ? static_cast<int8_t>(euclidEngine.getNextNoteIndex(selectedChannel)) : -1;
-        if (next != lastNextNote || euclidEngine.getNoteCount(selectedChannel) != lastNoteCount)
+        if (next != lastNextNote || euclidEngine.getNoteCount(selectedChannel) != lastNoteCount ||
+            euclidEngine.getShiftAmount(selectedChannel) != lastNoteShift)
             refreshNotes();
     }
 }

@@ -1404,6 +1404,24 @@ uint8_t Engine::getLastNotes(int ch, uint8_t* notes) const
     return c.lastCount;
 }
 
+int8_t Engine::getShiftAmount(int ch) const
+{
+    if (!validChannel(ch) || !running)
+        return 0;
+    const Channel& c = channels[ch];
+    if (!c.expr.shift.on || c.shiftPlayed < 0 || c.shiftPlayed >= kShiftSteps)
+        return 0;
+    return c.expr.shift.step[c.shiftPlayed];
+}
+
+uint8_t Engine::shiftedNote(int ch, uint8_t note) const
+{
+    const int8_t amount = getShiftAmount(ch);
+    if (amount == 0)
+        return note;
+    return static_cast<uint8_t>(clampValue<int>(shiftNote(channels[ch], note, amount), 0, 127));
+}
+
 uint32_t Engine::getNoteCount(int ch) const
 {
     return validChannel(ch) ? channels[ch].notesPlayed : 0;

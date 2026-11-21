@@ -765,6 +765,13 @@ void cEuclidParams::refreshNotes()
         panelData.usedCells = n;
         panelData.playingCell = -1;
         panelData.dimCells = 0;
+        panelData.shiftCells = 0;
+        lastNoteShift = euclidEngine.getShiftAmount(selectedChannel);
+        if (lastNoteShift != 0)
+        {
+            const size_t len = strlen(noteHeaderText);
+            snprintf(noteHeaderText + len, sizeof(noteHeaderText) - len, "  shift %+d", lastNoteShift);
+        }
         for (uint8_t i = 0; i < 32; i++)
         {
             if (i >= n)
@@ -772,13 +779,17 @@ void cEuclidParams::refreshNotes()
                 panelData.cellText[i] = nullptr;
                 continue;
             }
-            snprintf(poolCellText[i], sizeof(poolCellText[i]), "%s", mtNotes[pool[i] & 127]);
+            // As Shift moves it right now (the pool itself is as written).
+            const uint8_t shown = euclidEngine.shiftedNote(selectedChannel, pool[i]);
+            snprintf(poolCellText[i], sizeof(poolCellText[i]), "%s", mtNotes[shown & 127]);
             panelData.cellText[i] = poolCellText[i];
+            if (shown != pool[i])
+                panelData.shiftCells |= 1ul << i;
             // Lit if it's sounding now; the rest of a chord's notes too.
             bool lit = false;
             for (uint8_t j = 0; j < played; j++)
-                lit |= last[j] == pool[i];
-            if (played > 0 && last[0] == pool[i])
+                lit |= last[j] == shown;
+            if (played > 0 && last[0] == shown)
                 panelData.playingCell = static_cast<int8_t>(i);
             else if (played > 1 && !lit)
                 panelData.dimCells |= 1ul << i;
@@ -820,6 +831,13 @@ void cEuclidParams::refreshNotes()
         snprintf(noteHeaderText, sizeof(noteHeaderText), "%d of %d notes", r.noteCount, kNoteSlots);
 
     // One cell per entry: its lowest note, plus how many more for a chord.
+    panelData.shiftCells = 0;
+    lastNoteShift = euclidEngine.getShiftAmount(selectedChannel);
+    if (lastNoteShift != 0)
+    {
+        const size_t hl = strlen(noteHeaderText);
+        snprintf(noteHeaderText + hl, sizeof(noteHeaderText) - hl, "  shift %+d", lastNoteShift);
+    }
     for (uint8_t e = 0; e < kNoteSlots; e++)
     {
         if (e >= entries)
@@ -833,10 +851,14 @@ void cEuclidParams::refreshNotes()
         for (uint8_t i = 1; i < len; i++)
             if (r.notes[start + i] < low)
                 low = r.notes[start + i];
+        // As Shift moves it right now; editing still changes the written note.
+        const uint8_t shown = euclidEngine.shiftedNote(selectedChannel, low);
+        if (shown != low)
+            panelData.shiftCells |= 1ul << e;
         if (len > 1)
-            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s+%d", mtNotes[low & 127], len - 1);
+            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s+%d", mtNotes[shown & 127], len - 1);
         else
-            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s", mtNotes[low & 127]);
+            snprintf(noteCellText[e], sizeof(noteCellText[e]), "%s", mtNotes[shown & 127]);
         panelData.cellText[e] = noteCellText[e];
     }
     panelData.usedCells = entries;

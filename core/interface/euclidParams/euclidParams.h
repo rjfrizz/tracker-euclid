@@ -400,6 +400,7 @@ class cEuclidParams : public ModuleBase
     bool lastRunning = false;
     int8_t lastNextNote = -1;
     uint32_t lastNoteCount = 0; // generated modes: the note last lit
+    int8_t lastNoteShift = 0;   // the Shift step the notes were shown with
     char poolCellText[32][6];
 
     // Pads held for audition, so the note-off matches the note-on.

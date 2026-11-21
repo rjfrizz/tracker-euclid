@@ -94,6 +94,7 @@ struct strEuclidPanelData
     uint8_t cells = 0;      // slots drawn
     uint8_t usedCells = 0;  // slots holding a value; the rest show a dash
     uint32_t dimCells = 0;  // bit per cell: draw its text dimmed
+    uint32_t shiftCells = 0; // bit per cell: shown as Shift moves it (light blue)
     const char* cellText[kMaxCells] = {};
     int8_t cursorCell = -1;
     int8_t playingCell = -1;

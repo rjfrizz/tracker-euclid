@@ -543,6 +543,10 @@ class Engine
     // The notes the channel played last (they stay until the next pulse that
     // plays), and how many; 0 before any.
     uint8_t getLastNotes(int ch, uint8_t* notes) const;
+    // The Shift lane's pitch step playing now (semitones or scale steps, as
+    // set), 0 if none; and a note moved by it, as the channel plays it.
+    int8_t getShiftAmount(int ch) const;
+    uint8_t shiftedNote(int ch, uint8_t note) const;
     uint32_t getNoteCount(int ch) const; // changes each time it plays
     // The notes a generated mode can play, low to high (the scale across the
     // range, or for arps the chord's tones), at most max; 0 for SEQ.
