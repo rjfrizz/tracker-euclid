@@ -990,6 +990,130 @@ void saveAssignments()
     f->closeFile(handle);
 }
 
+void clearAssignments()
+{
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+    {
+        channels[ch].slot = -1;
+        imageCount[ch] = 0;
+    }
+}
+
+// File layout (version 1): 'E' 'U' 'S' 'Y', version, channels, 2 reserved;
+// then per channel: its definition file's name (kNameLength bytes, empty
+// for none), the value count (2 bytes) and the values (2 bytes each), the
+// patch count (1 byte) and each patch's length (2 bytes) and bytes. Numbers
+// little-endian.
+constexpr uint8_t kStateVersion = 1;
+
+bool saveState(const char* path)
+{
+    FileSystem* f = fs();
+    if (f == nullptr || !f->isSdCardInserted())
+        return false;
+    auto [isOpen, handle] = f->openFile(path, FileSystem::FileOpenMode::kWriteCreateNew);
+    if (!isOpen)
+        return false;
+    bool ok = true;
+    auto put = [&](const void* data, size_t len) {
+        if (ok && len > 0)
+            ok = f->writeFile(data, len, handle) == static_cast<int32_t>(len);
+    };
+    const uint8_t header[8] = { 'E', 'U', 'S', 'Y', kStateVersion, euclid::kChannels, 0, 0 };
+    put(header, sizeof(header));
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+    {
+        const Channel& c = channels[ch];
+        char name[kNameLength] = {};
+        uint16_t count = 0;
+        if (c.slot >= 0)
+        {
+            strncpy(name, slots[c.slot].file, kNameLength - 1);
+            count = definitions[c.slot].paramCount;
+        }
+        put(name, sizeof(name));
+        const uint8_t n[2] = { static_cast<uint8_t>(count), static_cast<uint8_t>(count >> 8) };
+        put(n, 2);
+        for (uint16_t i = 0; i < count; i++)
+        {
+            const uint8_t v[2] = { static_cast<uint8_t>(values[ch][i]), static_cast<uint8_t>(values[ch][i] >> 8) };
+            put(v, 2);
+        }
+        const uint8_t images_ = c.slot >= 0 ? imageCount[ch] : 0;
+        put(&images_, 1);
+        for (uint8_t i = 0; i < images_; i++)
+        {
+            const uint8_t l[2] = { static_cast<uint8_t>(imageLength[ch][i]), static_cast<uint8_t>(imageLength[ch][i] >> 8) };
+            put(l, 2);
+            put(images[ch][i], imageLength[ch][i]);
+        }
+    }
+    f->closeFile(handle);
+    return ok;
+}
+
+// After loadAssignments: a channel's values come back only if it edits the
+// same synth (and the same number of settings) as when saved.
+bool loadState(const char* path)
+{
+    FileSystem* f = fs();
+    if (f == nullptr || !f->isSdCardInserted() || !f->exists(path))
+        return false;
+    auto [isOpen, handle] = f->openFile(path);
+    if (!isOpen)
+        return false;
+    const size_t size = f->getFileSize(handle);
+    const int32_t got = size <= kFileMax ? f->readFile(fileBuffer, size, handle) : -1;
+    f->closeFile(handle);
+    if (got != static_cast<int32_t>(size) || size < 8)
+        return false;
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(fileBuffer);
+    if (p[0] != 'E' || p[1] != 'U' || p[2] != 'S' || p[3] != 'Y' || p[4] != kStateVersion)
+        return false;
+    size_t at = 8;
+    auto have = [&](size_t n) { return at + n <= size; };
+    for (uint8_t ch = 0; ch < euclid::kChannels && ch < p[5]; ch++)
+    {
+        if (!have(kNameLength + 2))
+            return false;
+        char name[kNameLength];
+        memcpy(name, p + at, kNameLength);
+        name[kNameLength - 1] = 0;
+        at += kNameLength;
+        const uint16_t count = static_cast<uint16_t>(p[at] | (p[at + 1] << 8));
+        at += 2;
+        if (!have(2u * count + 1))
+            return false;
+        const Channel& c = channels[ch];
+        const bool same = c.slot >= 0 && strcmp(slots[c.slot].file, name) == 0 &&
+                          definitions[c.slot].paramCount == count;
+        if (same)
+            for (uint16_t i = 0; i < count; i++)
+                values[ch][i] = static_cast<int16_t>(p[at + 2 * i] | (p[at + 2 * i + 1] << 8));
+        at += 2u * count;
+        const uint8_t n = p[at++];
+        if (same)
+            imageCount[ch] = 0;
+        for (uint8_t i = 0; i < n; i++)
+        {
+            if (!have(2))
+                return false;
+            const uint16_t len = static_cast<uint16_t>(p[at] | (p[at + 1] << 8));
+            at += 2;
+            if (!have(len))
+                return false;
+            if (same && i < kImages && len <= kImageMax)
+            {
+                memcpy(images[ch][i], p + at, len);
+                imageLength[ch][i] = len;
+                imageCount[ch] = static_cast<uint8_t>(i + 1);
+            }
+            at += len;
+        }
+    }
+    return true;
+}
+
 void loadAssignments()
 {
     scan();

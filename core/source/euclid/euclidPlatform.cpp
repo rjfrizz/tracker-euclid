@@ -449,6 +449,160 @@ void euclidPlatformUpdate()
     }
 }
 
+namespace
+{
+// Copies a file in pieces; a missing source removes the destination, so a
+// folder ends up matching the other.
+__NOINIT(EXTERNAL_RAM) uint8_t copyBuffer[4096];
+
+bool copyFile(const char* from, const char* to)
+{
+    FileSystem* f = fs();
+    if (!f->exists(from))
+    {
+        if (f->exists(to))
+            f->remove(to);
+        return true;
+    }
+    auto [inOpen, in] = f->openFile(from);
+    if (!inOpen)
+        return false;
+    auto [outOpen, out] = f->openFile(to, FileSystem::FileOpenMode::kWriteCreateNew);
+    if (!outOpen)
+    {
+        f->closeFile(in);
+        return false;
+    }
+    bool ok = true;
+    size_t left = f->getFileSize(in);
+    while (ok && left > 0)
+    {
+        const size_t n = left < sizeof(copyBuffer) ? left : sizeof(copyBuffer);
+        ok = f->readFile(copyBuffer, n, in) == static_cast<int32_t>(n) &&
+             f->writeFile(copyBuffer, n, out) == static_cast<int32_t>(n);
+        left -= n;
+    }
+    f->closeFile(in);
+    f->closeFile(out);
+    return ok;
+}
+
+// The Sets/ files a project holds, by name.
+constexpr uint8_t kProjectFiles = 3 + 2 * euclid::kSetSlots;
+void projectFileName(uint8_t i, char* out, size_t len)
+{
+    if (i == 0)
+        snprintf(out, len, "current.eus");
+    else if (i == 1)
+        snprintf(out, len, "current.scn");
+    else if (i == 2)
+        snprintf(out, len, "chain.chn");
+    else
+        snprintf(out, len, "set%d.%s", (i - 3) / 2 + 1, (i - 3) % 2 ? "scn" : "eus");
+}
+
+// Copies Sets/ (and the synth assignments) to a folder, or back.
+bool copySets(const char* dir, bool toSets)
+{
+    bool ok = true;
+    char name[16], a[PATCH_SIZE + 24], b[PATCH_SIZE + 24];
+    for (uint8_t i = 0; i < kProjectFiles; i++)
+    {
+        projectFileName(i, name, sizeof(name));
+        snprintf(a, sizeof(a), "%s/%s", kSetsDir, name);
+        snprintf(b, sizeof(b), "%s/%s", dir, name);
+        ok &= toSets ? copyFile(b, a) : copyFile(a, b);
+    }
+    snprintf(b, sizeof(b), "%s/assign.txt", dir);
+    ok &= toSets ? copyFile(b, "Synths/assign.txt") : copyFile("Synths/assign.txt", b);
+    return ok;
+}
+
+void euclidDir(const char* projectDir, char* out, size_t len)
+{
+    snprintf(out, len, "%s/Euclid", projectDir);
+}
+} // namespace
+
+namespace euclidProject
+{
+void saved(const char* projectDir)
+{
+    FileSystem* f = fs();
+    if (f == nullptr || !f->isSdCardInserted() || projectDir == nullptr)
+        return;
+    // Everything as it is now, on the card first.
+    if (bootLoaded)
+    {
+        saveCurrent();
+        writeScenesFile(kCurrentScenesPath, kCurrentScenesTempPath);
+        scenesDirty = false;
+        saveChain();
+    }
+    euclidSynth::saveAssignments();
+
+    char dir[PATCH_SIZE + 8];
+    euclidDir(projectDir, dir, sizeof(dir));
+    if (!f->exists(dir))
+        f->mkdir(0, dir);
+    bool ok = copySets(dir, false);
+    char path[PATCH_SIZE + 24];
+    snprintf(path, sizeof(path), "%s/synths.bin", dir);
+    ok &= euclidSynth::saveState(path);
+    LOG(ok ? "euclid: saved with the project" : "euclid: saving with the project failed");
+}
+
+void opened(const char* projectDir)
+{
+    FileSystem* f = fs();
+    if (f == nullptr || !f->isSdCardInserted() || projectDir == nullptr)
+        return;
+    char dir[PATCH_SIZE + 8];
+    euclidDir(projectDir, dir, sizeof(dir));
+    char path[PATCH_SIZE + 24];
+    snprintf(path, sizeof(path), "%s/current.eus", dir);
+    if (!f->exists(path))
+        return; // a project from before: keep what's here
+
+    // What's on the card now, in case it wasn't saved with a project.
+    if (bootLoaded)
+        saveCurrent();
+    char previous[24];
+    snprintf(previous, sizeof(previous), "%s/Previous", kSetsDir);
+    if (!f->exists(kSetsDir))
+        f->mkdir(0, kSetsDir);
+    if (!f->exists(previous))
+        f->mkdir(0, previous);
+    copySets(previous, false);
+    snprintf(path, sizeof(path), "%s/synths.bin", previous);
+    euclidSynth::saveState(path);
+
+    // The project's, in their place.
+    copySets(dir, true);
+    f->remove(kCurrentTempPath);
+    activeScene = -1;
+    homeLength = 0;
+    uint8_t slot = 0;
+    slotOfState = readSetFile(kCurrentPath, &slot) ? slot : 0;
+    readScenesFile(kCurrentScenesPath);
+    scenesDirty = false;
+    chainData = euclid::Chain();
+    loadChain();
+    chainDirty = false;
+    chainIssued = -1;
+    euclidSynth::clearAssignments();
+    euclidSynth::loadAssignments();
+    snprintf(path, sizeof(path), "%s/synths.bin", dir);
+    euclidSynth::loadState(path);
+
+    bootLoaded = true;
+    changeCountSaved = euclidEngine.getChangeCount();
+    changeCountAtSlot = changeCountSaved;
+    lastSeenChangeCount = changeCountSaved;
+    LOG("euclid: opened with the project");
+}
+} // namespace euclidProject
+
 namespace euclidSets
 {
 void bootLoad()

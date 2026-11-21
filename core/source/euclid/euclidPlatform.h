@@ -53,6 +53,19 @@ bool keepAsHome(); // what's playing (a scene, edits and all) becomes home
 int8_t active();   // the scene playing, or -1 for home
 } // namespace euclidScenes
 
+// Projects: a stock project keeps the EUCLID side in its Euclid/ folder
+// (the working state, its scenes, the 8 set slots and theirs, the chain,
+// the synth assignments and each channel's synth page). Saving the project
+// (Shift + File) writes it; opening a project brings it back (the synths'
+// patches aren't sent: Insert sends a channel's). A project without one
+// leaves things as they are. Before an open replaces them, the card's
+// Sets/ files are kept in Sets/Previous/.
+namespace euclidProject
+{
+void saved(const char* projectDir);  // after the stock project is saved
+void opened(const char* projectDir); // after a project is opened
+} // namespace euclidProject
+
 // The chain (Song key; euclidChain.h): saved in Sets/chain.chn. While it's
 // on, stopping readies its first step and Play runs the steps in order.
 namespace euclid
@@ -116,6 +129,11 @@ void receiveUsb(const uint8_t* data, uint16_t length, bool complete);
 const char* error();
 void saveAssignments();
 void loadAssignments();
+void clearAssignments(); // every channel back to no synth
+// Each channel's page values and the patch it last got, in a file (a
+// project's Euclid/synths.bin); loading puts them back without sending.
+bool saveState(const char* path);
+bool loadState(const char* path);
 
 // The patch library (Synths/<synth>/<name>.syx). Saving needs a patch got
 // from the synth (or loaded) first: it's those dumps with the page's values

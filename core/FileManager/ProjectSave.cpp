@@ -1,3 +1,4 @@
+#include "euclid/euclidPlatform.h"
 #include "ProjectSave.h"
 
 #include "VoiceStreamManager.h"
@@ -543,6 +544,14 @@ void ProjectSave::saveProjectFinish()
 #endif
 
     //-----------------------------------
+
+    // EUCLID: its sets, scenes, chain and synth pages go with the project.
+    {
+        char euclidPath[PATCH_SIZE];
+        snprintf(euclidPath, sizeof(euclidPath), cProjectsPathFormat, newFileManager.getCurrentProjectPath(),
+                 newFileManager.getCurrentProjectName());
+        euclidProject::saved(euclidPath);
+    }
 
     mtProject.values.projectNotSavedFlag = 0;
 

@@ -1,3 +1,4 @@
+#include "euclid/euclidPlatform.h"
 #include "ProjectOpen.h"
 
 #include "fileManager.h"
@@ -359,6 +360,14 @@ void ProjectOpen::openProjectFinish()
 #endif
 
     //-----------------------------------
+
+    // EUCLID: the project's sets, scenes, chain and synth pages.
+    {
+        char euclidPath[PATCH_SIZE];
+        snprintf(euclidPath, sizeof(euclidPath), cProjectsPathFormat, newFileManager.getCurrentProjectPath(),
+                 newFileManager.getCurrentProjectName());
+        euclidProject::opened(euclidPath);
+    }
 
     newFileManager.setStatus(fmIdle);
     newFileManager.setCurrentOperation(fmNoOperation);
