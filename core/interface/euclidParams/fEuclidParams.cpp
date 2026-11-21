@@ -69,6 +69,19 @@ void cEuclidParams::update()
     updateMessage();
     updateHarmony();
 
+    // An edit during a chain step the chain will put back: say so, once.
+    {
+        char what[12];
+        uint32_t serial = 0;
+        if (euclidChain::unkeptEdit(what, sizeof(what), &serial) && serial != chainWarned)
+        {
+            chainWarned = serial;
+            char text[32];
+            snprintf(text, sizeof(text), "Save %s to keep this", what);
+            showMessage(text);
+        }
+    }
+
     // Settings changed from outside this screen, such as loading a set or
     // the working state restored at boot.
     uint32_t changes = euclidEngine.getChangeCount();

@@ -78,6 +78,10 @@ euclid::Chain& get();
 void changed(); // after editing get(): saves it
 // The step playing (-1 if none), the bar within it and its length.
 int8_t playingStep(uint32_t* barInStep, uint32_t* stepBars);
+// Something was edited while the playing step's scene or set plays: the
+// chain will put that back, so the edit lasts only till it does. what: "scene
+// B" or "set 3"; serial: a number for the step's run, to say it once each.
+bool unkeptEdit(char* what, size_t length, uint32_t* serial);
 } // namespace euclidChain
 
 // The synth editor (euclidSynthPlatform.cpp): synth definitions from

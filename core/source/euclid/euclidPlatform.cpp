@@ -320,6 +320,12 @@ euclid::Chain chainData;
 bool chainDirty = false;
 uint32_t chainChangedMs = 0;
 int8_t chainIssued = -1; // the step last sent to the engine
+// The step playing, and the change count soon after it began (its own
+// settings land then), to tell edits made during it.
+int8_t chainPlaying = -1;
+uint32_t chainStepSerial = 0;
+uint32_t chainStepStartMs = 0;
+uint32_t chainCountAtStep = 0;
 
 // A step's set and scene, which the engine plays from the next launch point
 // (straight away while stopped).
@@ -339,6 +345,7 @@ void updateChain()
     if (!chainData.on)
     {
         chainIssued = -1;
+        chainPlaying = -1;
         return;
     }
     // Stopped, the first step is ready to go.
@@ -349,10 +356,20 @@ void updateChain()
             applyChainStep(0);
             chainIssued = 0;
         }
+        chainPlaying = -1;
         return;
     }
     const uint32_t bar = euclid::kMicroStepsPerBar;
     const uint32_t now = euclidEngine.getPlayTime();
+    const int current = euclid::chainStepAt(chainData, now / bar);
+    if (current != chainPlaying)
+    {
+        chainPlaying = static_cast<int8_t>(current);
+        chainStepSerial++;
+        chainStepStartMs = nowMs();
+    }
+    if (nowMs() - chainStepStartMs < 300)
+        chainCountAtStep = euclidEngine.getChangeCount();
     if (euclid::chainStepAt(chainData, now / bar) < 0)
     {
         sequencer.stop(); // the end of a chain that doesn't loop
@@ -405,6 +422,22 @@ void changed()
 {
     chainDirty = true;
     chainChangedMs = nowMs();
+}
+
+bool unkeptEdit(char* what, size_t length, uint32_t* serial)
+{
+    if (!chainData.on || !euclidEngine.isRunning() || chainPlaying < 0 || chainPlaying >= chainData.count ||
+        nowMs() - chainStepStartMs < 300 || euclidEngine.getChangeCount() == chainCountAtStep)
+        return false;
+    const euclid::ChainStep& s = chainData.steps[chainPlaying];
+    if (s.scene != 0)
+        snprintf(what, length, "scene %c", 'A' + s.scene - 1);
+    else if (s.set != 0)
+        snprintf(what, length, "set %d", s.set);
+    else
+        return false; // its own settings: edits stay
+    *serial = chainStepSerial;
+    return true;
 }
 
 int8_t playingStep(uint32_t* barInStep, uint32_t* stepBars)

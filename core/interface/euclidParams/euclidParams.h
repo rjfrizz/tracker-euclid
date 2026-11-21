@@ -289,6 +289,7 @@ class cEuclidParams : public ModuleBase
     char lineNote[8][8];
     // The Pattern page's harmony guess: the notes heard lately, fading.
     void updateHarmony();
+    uint32_t chainWarned = 0; // the chain step last reminded about
     float harmonyWeight[12] = {};
     uint32_t harmonyCount[8] = {};
     uint32_t harmonyMs = 0;
