@@ -1105,6 +1105,15 @@ static void functParamsView()
 
 static void functSynthView()
 {
+    // A sampler channel's sound is its instrument: the stock instrument
+    // editor, on that instrument.
+    const euclid::Expression x = euclidEngine.getExpression(EP->selectedChannel);
+    if (x.output == euclid::ChannelOutput::sampler)
+    {
+        mtProject.values.lastUsedInstrument = x.instrument;
+        functSwitchModule(interfaceButtonInstr);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
         return;
     euclidSynth::scan(); // pick up definition files added to the card

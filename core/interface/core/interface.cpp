@@ -71,7 +71,7 @@ const hModule Interface::modules[modulesCount] = {
     &euclidParams,      // 13
 };
 
-const uint8_t Interface::modulesButtonsCount = 11;
+const uint8_t Interface::modulesButtonsCount = 12;
 const uint32_t Interface::modulesButtons[modulesButtonsCount][3] = {
     { interfaceButtonPerformance, 9, 0 },
     { interfaceButtonMaster, 12, 0 },
@@ -84,6 +84,10 @@ const uint32_t Interface::modulesButtons[modulesButtonsCount][3] = {
     { interfaceButtonSampleLoad, 1, 0 },
     { interfaceButtonSong, 4, 0 },
     { interfaceButtonConfig, 7, 0 },
+    // EUCLID: Params is the home screen, so the instrument editor (volume,
+    // filter, envelopes, effect sends) goes on Instr, which the EUCLID page
+    // opens for a sampler channel's instrument (Shift + Params).
+    { interfaceButtonInstr, 5, mtInstEditModeParams },
 };
 
 //=======================================================================
