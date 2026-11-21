@@ -287,6 +287,13 @@ class cEuclidParams : public ModuleBase
     char lineInfo[8][20];
     char lineShift[8][24];
     char lineNote[8][8];
+    // The Pattern page's harmony guess: the notes heard lately, fading.
+    void updateHarmony();
+    float harmonyWeight[12] = {};
+    uint32_t harmonyCount[8] = {};
+    uint32_t harmonyMs = 0;
+    int8_t harmonyRoot = -1; // -1: no guess
+    bool harmonyMinor = false;
 
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();

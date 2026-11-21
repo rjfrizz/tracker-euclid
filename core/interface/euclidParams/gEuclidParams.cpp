@@ -279,10 +279,17 @@ void cEuclidParams::refreshTitle()
                  selectedChannel + 1, hint);
     else if (view == View::lines)
     {
+        // The key playing, then the guess at the harmony (and the scene).
+        const euclid::Key k = euclidEngine.getActiveGlobalKey();
+        char guessText[12] = "";
+        if (harmonyRoot >= 0)
+            snprintf(guessText, sizeof(guessText), "  ~%s %s", euclid::rootName(static_cast<uint8_t>(harmonyRoot)),
+                     harmonyMinor ? "min" : "maj");
+        char scene[6] = "";
         if (euclidScenes::active() >= 0)
-            snprintf(titleText, sizeof(titleText), "Pattern  -  Scene %c", 'A' + euclidScenes::active());
-        else
-            snprintf(titleText, sizeof(titleText), "Pattern  -  all channels");
+            snprintf(scene, sizeof(scene), "%c: ", 'A' + euclidScenes::active());
+        snprintf(titleText, sizeof(titleText), "%s%s %.9s%s", scene, euclid::rootName(k.root), euclid::scaleName(k.scale),
+                 guessText);
     }
     else if (view == View::chain)
         snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on

@@ -1,5 +1,6 @@
 #include "euclidParams/euclidParams.h"
 
+#include "euclid/euclidHarmony.h"
 #include "euclid/euclidChain.h"
 #include "euclid/euclidPlatform.h"
 #include "euclid/euclidSets.h"
@@ -66,6 +67,7 @@ struct ShiftEdits
 void cEuclidParams::update()
 {
     updateMessage();
+    updateHarmony();
 
     // Settings changed from outside this screen, such as loading a set or
     // the working state restored at boot.
@@ -692,6 +694,43 @@ uint32_t nowMs()
     return TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
 }
 } // namespace
+
+// The notes every heard channel plays go into a count of pitch classes that
+// fades (to half in about 1.7 s); every 150 ms the best-fitting triad is
+// worked out, and the Pattern page's title follows it.
+void cEuclidParams::updateHarmony()
+{
+    const uint32_t now = nowMs();
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+    {
+        const uint32_t count = euclidEngine.getNoteCount(ch);
+        if (count == harmonyCount[ch])
+            continue;
+        harmonyCount[ch] = count;
+        const euclid::Expression x = euclidEngine.getExpression(ch);
+        if (!x.enabled || x.muted)
+            continue;
+        uint8_t notes[8];
+        const uint8_t n = euclidEngine.getLastNotes(ch, notes);
+        for (uint8_t i = 0; i < n; i++)
+            harmonyWeight[notes[i] % 12] += 1.0f;
+    }
+    if (now - harmonyMs < 150)
+        return;
+    const float fade = static_cast<float>(now - harmonyMs) / 1500.0f; // 0.1 a step: 6% lost each 150 ms
+    harmonyMs = now;
+    for (float& w : harmonyWeight)
+        w = w * (fade < 1.0f ? 1.0f - fade * 0.6f : 0.4f);
+    const euclid::HarmonyGuess g = euclidEngine.isRunning() ? euclid::guessHarmony(harmonyWeight) : euclid::HarmonyGuess();
+    const int8_t root = g.known ? static_cast<int8_t>(g.root) : -1;
+    if (root != harmonyRoot || (g.known && g.minor != harmonyMinor))
+    {
+        harmonyRoot = root;
+        harmonyMinor = g.minor;
+        if (view == View::lines)
+            refreshTitle();
+    }
+}
 
 void cEuclidParams::showMessage(const char* text)
 {
