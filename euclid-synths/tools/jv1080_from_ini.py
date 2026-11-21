@@ -6,7 +6,11 @@ jv1080-sysex-manager (https://github.com/sonic-codex/jv1080-sysex-manager,
 MIT License, Copyright (c) 2025 Lt-Blmr), a transcription of the tables in
 Roland's JV-1080 MIDI implementation (1-3-1 Patch common, 1-3-2 Patch tone).
 
-This edits the Patch mode temporary patch (03 00 00 00): its common
+A Part group sets the temporary performance's parts (01 00 1p 00): which
+patch each plays, its MIDI channel, level, pan and so on; the channel's
+Part row picks the part (Auto: the channel's MIDI channel).
+
+The other groups edit the Patch mode temporary patch (03 00 00 00): its common
 settings (72 bytes) and tones 1-4 (129 bytes each, from 03 00 10 00, 12 00,
 14 00 and 16 00), with DT1 messages; the two-byte settings (tempo, wave
 number) go as two 4-bit nibbles. The patch can be got with RQ1 requests.
@@ -75,6 +79,11 @@ def main():
     w("request F0 41 d+10 6A 11 [ 03 00 00 00 00 00 00 48 ] F7")
     for t in range(4):
         w("request F0 41 d+10 6A 11 [ 03 00 %02X 00 00 00 01 01 ] F7" % (0x10 + 2 * t))
+    # The temporary performance's 16 parts (01 00 1p 00, 128 apart): only
+    # the Part group's params move with the part; part n listens on MIDI
+    # channel n by default.
+    w("parts 16 0 channel=1")
+    w("request addr=0x01001000 stride=128 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 00 13 ] F7")
     w("dump dt1+dt1n F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7")
     w("name dt1 0x03000000 12")
 
@@ -96,6 +105,21 @@ def main():
         nums = [int(p) for p in parts[1:] if re.match(r"-?\d+$", p)]
         lo, hi = (nums[0], nums[1]) if len(nums) >= 2 else (1, nums[0]) if nums else (0, 127)
         return parts[0], lo, hi
+
+    # The performance part: which patch it plays, on which channel, how.
+    # Offsets 04-05 aren't in the .ini: by the gap and Roland's layout (as
+    # the tone's wave number) they're the patch number, two nibbles 0-254.
+    part = sec["Roland JV1080 Temp Perf. Part1:Sysex"]
+    w('group "Part"')
+    for o, p in part:
+        name, lo, hi = rng(p)
+        off = int(o)
+        extra = "stride=128"
+        if name == "MIDI channel":
+            extra += " show=1"
+        param("dt1", 0x01001000 + off, name, lo, hi, extra)
+        if off == 3:
+            param("dt1n", 0x01001004, "Patch number", 0, 254, "stride=128 nibbles=2 show=1")
 
     # Patch common: offsets in hex; groups of at most 24 rows.
     def common_param(off, parts, nibbles=False):

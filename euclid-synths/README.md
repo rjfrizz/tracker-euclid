@@ -52,7 +52,13 @@ its script, e.g.
 
 ## Setting up the JV-1080
 
-- Put it in Patch mode: this edits the Patch mode temporary patch.
+- The Part group sets the temporary performance's parts (Performance
+  mode): which patch each part plays (group, group ID, number), its MIDI
+  channel, level, pan, tuning, sends and key range. The Part row picks the
+  part; Auto follows the channel's MIDI channel (part n is on channel n by
+  default). The patch number (offsets 04-05) isn't in the tables: it's
+  placed by the gap and Roland's layout.
+- The other groups edit the Patch mode temporary patch (Patch mode).
 - Device 1 is device ID 17 (the usual), Device 2 is 18...
 - Shift + Insert gets the whole patch (common and the four tones) and its
   name. Many settings show as numbers: the tables give their ranges, not

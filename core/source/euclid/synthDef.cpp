@@ -501,7 +501,7 @@ bool parse(const char* text, size_t length, Definition& d)
         {
             long count, stride;
             if (!line.word(w, sizeof(w)) || !parseInt(w, count) || count < 1 || count > 16 ||
-                !line.word(w, sizeof(w)) || !parseInt(w, stride) || stride < 1 || stride > 65535)
+                !line.word(w, sizeof(w)) || !parseInt(w, stride) || stride < 0 || stride > 65535)
                 return fail(d, lineNumber, "parts: count (1-16) and distance");
             d.partCount = static_cast<uint8_t>(count);
             d.partStride = static_cast<uint16_t>(stride);

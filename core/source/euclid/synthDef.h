@@ -21,6 +21,8 @@
 //                                   that sends its patch itself, unasked)
 //   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
 //                                   part 1 listens on MIDI channel 2...
+//                                   (a distance of 0: only params with their
+//                                   own stride= move with the part)
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 8)
 //   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
 //                                   a request with an address (and stride=)
