@@ -20,7 +20,7 @@ const char* const kShiftHelp[] = {
     "Encoder: change the step",
     "Delete: clear, Shift + Delete: all",
     "Pads pick a step",
-    "Fx 2 again: settings, lane",
+    "Fx 2: next lane, +Shift: settings",
 };
 
 int clampInt(int v, int lo, int hi)

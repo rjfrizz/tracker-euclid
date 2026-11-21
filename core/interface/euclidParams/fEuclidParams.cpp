@@ -1121,12 +1121,22 @@ static void functSynthView()
     EP->setDefaultScreenFunct();
 }
 
+// Like Fx 1 on the Mod page, pressing Fx 2 again moves on to the next lane
+// (Pitch, Mode, Division, Order, Chord); Shift + Fx 2 switches between the
+// lane's steps and its settings.
 static void functShiftView()
 {
     if (EP->view == cEuclidParams::View::shift)
     {
-        EP->shiftSettings = !EP->shiftSettings;
-        EP->setView(cEuclidParams::View::shift);
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+        {
+            EP->shiftSettings = !EP->shiftSettings;
+            EP->setView(cEuclidParams::View::shift);
+        }
+        else
+        {
+            EP->setShiftRowValue(cEuclidParams::shiftRowLane, (EP->shiftLane + 1) % (1 + euclid::kLaneKinds));
+        }
         return;
     }
     EP->shiftSettings = false;
