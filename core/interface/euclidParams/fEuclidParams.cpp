@@ -910,6 +910,12 @@ void cEuclidParams::duplicateNote()
 //==============================================================================================
 static void functEncoder(int16_t value)
 {
+    if (EP->isNoteSettings())
+    {
+        ShiftEdits shift;
+        EP->changeParam(value);
+        return;
+    }
     // On the lines Shift changes steps rather than skipping Rec.
     if (EP->view == cEuclidParams::View::lines)
     {
@@ -963,6 +969,14 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->isNoteSettings())
+    {
+        const uint8_t row = EP->noteRowOf(EP->selectedParam);
+        EP->selectedParam = cEuclidParams::kNoteParams[row > 0 ? row - 1 : 0];
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::lines)
     {
         EP->selectChannel((EP->selectedChannel + euclid::kChannels - 1) % euclid::kChannels);
@@ -1030,6 +1044,15 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->isNoteSettings())
+    {
+        const uint8_t row = EP->noteRowOf(EP->selectedParam);
+        EP->selectedParam =
+          cEuclidParams::kNoteParams[row + 1 < cEuclidParams::kNoteParamCount ? row + 1 : row];
+        EP->refreshFrame();
+        EP->refreshPads();
+        return;
+    }
     if (EP->view == cEuclidParams::View::lines)
     {
         EP->selectChannel((EP->selectedChannel + 1) % euclid::kChannels);
@@ -1188,7 +1211,7 @@ static void functDelete()
         EP->clearShiftStep(EP->buttons->isButtonPressed(interfaceButtonShift));
         return;
     }
-    if (EP->view != cEuclidParams::View::notes ||
+    if (EP->view != cEuclidParams::View::notes || EP->notesSettings ||
         euclidEngine.getRhythm(EP->selectedChannel).mode != euclid::NoteMode::seq)
         return;
     ShiftEdits shift;
@@ -1224,7 +1247,7 @@ static void functInsert()
         return;
     }
     ShiftEdits shift;
-    if (EP->view == cEuclidParams::View::notes &&
+    if (EP->view == cEuclidParams::View::notes && !EP->notesSettings &&
         euclidEngine.getRhythm(EP->selectedChannel).mode == euclid::NoteMode::seq)
         EP->duplicateNote();
 }
@@ -1385,10 +1408,17 @@ static void functSetsView()
     EP->setDefaultScreenFunct();
 }
 
+// Note opens the note grid; pressing it again switches to the note
+// settings (mode, chords, key, octave, range...) and back.
 static void functNotesView()
 {
     if (EP->view == cEuclidParams::View::notes)
-        return;
+        EP->notesSettings = !EP->notesSettings;
+    else
+        EP->notesSettings = false;
+    if (EP->notesSettings && EP->noteRowOf(EP->selectedParam) == 0 &&
+        EP->selectedParam != cEuclidParams::kNoteParams[0])
+        EP->selectedParam = cEuclidParams::kNoteParams[0];
     EP->setView(cEuclidParams::View::notes);
     EP->setDefaultScreenFunct();
 }
@@ -1421,7 +1451,7 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
 
         // The Note page's pads add to the SEQ list; in other modes they only
         // play (that list isn't shown or used).
-        if (EP->view == cEuclidParams::View::notes &&
+        if (EP->view == cEuclidParams::View::notes && !EP->notesSettings &&
             euclidEngine.getRhythm(EP->selectedChannel).mode == euclid::NoteMode::seq)
         {
             ShiftEdits shift;

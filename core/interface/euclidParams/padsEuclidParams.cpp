@@ -61,8 +61,9 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         }
     }
 
-    if (view != View::params)
+    if (view != View::params && !isNoteSettings())
         return { PadMap::none, 0, 0, 0 };
+    row = paramForRow(row);
 
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
     switch (row)
@@ -120,6 +121,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
     euclid::Rhythm r = live ? euclidEngine.getLiveRhythm(ch) : euclidEngine.getRhythm(ch);
     euclid::Expression x = live ? euclidEngine.getLiveExpression(ch) : euclidEngine.getExpression(ch);
 
+    row = paramForRow(row);
     switch (row)
     {
         case paramName: return euclidEngine.getName(ch); // not staged: live == staged
@@ -194,6 +196,7 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
     euclid::Rhythm r = euclidEngine.getRhythm(ch);
     euclid::Expression x = euclidEngine.getExpression(ch);
 
+    row = paramForRow(row);
     switch (row)
     {
         case paramName: euclidEngine.setName(ch, static_cast<uint8_t>(clampInt(v, 0, euclid::channelNameCount() - 1))); break;

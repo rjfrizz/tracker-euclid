@@ -311,7 +311,8 @@ void cEuclidParams::refreshTitle()
         // While a scene plays, the Params title names it (Params goes back).
         char sceneName[12];
         snprintf(sceneName, sizeof(sceneName), "Scene %c", 'A' + euclidScenes::active());
-        const char* name = view == View::params ? (euclidScenes::active() >= 0 ? sceneName : "Params") : "Notes";
+        const char* name = view == View::params ? (euclidScenes::active() >= 0 ? sceneName : "Params")
+                           : (notesSettings ? "Note settings" : "Notes");
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s", name, selectedChannel + 1, hint);
     }
     titleBar->setTitle(titleText);
@@ -586,6 +587,37 @@ void cEuclidParams::refreshParam(uint8_t param)
         panelData.stagedRows = stagedRowMask();
         refreshFrame();
     }
+    else if (isNoteSettings())
+        refreshNoteSettings();
+}
+
+const uint8_t cEuclidParams::kNoteParams[cEuclidParams::kNoteParamCount] = {
+    paramMode, paramChord, paramChordChance, paramNoteOrder, paramKey,
+    paramOwnRoot, paramOwnScale, paramOctave, paramRange, paramTranspose,
+};
+
+// The Note page's settings: those rows of the Params page, dimmed and
+// marked staged the same way.
+void cEuclidParams::refreshNoteSettings()
+{
+    if (!isNoteSettings())
+        return;
+    panelData.mode = strEuclidPanelData::Mode::list;
+    panelData.rows = kNoteParamCount;
+    for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
+    {
+        panelData.names[i] = i < kNoteParamCount ? kParamNames[kNoteParams[i]] : nullptr;
+        panelData.values[i] = i < kNoteParamCount ? valueText[kNoteParams[i]] : nullptr;
+    }
+    const uint32_t dim = paramDimMask();
+    uint32_t rowsDim = 0;
+    for (uint8_t i = 0; i < kNoteParamCount; i++)
+        if (dim & (1ul << kNoteParams[i]))
+            rowsDim |= 1ul << i;
+    panelData.dimRows = rowsDim;
+    panelData.stagedRows = stagedRowMask();
+    panelData.meterCount = 0;
+    refreshFrame();
 }
 
 // Rows whose staged value differs from the committed one: waiting for Rec.
@@ -674,6 +706,12 @@ void cEuclidParams::refreshGlobal()
 
 void cEuclidParams::refreshNotes()
 {
+    if (isNoteSettings())
+    {
+        for (uint8_t i = 0; i < kNoteParamCount; i++)
+            refreshParam(kNoteParams[i]);
+        return;
+    }
     euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
     int8_t next = euclidEngine.isRunning()
                     ? static_cast<int8_t>(euclidEngine.getNextNoteIndex(selectedChannel))

@@ -86,10 +86,25 @@ class cEuclidParams : public ModuleBase
     static constexpr int kNoValue = -10000;
 
     bool isShiftSettings() const { return view == View::shift && shiftSettings; }
+    // The Note page's settings list (Note again): the Params page's note
+    // settings, row by row.
+    static constexpr uint8_t kNoteParamCount = 10;
+    static const uint8_t kNoteParams[kNoteParamCount];
+    bool notesSettings = false;
+    bool isNoteSettings() const { return view == View::notes && notesSettings; }
+    uint8_t paramForRow(uint8_t row) const { return isNoteSettings() && row < kNoteParamCount ? kNoteParams[row] : row; }
+    uint8_t noteRowOf(uint8_t param) const
+    {
+        for (uint8_t i = 0; i < kNoteParamCount; i++)
+            if (kNoteParams[i] == param)
+                return i;
+        return 0;
+    }
+    void refreshNoteSettings();
     bool isListView() const
     {
         return view == View::params || view == View::global || view == View::mod || view == View::synth ||
-               view == View::chain || isShiftSettings();
+               view == View::chain || isShiftSettings() || isNoteSettings();
     }
     uint8_t focusedRow() const
     {
@@ -99,6 +114,8 @@ class cEuclidParams : public ModuleBase
             return selectedSynthRow;
         if (view == View::chain)
             return selectedChainRow;
+        if (isNoteSettings())
+            return noteRowOf(selectedParam);
         return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
     }
     uint8_t listRowCount() const
@@ -113,6 +130,8 @@ class cEuclidParams : public ModuleBase
             return synthRowCount();
         if (view == View::chain)
             return chainRowCount();
+        if (isNoteSettings())
+            return kNoteParamCount;
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
     }
 
