@@ -224,7 +224,7 @@ class cEuclidParams : public ModuleBase
     char message[48] = "";
     uint32_t messageUntil = 0; // ms
     // A message too long for the title scrolls once to its end.
-    static constexpr uint8_t kTitleChars = 22;
+    static constexpr uint8_t kTitleChars = 26; // "Scene B from the next beat" just fits
     uint8_t messageScroll = 0;
     uint32_t messageScrollNext = 0; // ms
     bool recHeld = false;
