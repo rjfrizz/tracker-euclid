@@ -1167,8 +1167,9 @@ static void functParamsView()
         EP->refreshTitle();
         return;
     }
-    // While a scene plays, Params goes back to what was playing before it.
-    if (euclidScenes::returnHome())
+    // Shift + Params goes back from a scene to what was playing before it.
+    // Params alone just opens the page (the scene's, while one plays).
+    if (EP->buttons->isButtonPressed(interfaceButtonShift) && euclidScenes::returnHome())
     {
         char text[48];
         if (euclidEngine.isRunning())
@@ -1442,7 +1443,8 @@ static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
 
 // Scenes: tap recalls (at the next launch point while playing), Rec + tap
 // saves what's on screen into the scene, Shift + tap opens the stock sample
-// screen the key is named after. Params goes back to what was
+// screen the key is named after. Shift + Params goes back to your own
+// settings, Rec + Params keeps the scene as them. Params goes back to what was
 // playing before the first scene. From any other page a tap also opens the
 // scene's Params page, and tapping the scene that's playing only does that
 // (so its edits stay).
