@@ -152,7 +152,9 @@ void cEuclidParams::refreshShift()
         snprintf(shiftText[shiftRowOn], sizeof(shiftText[0]), "%s", s.on ? "On" : "Off");
         snprintf(shiftText[shiftRowLength], sizeof(shiftText[0]), "%d steps", s.length);
         snprintf(shiftText[shiftRowAdvance], sizeof(shiftText[0]), "%s",
-                 s.advance == euclid::ShiftAdvance::perStep ? "Per step" : "Per pulse");
+                 s.advance == euclid::ShiftAdvance::perStep    ? "Per step"
+                 : s.advance == euclid::ShiftAdvance::perPulse ? "Per pulse"
+                                                               : "Per cycle");
         snprintf(shiftText[shiftRowUnits], sizeof(shiftText[0]), "%s",
                  s.units == euclid::ShiftUnits::semitones ? "Semitones" : "Scale steps");
         panelData.meterCount = 0;
@@ -193,7 +195,9 @@ void cEuclidParams::refreshShift()
         snprintf(noteHeaderText, sizeof(noteHeaderText), "Off: turn a step to start");
     else
         snprintf(noteHeaderText, sizeof(noteHeaderText), "%d steps, %s, %s", s.length,
-                 s.advance == euclid::ShiftAdvance::perStep ? "per step" : "per pulse",
+                 s.advance == euclid::ShiftAdvance::perStep    ? "per step"
+                 : s.advance == euclid::ShiftAdvance::perPulse ? "per pulse"
+                                                               : "per cycle",
                  s.units == euclid::ShiftUnits::semitones ? "semis" : "scale");
     panelData.header = noteHeaderText;
     refreshFrame();

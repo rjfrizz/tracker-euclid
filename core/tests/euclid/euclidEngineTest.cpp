@@ -1037,6 +1037,28 @@ static void testShiftPerPulseSkipsRests()
     CHECK((playSeq(e, 8) == std::vector<uint8_t>{60, 60, 60, 60}));
 }
 
+static void testShiftPerCycleHoldsForTheCycle()
+{
+    // A 2-step lane (0, +12) on a 4-step rhythm: a whole cycle each.
+    Engine e = makeSeqEngine(Key{0, 1}, {60});
+    Expression x = e.getExpression(0);
+    x.shift.on = true;
+    x.shift.length = 2;
+    x.shift.advance = ShiftAdvance::perCycle;
+    x.shift.step[1] = 12;
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 12) == std::vector<uint8_t>{60, 60, 60, 60, 72, 72, 72, 72, 60, 60, 60, 60}));
+
+    // Rests don't matter: pulses on steps 0 and 2 still change by cycle.
+    Rhythm r = e.getRhythm(0);
+    r.pulses = 2;
+    e.setRhythm(0, r);
+    CHECK((playSeq(e, 12) == std::vector<uint8_t>{60, 60, 72, 72, 60, 60}));
+
+    // It repeats after length cycles: 2 cycles of 4 sixteenths.
+    CHECK(e.repeatLength(0) == 2u * 4 * 48);
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1067,6 +1089,7 @@ int main()
 {
     testShiftPerStepDriftsAgainstTheRhythm();
     testShiftPerPulseSkipsRests();
+    testShiftPerCycleHoldsForTheCycle();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

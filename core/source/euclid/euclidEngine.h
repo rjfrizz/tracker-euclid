@@ -255,6 +255,7 @@ enum class ShiftAdvance : uint8_t
 {
     perStep = 0,
     perPulse,
+    perCycle, // once each time the rhythm comes round to its first step
     count
 };
 
@@ -510,6 +511,7 @@ class Engine
         int8_t pingPongDir = 1;
         uint32_t shiftCounter = 0; // Shift steps advanced since the channel started
         int8_t shiftPlayed = -1;   // Shift step used last, for the screen
+        uint8_t shiftIndex = 0;    // the Shift step in use (per cycle: all cycle long)
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
 

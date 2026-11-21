@@ -517,6 +517,7 @@ void Engine::resetChannelPosition(Channel& c)
     c.degreeDir = 1;
     c.shiftCounter = 0;
     c.shiftPlayed = -1;
+    c.shiftIndex = 0;
 }
 
 void Engine::closeNote(Channel& c)
@@ -863,14 +864,21 @@ void Engine::triggerStep(Channel& c)
     const bool pulse = isPulse(r.steps, r.pulses, r.rotation, c.step);
 
     // Which Shift step applies: per step it moves on every step, played or
-    // not; per pulse only on pulses (muted or skipped ones too, like notes).
+    // not; per pulse only on pulses (muted or skipped ones too, like notes);
+    // per cycle on the rhythm's first step, and holds for the whole cycle.
     int8_t shiftAmount = 0;
-    if (sh.on && (pulse || sh.advance == ShiftAdvance::perStep))
+    if (sh.on)
     {
-        const uint8_t index = static_cast<uint8_t>(c.shiftCounter % sh.length);
-        c.shiftCounter++;
-        if (pulse)
+        const bool advance = sh.advance == ShiftAdvance::perStep || (sh.advance == ShiftAdvance::perPulse && pulse) ||
+                             (sh.advance == ShiftAdvance::perCycle && c.step == 0);
+        if (advance)
         {
+            c.shiftIndex = static_cast<uint8_t>(c.shiftCounter % sh.length);
+            c.shiftCounter++;
+        }
+        if (pulse && (advance || sh.advance == ShiftAdvance::perCycle))
+        {
+            const uint8_t index = static_cast<uint8_t>(c.shiftIndex % sh.length);
             shiftAmount = sh.step[index];
             c.shiftPlayed = static_cast<int8_t>(index);
         }
@@ -1587,6 +1595,8 @@ uint32_t Engine::repeatLength(int ch) const
     {
         if (x.shift.advance == ShiftAdvance::perPulse)
             period = cycle * (lcm32(lcm32(notePeriod, x.shift.length), pulses) / pulses);
+        else if (x.shift.advance == ShiftAdvance::perCycle)
+            period = lcm32(period, cycle * x.shift.length);
         else
             period = lcm32(period, static_cast<uint32_t>(x.shift.length) * divisionToMicroSteps(r.division));
     }

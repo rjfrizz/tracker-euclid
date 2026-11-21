@@ -62,7 +62,7 @@ static void fill(Engine& e)
         x.chordChance = static_cast<uint8_t>(30 + ch * 10);
         x.shift.on = ch % 2 == 1;
         x.shift.length = static_cast<uint8_t>(3 + ch * 3);
-        x.shift.advance = static_cast<ShiftAdvance>(ch % 2);
+        x.shift.advance = static_cast<ShiftAdvance>(ch % 3);
         x.shift.units = static_cast<ShiftUnits>((ch / 2) % 2);
         for (int i = 0; i < kShiftSteps; i++)
             x.shift.step[i] = static_cast<int8_t>((i * 7 + ch) % 49 - 24);
