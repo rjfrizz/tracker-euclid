@@ -1,3 +1,4 @@
+#include "euclid/noPatternEditor.h"
 #include <algorithm>
 #include <numeric>
 
@@ -19,7 +20,6 @@
 #include "configEditor/configEditor.h"
 #include "core/songTimer.h"
 
-#include "patternEditor/patternEditor.h"
 
 #include "core/interfacePopups.h"
 

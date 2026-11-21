@@ -14,14 +14,12 @@
 #include "imageViewer/imageViewer.h"
 #include "instrumentEditor/instrumentEditor.h"
 #include "masterParams/masterParams.h"
-#include "patternEditor/patternEditor.h"
 #include "performanceMode/performanceMode.h"
 #include "projectEditor/projectEditor.h"
 #include "sampleEditor/sampleEditor.h"
 #include "sampleImporter/sampleImporter.h"
 #include "samplePlayback/samplePlayback.h"
 #include "sampleRecorder/sampleRecorder.h"
-#include "songEditor/songEditor.h"
 
 #include "fileManager.h"
 #include "mtConfig.h"
@@ -59,9 +57,9 @@ const uint8_t Interface::modulesCount = 14;
 const hModule Interface::modules[modulesCount] = {
     &projectEditor,    // 0
     &sampleImporter,   // 1
-    &patternEditor,    // 2
+    &euclidParams,     // 2: EUCLID has no stock Pattern editor
     &samplePlayback,   // 3
-    &songEditor,       // 4
+    &euclidParams,     // 4: nor Song editor
     &instrumentEditor, // 5
     &sampleEditor,     // 6
     &configEditor,     // 7
@@ -103,7 +101,6 @@ void Interface::begin(Platform* platform, Synth* synth)
     Interface::platform = platform;
     Interface::fileSystem = platform->getFileSystem();
     Interface::ip = &::ip;
-    patternEditor.initExternalRamState();
     Interface::synth = synth;
     operatingMode = mtOperatingModeStartup;
 
@@ -471,10 +468,7 @@ void Interface::activateModule(hModule module, uint32_t options)
     ip->clearGlobalPads();
 
     onScreenModule = module;
-    if (module != &patternEditor)
-    {
-        songTimer.show();
-    }
+    songTimer.show();
     module->initDisplayControls();
 
     module->start(options);
@@ -606,12 +600,12 @@ void Interface::toggleActiveModule(uint8_t state)
 
 bool Interface::isSongScreenActive()
 {
-    return isOnScreenModule(&songEditor);
+    return false; // EUCLID: no Song editor
 }
 
 bool Interface::isPatternScreenActive()
 {
-    return isOnScreenModule(&patternEditor);
+    return false; // EUCLID: no Pattern editor
 }
 
 bool Interface::isPerformanceModeScreenActive()

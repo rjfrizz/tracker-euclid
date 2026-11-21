@@ -4,7 +4,6 @@
 #include "mtPadsBacklight.h"
 #include "mtSequencer.h"
 
-#include "patternEditor/patternEditor.h"
 #include "performanceMode/performanceMode.h"
 
 #include "masterParams/masterParams.h"

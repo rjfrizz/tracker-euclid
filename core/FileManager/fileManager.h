@@ -303,13 +303,6 @@ class cFileManager
     void forgetPreloadedPattern();
     bool isPatternEmpty(uint8_t index);
 
-    // EUCLID freeze (fileManagerEuclid.cpp). The first pattern slot that
-    // holds nothing (no file, not the pattern being edited, no unsaved
-    // changes, not in the song), or 0 if there's none.
-    uint8_t findFreePatternSlot();
-    // Writes a pattern built outside the editor into a workspace slot.
-    bool writeFrozenPattern(uint8_t index, Sequencer::strPattern* pattern);
-
     uint8_t getNextSongPattern();
     uint8_t getSongPattern(uint8_t pos);
     std::optional<int> getPatternPosInSong(uint8_t patternToSearch);

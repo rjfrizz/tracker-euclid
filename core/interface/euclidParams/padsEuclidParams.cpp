@@ -29,23 +29,6 @@ int clampInt(int v, int lo, int hi)
 }
 
 // 0 = Follow, 1-11 = +N, 12 = Own, for SEQ's key mode or the generator's.
-// Freeze lengths in the order they're shown: 1, 2, 4, 8 bars.
-const euclid::FreezeLength kFreezeOrder[4] = { euclid::FreezeLength::oneBar, euclid::FreezeLength::twoBars,
-                                               euclid::FreezeLength::fourBars, euclid::FreezeLength::eightBars };
-
-int freezeIndex(euclid::FreezeLength f)
-{
-    for (int i = 0; i < 4; i++)
-        if (kFreezeOrder[i] == f)
-            return i;
-    return 2;
-}
-
-euclid::FreezeLength freezeLengthAt(int i)
-{
-    return kFreezeOrder[i];
-}
-
 int keyIndex(const euclid::Expression& x, bool seq)
 {
     euclid::KeyMode m = seq ? x.seqKeyMode : x.keyMode;
@@ -72,8 +55,6 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
             case globalRoot: return { PadMap::keyboard, 12, 0, 11 };
             case globalScale: return { PadMap::list, euclid::scaleCount(), 0, 0 };
             case globalLaunch: return { PadMap::list, static_cast<uint8_t>(euclid::Launch::count), 0, 0 };
-            case globalFreeze: return { PadMap::list, 4, 0, 0 }; // 1, 2, 4, 8 bars
-            case globalLayer: return { PadMap::list, 2, 0, 0 };
             default: return { PadMap::none, 0, 0, 0 };
         }
     }
@@ -126,8 +107,6 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
             case globalRoot: return k.root;
             case globalScale: return k.scale;
             case globalLaunch: return static_cast<int>(euclidEngine.getLaunch());
-            case globalFreeze: return freezeIndex(euclidEngine.getFreezeLength());
-            case globalLayer: return euclidEngine.getLayer() ? 1 : 0;
             default: return kNoValue;
         }
     }
@@ -198,8 +177,6 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
                 euclidEngine.setLaunch(static_cast<euclid::Launch>(
                   clampInt(v, 0, static_cast<int>(euclid::Launch::count) - 1)));
                 break;
-            case globalFreeze: euclidEngine.setFreezeLength(freezeLengthAt(clampInt(v, 0, 3))); break;
-            case globalLayer: euclidEngine.setLayer(v != 0); break;
             default: return;
         }
         refreshGlobal();

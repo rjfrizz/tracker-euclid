@@ -268,9 +268,9 @@ void scenesPath(uint8_t slot, char* out, size_t len, bool temp)
 
 void euclidRoutePlay()
 {
-    const bool live = euclidScreenActive();
-    sequencer.setPatternSilenced(live);
-    euclidEngine.setOutputEnabled(live || euclidEngine.getLayer());
+    // There are no stock patterns to hear: the sequencer only keeps time.
+    sequencer.setPatternSilenced(true);
+    euclidEngine.setOutputEnabled(true);
 }
 
 void euclidPlatformInit()
@@ -284,7 +284,6 @@ void euclidPlatformInit()
     out.lock = lock;
     out.unlock = unlock;
     euclidEngine.init(out);
-    euclidFreezeInit();
     euclidSynth::init();
     euclid::loadDemoDefaults(euclidEngine);
 }

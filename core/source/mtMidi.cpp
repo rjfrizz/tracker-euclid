@@ -1,12 +1,11 @@
+#include "euclid/noPatternEditor.h"
 #include "mtSequencer.h"
 
 #include "configEditor/configEditor.h"
 #include "instrumentEditor/instrumentEditor.h"
-#include "patternEditor/patternEditor.h"
 #include "sampleEditor/sampleEditor.h"
 #include "samplePlayback/samplePlayback.h"
 #include "sampleRecorder/sampleRecorder.h"
-#include "songEditor/songEditor.h"
 
 #include "Platform.h"
 #include "TrackerImpl.h"

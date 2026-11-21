@@ -1,11 +1,11 @@
 
 
+#include "euclid/noPatternEditor.h"
 #include "songTimer.h"
 
 #include "display.h"
 
 #include "mtSequencer.h"
-#include "patternEditor/patternEditor.h"
 
 cSongTimer songTimer;
 

@@ -1,9 +1,9 @@
+#include "euclid/noPatternEditor.h"
 #include "core/interfaceDefs.h"
 #include "fileManager.h"
 #include "mtAudioEngine.h"
 #include "mtSequencer.h"
 #include "mtStructs.h"
-#include "patternEditor/patternEditor.h"
 
 #include "ctype.h"
 #include "util_math.h"

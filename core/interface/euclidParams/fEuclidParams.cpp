@@ -61,7 +61,7 @@ struct ShiftEdits
 
 void cEuclidParams::update()
 {
-    updateFreeze();
+    updateMessage();
 
     // Settings changed from outside this screen, such as loading a set or
     // the working state restored at boot.
@@ -183,22 +183,21 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
 
     ip->setButtonObj(interfaceButtonPerformance, buttonPress, functSwitchModule);
     ip->setButtonObj(interfaceButtonConfig, buttonPress, functSwitchModule);
-    // The four Sample keys are Scenes A-D here; the sample screens are still
-    // reachable from the stock screens.
+    // The four Sample keys are Scenes A-D here (Rec + key saves one); with
+    // Shift they open the stock sample screens.
     ip->setButtonObj(interfaceButtonSampleLoad, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSamplePlay, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functScene);
-    ip->setButtonObj(interfaceButtonSong, buttonPress, functSwitchModule);
-    ip->setButtonObj(interfaceButtonPattern, buttonPress, functSwitchModule);
+    // There's no stock Pattern or Song screen: both keys come home.
+    ip->setButtonObj(interfaceButtonSong, buttonPress, functParamsView);
+    ip->setButtonObj(interfaceButtonPattern, buttonPress, functParamsView);
 
     ip->setButtonObj(interfaceButtonParams, buttonPress, functParamsView);
     ip->setButtonObj(interfaceButtonNote, buttonPress, functNotesView);
-    // File opens Sets here; the stock project screen is still reachable
-    // from the stock screens' File key.
+    // File opens Sets here, Shift + File the stock project screen.
     ip->setButtonObj(interfaceButtonFile, buttonPress, functSetsView);
-    // Master opens the global key and tempo; the stock mixer is still
-    // reachable from the stock screens' Master key.
+    // Master opens the global key and tempo, Shift + Master the stock mixer.
     ip->setButtonObj(interfaceButtonMaster, buttonPress, functGlobalView);
     // Fx 1 opens Mod (the firmware calls this button Fx2); pressing it again
     // moves on through Mod A-D.
@@ -639,10 +638,6 @@ void cEuclidParams::changeGlobal(int16_t delta)
             k.scale = static_cast<uint8_t>(clampInt(k.scale + step, 0, euclid::scaleCount() - 1));
             euclidEngine.setGlobalKey(k);
             break;
-        case globalFreeze:
-            setRowValue(globalFreeze, rowValue(globalFreeze, false) + step);
-            return;
-        case globalLayer: euclidEngine.setLayer(step > 0); break;
         case globalLaunch:
             euclidEngine.setLaunch(static_cast<euclid::Launch>(clampInt(
               static_cast<int>(euclidEngine.getLaunch()) + step, 0, static_cast<int>(euclid::Launch::count) - 1)));
@@ -655,7 +650,7 @@ void cEuclidParams::changeGlobal(int16_t delta)
 }
 
 //==============================================================================================
-// Freeze
+// Messages
 
 namespace
 {
@@ -672,67 +667,8 @@ void cEuclidParams::showMessage(const char* text)
     refreshTitle();
 }
 
-// The window ends at the nearest bar line: pressed in the first beat of a
-// bar, the one just passed (you were a little late); later in the bar, the
-// end of this one. With Launch set to 2 or 4 bars it snaps to those phrases.
-void cEuclidParams::requestFreeze()
+void cEuclidParams::updateMessage()
 {
-    if (freezePending)
-    {
-        freezePending = false;
-        showMessage("Freeze cancelled");
-        return;
-    }
-    if (!euclidEngine.isRunning())
-    {
-        showMessage("Press Play first: freeze takes what you play");
-        return;
-    }
-
-    uint32_t phrase = euclid::kMicroStepsPerBar;
-    if (euclidEngine.getLaunch() == euclid::Launch::twoBars || euclidEngine.getLaunch() == euclid::Launch::fourBars)
-        phrase = euclid::launchToMicroSteps(euclidEngine.getLaunch());
-
-    const uint32_t now = euclidEngine.getPlayTime();
-    const uint32_t pos = now % phrase;
-    const uint32_t beat = euclid::kMicroStepsPerBar / 4;
-    freezeEnd = pos < beat ? now - pos : now - pos + phrase;
-
-    if (freezeEnd < static_cast<uint32_t>(euclid::kMicroStepsPerBar))
-    {
-        // Pressed in the first beat after Play: wait for the first bar.
-        freezeEnd = euclid::kMicroStepsPerBar;
-    }
-    freezePending = true;
-    refreshTitle();
-    updateFreeze();
-}
-
-void cEuclidParams::updateFreeze()
-{
-    if (freezePending)
-    {
-        if (!euclidEngine.isRunning())
-        {
-            freezePending = false;
-            showMessage("Stopped before the bar: no freeze");
-            return;
-        }
-        if (euclidEngine.getPlayTime() < freezeEnd || newFileManager.getStatus() != fmIdle)
-            return;
-
-        freezePending = false;
-        const uint32_t bar = euclid::kMicroStepsPerBar;
-        uint32_t bars = euclid::freezeLengthBars(euclidEngine.getFreezeLength());
-        if (bars > freezeEnd / bar)
-            bars = freezeEnd / bar; // only this much has been played
-
-        char text[48];
-        euclidFreeze::freeze(freezeEnd - bars * bar, freezeEnd, text, sizeof(text));
-        showMessage(text);
-        return;
-    }
-
     // Put the normal title back when a message runs out.
     if (messageUntil != 0 && static_cast<int32_t>(messageUntil - nowMs()) <= 0)
     {
@@ -1197,6 +1133,12 @@ static void functModView()
 
 static void functGlobalView()
 {
+    // Shift + Master: the stock mixer and master effects.
+    if (EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        functSwitchModule(interfaceButtonMaster);
+        return;
+    }
     if (EP->view == cEuclidParams::View::global)
         return;
     EP->setView(cEuclidParams::View::global);
@@ -1213,6 +1155,13 @@ static void functSetsView()
             EP->savePatch();
         else
             EP->openPatches(!EP->synthPatches);
+        return;
+    }
+    // Elsewhere Shift + File is the stock project screen (projects hold the
+    // samples and instruments).
+    if (EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        functSwitchModule(interfaceButtonFile);
         return;
     }
     if (EP->view == cEuclidParams::View::sets)
@@ -1337,17 +1286,12 @@ static void functPlayAction()
 }
 
 // Rec commits everything staged when it's released, unless a channel key
-// was pressed while it was held (that committed just the channel). Shift +
-// Rec freezes the last bars into a new pattern (press again to cancel).
+// was pressed while it was held (that committed just the channel) or a
+// scene key (that saved the scene).
 static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
 {
     if (state == buttonPress)
     {
-        if (EP->buttons->isButtonPressed(interfaceButtonShift))
-        {
-            EP->requestFreeze();
-            return;
-        }
         EP->recHeld = true;
         EP->recCommittedChannel = false;
     }
@@ -1359,8 +1303,9 @@ static void functRec([[maybe_unused]] uint8_t button, uint8_t state)
     }
 }
 
-// Scenes: tap recalls (at the next launch point while playing), Shift + tap
-// saves what's on screen into the scene. Params goes back to what was
+// Scenes: tap recalls (at the next launch point while playing), Rec + tap
+// saves what's on screen into the scene, Shift + tap opens the stock sample
+// screen the key is named after. Params goes back to what was
 // playing before the first scene. From any other page a tap also opens the
 // scene's Params page, and tapping the scene that's playing only does that
 // (so its edits stay).
@@ -1380,6 +1325,12 @@ static void functScene(uint8_t button)
 
     if (EP->buttons->isButtonPressed(interfaceButtonShift))
     {
+        functSwitchModule(button);
+        return;
+    }
+    if (EP->recHeld)
+    {
+        EP->recCommittedChannel = true; // Rec was for this, not a commit
         bool replaced = euclidScenes::has(scene);
         euclidScenes::save(scene);
         snprintf(text, sizeof(text), "%s Scene %c", replaced ? "Saved over" : "Saved", letter);
@@ -1397,7 +1348,7 @@ static void functScene(uint8_t button)
 
     if (!euclidScenes::recall(scene))
     {
-        snprintf(text, sizeof(text), "Scene %c is empty: Shift + key saves it", letter);
+        snprintf(text, sizeof(text), "Scene %c is empty: Rec + key saves it", letter);
         EP->showMessage(text);
         return;
     }

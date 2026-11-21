@@ -7,13 +7,8 @@
 // Call once at boot, before the sequencer starts.
 void euclidPlatformInit();
 
-// Gives the engine its capture buffer (euclidFreezePlatform.cpp).
-void euclidFreezeInit();
-
-// What a Play press plays, decided by the screen it's pressed on: on the
-// EUCLID screen the live engine only (the stock pattern keeps time but stays
-// silent); anywhere else the stock pattern or song, plus the live engine if
-// Layer is on. Called by the sequencer when playback starts.
+// What a Play press plays: the live engine, with the stock sequencer keeping
+// time silently. Called by the sequencer when playback starts.
 void euclidRoutePlay();
 // True while the EUCLID screen is showing (fEuclidParams.cpp).
 bool euclidScreenActive();
@@ -117,10 +112,3 @@ bool savePatch(uint8_t ch, char* savedAs, size_t length);
 bool loadPatch(uint8_t ch, uint8_t index);
 bool deletePatch(uint8_t ch, uint8_t index);
 } // namespace euclidSynth
-
-namespace euclidFreeze
-{
-// Freezes the notes played in [start, end) micro-steps (whole bars) into a
-// new pattern in the first free slot. The message says what happened.
-bool freeze(uint32_t start, uint32_t end, char* message, size_t messageLength);
-} // namespace euclidFreeze

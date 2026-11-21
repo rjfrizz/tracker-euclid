@@ -1,3 +1,4 @@
+#include "euclid/noPatternEditor.h"
 #include "core/interfacePopups.h"
 #include "core/interface.h"
 
@@ -13,7 +14,6 @@
 #endif
 
 #include "config.h"
-#include "patternEditor/patternEditor.h"
 #include "string.h"
 #include "util_math.h"
 
