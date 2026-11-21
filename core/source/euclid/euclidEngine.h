@@ -540,6 +540,13 @@ class Engine
     // The Shift step the channel last played (for the screen), or -1.
     int8_t getShiftStep(int ch) const;
     int8_t getLaneStep(int ch, LaneKind k) const; // the step used last, -1 for none
+    // The notes the channel played last (they stay until the next pulse that
+    // plays), and how many; 0 before any.
+    uint8_t getLastNotes(int ch, uint8_t* notes) const;
+    uint32_t getNoteCount(int ch) const; // changes each time it plays
+    // The notes a generated mode can play, low to high (the scale across the
+    // range, or for arps the chord's tones), at most max; 0 for SEQ.
+    uint8_t getNotePool(int ch, uint8_t* notes, uint8_t max) const;
 
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
@@ -584,6 +591,9 @@ class Engine
         uint8_t openNotes[kMaxVoices] = {};
         uint8_t openMidiChannel = 1;
         bool openSampler = false; // the open note is on the audio track
+        uint8_t lastNotes[kMaxVoices] = {};
+        uint8_t lastCount = 0;
+        uint32_t notesPlayed = 0;
         uint16_t gateRemaining = 0;
 
         struct ModState

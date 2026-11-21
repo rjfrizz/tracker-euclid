@@ -1189,6 +1189,39 @@ static void testSamplerOutput()
     CHECK(sampleEvents[2].first == 48 && sampleEvents[2].second == 60);
 }
 
+static void testNotePoolAndLastNotes()
+{
+    // C major from C3 (note 36), one octave: the seven notes.
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
+    e.setGlobalKey(Key{0, 2});
+    uint8_t pool[32];
+    CHECK(e.getNotePool(0, pool, 32) == 7 && pool[0] == 36 && pool[2] == 40 && pool[6] == 47);
+    // Arps: the chord's tones (a triad for Single): C E G.
+    Expression x = e.getExpression(0);
+    Rhythm r = e.getRhythm(0);
+    r.mode = NoteMode::arpUp;
+    e.setRhythm(0, r);
+    CHECK(e.getNotePool(0, pool, 32) == 3 && pool[1] == 40 && pool[2] == 43);
+    // SEQ has its own list.
+    r.mode = NoteMode::seq;
+    e.setRhythm(0, r);
+    CHECK(e.getNotePool(0, pool, 32) == 0);
+
+    // The last notes stay after the gate closes.
+    r.mode = NoteMode::scaleUp;
+    e.setRhythm(0, r);
+    reset();
+    e.start();
+    run(e, 48 + 40); // the second pulse is playing (D)
+    uint8_t last[8];
+    CHECK(e.getLastNotes(0, last) == 1 && last[0] == 38);
+    const uint32_t n = e.getNoteCount(0);
+    run(e, 30);
+    CHECK(e.getLastNotes(0, last) == 1 && last[0] == 40 && e.getNoteCount(0) == n + 1);
+    e.stop();
+    (void)x;
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1224,6 +1257,7 @@ int main()
     testDivisionLanePerCycle();
     testModeLaneAndNone();
     testSamplerOutput();
+    testNotePoolAndLastNotes();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

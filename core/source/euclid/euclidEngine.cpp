@@ -1089,6 +1089,9 @@ void Engine::triggerStep(Channel& c)
                 out.sampleOn(static_cast<uint8_t>(&c - channels), c.expr.instrument, notes[0],
                              static_cast<uint8_t>(velocity));
             c.openNotes[c.openCount++] = notes[0];
+            c.lastNotes[0] = notes[0];
+            c.lastCount = 1;
+            c.notesPlayed++;
         }
         count = 0;
     }
@@ -1103,6 +1106,12 @@ void Engine::triggerStep(Channel& c)
         if (out.noteOn)
             out.noteOn(notes[i], static_cast<uint8_t>(velocity), c.expr.midiChannel);
         c.openNotes[c.openCount++] = notes[i];
+        if (i == 0)
+        {
+            c.lastCount = 0;
+            c.notesPlayed++;
+        }
+        c.lastNotes[c.lastCount++] = notes[i];
 
         if (captureBuffer != nullptr && captureCapacity > 0)
         {
@@ -1383,6 +1392,54 @@ int Engine::shiftNote(const Channel& c, int note, int8_t amount) const
 int8_t Engine::getShiftStep(int ch) const
 {
     return validChannel(ch) ? channels[ch].shiftPlayed : -1;
+}
+
+uint8_t Engine::getLastNotes(int ch, uint8_t* notes) const
+{
+    if (!validChannel(ch))
+        return 0;
+    const Channel& c = channels[ch];
+    for (uint8_t i = 0; i < c.lastCount; i++)
+        notes[i] = c.lastNotes[i];
+    return c.lastCount;
+}
+
+uint32_t Engine::getNoteCount(int ch) const
+{
+    return validChannel(ch) ? channels[ch].notesPlayed : 0;
+}
+
+uint8_t Engine::getNotePool(int ch, uint8_t* notes, uint8_t max) const
+{
+    if (!validChannel(ch))
+        return 0;
+    const Channel& c = channels[ch];
+    const Rhythm& r = c.active;
+    const Expression& x = c.expr;
+    if (r.mode == NoteMode::seq)
+        return 0;
+    const Key key = keyFor(x, globalActive);
+    uint8_t intervals[12];
+    const uint8_t len = scaleIntervals(key, intervals);
+    auto noteFor = [&](int degree) {
+        int note = 12 * x.octave + key.root + 12 * (degree / len) + intervals[degree % len] + x.transpose;
+        return static_cast<uint8_t>(clampValue<int>(note, 0, 127));
+    };
+    uint8_t n = 0;
+    if (r.mode == NoteMode::arpUp || r.mode == NoteMode::arpUpDown)
+    {
+        uint8_t steps[kMaxVoices];
+        const ChordType t = x.chord == ChordType::single ? ChordType::triad : x.chord;
+        const uint8_t per = chordSteps(t, steps);
+        for (int i = 0; i < per * x.range && n < max; i++)
+            notes[n++] = noteFor(steps[i % per] + len * (i / per));
+    }
+    else
+    {
+        for (int d = 0; d < len * x.range && n < max; d++)
+            notes[n++] = noteFor(d);
+    }
+    return n;
 }
 
 int8_t Engine::getLaneStep(int ch, LaneKind k) const

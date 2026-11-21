@@ -190,7 +190,7 @@ void cEuclidParams::update()
     if (view == View::notes)
     {
         int8_t next = running ? static_cast<int8_t>(euclidEngine.getNextNoteIndex(selectedChannel)) : -1;
-        if (next != lastNextNote)
+        if (next != lastNextNote || euclidEngine.getNoteCount(selectedChannel) != lastNoteCount)
             refreshNotes();
     }
 }
@@ -884,6 +884,8 @@ static void functEncoder(int16_t value)
     }
     if (EP->view == cEuclidParams::View::notes)
     {
+        if (euclidEngine.getRhythm(EP->selectedChannel).mode != euclid::NoteMode::seq)
+            return; // the notes shown come from the mode, not a list
         int16_t step = value > 0 ? 1 : -1;
         if (EP->buttons->isButtonPressed(interfaceButtonShift))
             EP->transposeNote(step * 12);
@@ -1108,7 +1110,8 @@ static void functDelete()
         EP->clearShiftStep(EP->buttons->isButtonPressed(interfaceButtonShift));
         return;
     }
-    if (EP->view != cEuclidParams::View::notes)
+    if (EP->view != cEuclidParams::View::notes ||
+        euclidEngine.getRhythm(EP->selectedChannel).mode != euclid::NoteMode::seq)
         return;
     ShiftEdits shift;
     if (EP->buttons->isButtonPressed(interfaceButtonShift))
@@ -1143,7 +1146,8 @@ static void functInsert()
         return;
     }
     ShiftEdits shift;
-    if (EP->view == cEuclidParams::View::notes)
+    if (EP->view == cEuclidParams::View::notes &&
+        euclidEngine.getRhythm(EP->selectedChannel).mode == euclid::NoteMode::seq)
         EP->duplicateNote();
 }
 
@@ -1336,7 +1340,10 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
         EP->heldPadNote[pad] = note;
         EP->heldPadChannel[pad] = x.midiChannel;
 
-        if (EP->view == cEuclidParams::View::notes)
+        // The Note page's pads add to the SEQ list; in other modes they only
+        // play (that list isn't shown or used).
+        if (EP->view == cEuclidParams::View::notes &&
+            euclidEngine.getRhythm(EP->selectedChannel).mode == euclid::NoteMode::seq)
         {
             ShiftEdits shift;
             EP->addNote(note);

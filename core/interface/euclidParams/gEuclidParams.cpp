@@ -32,6 +32,13 @@ const char* const kNoteHelp[] = {
     "Shift + Delete: clear all",
 };
 
+const char* const kPoolHelp[] = {
+    "The notes this mode plays,",
+    "the one playing lit",
+    "Mode, key and range: Params",
+    "Pads play a note to hear it",
+};
+
 const char* const kSetsHelp[] = {
     "Arrows or encoder: pick a set",
     "Key 1: save, Key 2: load",
@@ -615,6 +622,53 @@ void cEuclidParams::refreshNotes()
 
     if (view != View::notes)
         return;
+
+    // A generated mode: the notes it can play, the one it played last lit.
+    if (r.mode != euclid::NoteMode::seq)
+    {
+        uint8_t pool[32];
+        const uint8_t n = euclidEngine.getNotePool(selectedChannel, pool, 32);
+        uint8_t last[8];
+        const uint8_t played = euclidEngine.isRunning() ? euclidEngine.getLastNotes(selectedChannel, last) : 0;
+        lastNoteCount = euclidEngine.getNoteCount(selectedChannel);
+        const euclid::Key k = euclidEngine.getChannelKey(selectedChannel);
+        const euclid::Expression x = euclidEngine.getExpression(selectedChannel);
+        snprintf(noteHeaderText, sizeof(noteHeaderText), "%s  %s %s  %d oct", euclid::noteModeName(r.mode),
+                 euclid::rootName(k.root), euclid::scaleName(k.scale), x.range);
+        panelData.columns = 8;
+        panelData.cells = 32;
+        panelData.usedCells = n;
+        panelData.playingCell = -1;
+        panelData.dimCells = 0;
+        for (uint8_t i = 0; i < 32; i++)
+        {
+            if (i >= n)
+            {
+                panelData.cellText[i] = nullptr;
+                continue;
+            }
+            snprintf(poolCellText[i], sizeof(poolCellText[i]), "%s", mtNotes[pool[i] & 127]);
+            panelData.cellText[i] = poolCellText[i];
+            // Lit if it's sounding now; the rest of a chord's notes too.
+            bool lit = false;
+            for (uint8_t j = 0; j < played; j++)
+                lit |= last[j] == pool[i];
+            if (played > 0 && last[0] == pool[i])
+                panelData.playingCell = static_cast<int8_t>(i);
+            else if (played > 1 && !lit)
+                panelData.dimCells |= 1ul << i;
+        }
+        for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
+            panelData.help[i] = kPoolHelp[i];
+        panelData.cursorCell = -1;
+        display.setControlData(panel, &panelData);
+        display.refreshControl(panel);
+        return;
+    }
+    panelData.columns = kNoteColumns;
+    panelData.cells = kNoteSlots;
+    for (uint8_t i = 0; i < strEuclidPanelData::kMaxHelpLines; i++)
+        panelData.help[i] = kNoteHelp[i];
 
     if (noteCursor >= r.noteCount)
         noteCursor = r.noteCount - 1;

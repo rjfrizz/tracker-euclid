@@ -354,6 +354,8 @@ class cEuclidParams : public ModuleBase
     bool lastPending = false;
     bool lastRunning = false;
     int8_t lastNextNote = -1;
+    uint32_t lastNoteCount = 0; // generated modes: the note last lit
+    char poolCellText[32][6];
 
     // Pads held for audition, so the note-off matches the note-on.
     int16_t heldPadNote[48];
