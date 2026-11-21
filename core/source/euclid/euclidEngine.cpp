@@ -1709,7 +1709,37 @@ void Engine::setName(int ch, uint8_t index)
     if (!validChannel(ch))
         return;
     names[ch] = index < channelNameCount() ? index : 0;
+    textNames[ch][0] = 0;
     changeCount++;
+}
+
+const char* Engine::getTextName(int ch) const
+{
+    return validChannel(ch) ? textNames[ch] : "";
+}
+
+void Engine::setTextName(int ch, const char* text)
+{
+    if (!validChannel(ch))
+        return;
+    size_t n = 0;
+    while (text != nullptr && text[n] != 0 && n < static_cast<size_t>(kTextNameLength))
+    {
+        const char c = text[n];
+        textNames[ch][n] = c >= 32 && c < 127 ? c : ' ';
+        n++;
+    }
+    while (n > 0 && textNames[ch][n - 1] == ' ')
+        n--;
+    textNames[ch][n] = 0;
+    changeCount++;
+}
+
+const char* Engine::getNameShown(int ch) const
+{
+    if (!validChannel(ch))
+        return nullptr;
+    return textNames[ch][0] != 0 ? textNames[ch] : channelName(names[ch]);
 }
 
 void Engine::setMutedAtLaunch(int ch, bool muted)

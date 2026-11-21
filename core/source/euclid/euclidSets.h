@@ -33,9 +33,13 @@
 //           phase, target, steps, pulses, rotation, division, autoRotate,
 //           length, cc, 1 reserved
 //        104 Shift: on, length, advance, units, then 32 steps (value + 64)
-//   1136 CRC-32 (little-endian) of bytes 0-1135
+//        140 text name (10 characters, 0-padded, then a 0; shown instead of
+//            the list name when it isn't empty)
+//        151 reserved
+//   1232 CRC-32 (little-endian) of bytes 0-1231
 //
 // Older files still load, and the fields they don't have get defaults:
+//   version 7 (1140 bytes: 140-byte records, CRC at 1136): no text names.
 //   version 6 (852 bytes: 104-byte records, CRC at 848): no Shift.
 //   version 5 (596 bytes: 72-byte records, CRC at 592): two modulators of
 //     12 bytes (dest, shape, amount + 128, steps, pulses, rotation, division,
@@ -55,13 +59,18 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 7;
+constexpr uint8_t kSetVersion = 8;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
-constexpr size_t kSetChannelSize = 140;
+constexpr size_t kSetChannelSize = 152;
+constexpr size_t kSetTextNameOffset = 140;
 constexpr size_t kSetShiftOffset = 104;
 constexpr size_t kSetModSize = 14;
 constexpr size_t kSetFileSize = kSetHeaderSize + kChannels * kSetChannelSize + 4;
+
+// Version 7, read only.
+constexpr size_t kSetV7ChannelSize = 140;
+constexpr size_t kSetV7FileSize = kSetHeaderSize + kChannels * kSetV7ChannelSize + 4;
 
 // Version 6, read only.
 constexpr size_t kSetV6ChannelSize = 104;

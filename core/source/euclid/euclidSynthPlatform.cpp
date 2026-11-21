@@ -301,7 +301,11 @@ void finishRequest()
                  heardPort == 0 ? "DIN" : "USB", static_cast<unsigned long>(heard), heardStart[0], heardStart[1],
                  heardStart[2], heardStart[3], heardStart[4], heardStart[5]);
     else if (patchName[0] != 0)
+    {
         snprintf(eventText, sizeof(eventText), "Got \"%s\"", patchName);
+        // The patch names the channel (choosing a list name replaces it).
+        euclidEngine.setTextName(requestChannel, patchName);
+    }
     else
         snprintf(eventText, sizeof(eventText), "Got the patch");
     requestChannel = -1;

@@ -95,6 +95,8 @@ static void fill(Engine& e)
     e.setGlobalKey(Key{5, 11});
     for (int ch = 0; ch < kChannels; ch++)
         e.setName(ch, static_cast<uint8_t>(ch * 4));
+    e.setTextName(2, "E.PIANO 1");
+    e.setTextName(5, "Fantasia");
 }
 
 static bool sameSettings(const Engine& a, const Engine& b)
@@ -117,6 +119,8 @@ static bool sameSettings(const Engine& a, const Engine& b)
             xa.range != xb.range || xa.seqKeyMode != xb.seqKeyMode || xa.transpose != xb.transpose ||
             ra.homeRoot != rb.homeRoot || ra.homeScale != rb.homeScale || ra.tieMask != rb.tieMask ||
             xa.chord != xb.chord || xa.chordChance != xb.chordChance)
+            return false;
+        if (a.getName(ch) != b.getName(ch) || std::strcmp(a.getTextName(ch), b.getTextName(ch)) != 0)
             return false;
         if (xa.shift.on != xb.shift.on || xa.shift.length != xb.shift.length ||
             xa.shift.advance != xb.shift.advance || xa.shift.units != xb.shift.units)
@@ -157,12 +161,38 @@ static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
         v3[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
 }
 
+// A version 7 file: the same records without the text names.
+static void testLoadsVersion7()
+{
+    Engine a = makeEngine();
+    fill(a);
+    uint8_t v8[kSetFileSize];
+    serializeSet(a, 2, v8, sizeof(v8));
+    uint8_t v7[kSetV7FileSize];
+    std::memcpy(v7, v8, kSetHeaderSize);
+    v7[4] = 7;
+    for (int ch = 0; ch < kChannels; ch++)
+        std::memcpy(v7 + kSetHeaderSize + ch * kSetV7ChannelSize, v8 + kSetHeaderSize + ch * kSetChannelSize,
+                    kSetV7ChannelSize);
+    uint32_t crc = crc32(v7, kSetV7FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v7[kSetV7FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    b.setTextName(2, "old");
+    CHECK(deserializeSet(b, v7, sizeof(v7)));
+    CHECK(b.getTextName(2)[0] == 0 && b.getName(2) == a.getName(2));
+    CHECK(b.getExpression(4).shift.length == a.getExpression(4).shift.length);
+    CHECK(std::strcmp(a.getNameShown(2), "E.PIANO 1") == 0);
+    CHECK(b.getNameShown(0) == nullptr); // name 0 is none
+}
+
 // A version 5 file, built by hand: two 12-byte modulators per channel.
 static void testLoadsVersion6()
 {
     Engine a = makeEngine();
     fill(a);
-    uint8_t v7[kSetFileSize];
+    uint8_t v7[kSetFileSize]; // the current version: the first 104 bytes of each record are the same
     serializeSet(a, 2, v7, sizeof(v7));
     uint8_t v6[kSetV6FileSize];
     std::memcpy(v6, v7, kSetHeaderSize);
@@ -363,7 +393,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 1140);
+    CHECK(kSetFileSize == 1236);
+    CHECK(kSetV7FileSize == 1140);
     CHECK(kSetV6FileSize == 852);
     CHECK(kSetV5FileSize == 596);
     CHECK(kSetV4FileSize == 404);
@@ -447,6 +478,7 @@ int main()
     testLoadsVersion3();
     testLoadsVersion4();
     testLoadsVersion5();
+    testLoadsVersion7();
     testLoadsVersion6();
     testRejectsBadData();
     testLoadWhilePlayingWaitsForBar();

@@ -424,7 +424,14 @@ class Engine
 
     // A channel's name (channelName() index). Just a label: never staged.
     uint8_t getName(int ch) const;
-    void setName(int ch, uint8_t index);
+    void setName(int ch, uint8_t index); // also clears a text name
+    // A name of its own (a synth patch's, say), which shows instead of the
+    // list's. Empty for none.
+    static constexpr int kTextNameLength = 10;
+    const char* getTextName(int ch) const;
+    void setTextName(int ch, const char* text);
+    // What the channel is called: its text name, the list name, or nullptr.
+    const char* getNameShown(int ch) const;
 
     // While true, every edit is committed as it's made (Shift held).
     void setImmediate(bool immediate) { immediateEdits = immediate; }
@@ -576,6 +583,7 @@ class Engine
     volatile uint32_t captureCount = 0;
 
     uint8_t names[kChannels] = {};
+    char textNames[kChannels][kTextNameLength + 1] = {};
 
     Key globalStaged;
     Key globalPending;

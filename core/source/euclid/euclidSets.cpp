@@ -120,6 +120,9 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         sh[3] = static_cast<uint8_t>(x.shift.units);
         for (int i = 0; i < kShiftSteps; i++)
             sh[4 + i] = static_cast<uint8_t>(x.shift.step[i] + 64);
+        const char* text = engine.getTextName(ch);
+        for (int i = 0; i < Engine::kTextNameLength && text[i] != 0; i++)
+            p[kSetTextNameOffset + i] = static_cast<uint8_t>(text[i]);
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -169,6 +172,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV6FileSize;
     }
     else if (version == 7)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV7ChannelSize;
+        fileSize = kSetV7FileSize;
+    }
+    else if (version == 8)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -308,6 +317,13 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         // in a bad state.
         engine.setRhythm(ch, r);
         engine.setExpression(ch, x);
+
+        // After setName (which clears it): the text name, from version 8.
+        char text[Engine::kTextNameLength + 1] = {};
+        if (version >= 8)
+            for (int i = 0; i < Engine::kTextNameLength; i++)
+                text[i] = static_cast<char>(p[kSetTextNameOffset + i]);
+        engine.setTextName(ch, text);
         engine.setMutedAtLaunch(ch, x.muted);
     }
 

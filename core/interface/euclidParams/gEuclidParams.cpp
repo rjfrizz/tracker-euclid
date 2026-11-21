@@ -240,7 +240,7 @@ void cEuclidParams::refreshParam(uint8_t param)
     {
         case paramName:
         {
-            const char* name = euclid::channelName(euclidEngine.getName(selectedChannel));
+            const char* name = euclidEngine.getNameShown(selectedChannel);
             snprintf(t, n, "%s", name != nullptr ? name : "-");
             break;
         }
@@ -504,9 +504,10 @@ void cEuclidParams::refreshChannels()
         euclid::Rhythm r = euclidEngine.getRhythm(i);
         euclid::Expression x = euclidEngine.getExpression(i);
 
-        const char* name = euclid::channelName(euclidEngine.getName(i));
+        // Patch names can be long: the label shows the first 8 letters.
+        const char* name = euclidEngine.getNameShown(i);
         if (name != nullptr)
-            snprintf(channelText[i], sizeof(channelText[i]), "%d %s", i + 1, name);
+            snprintf(channelText[i], sizeof(channelText[i]), "%d %.8s", i + 1, name);
         else
             snprintf(channelText[i], sizeof(channelText[i]), "Ch %d", i + 1);
         if (!x.enabled)
