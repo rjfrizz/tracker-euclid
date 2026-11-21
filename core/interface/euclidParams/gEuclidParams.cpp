@@ -129,8 +129,13 @@ void cEuclidParams::setView(View v)
 {
     if (v != View::synth)
         synthPatches = false;
-    // The Synth page (Instr) in the Instr key's amber, apart from Params.
-    panelData.accent = v == View::synth ? 0xF2A33A : 0;
+    // A colour per page, like its key: Synth (Instr) amber, Note light
+    // green, Mod (Fx 1) light purple, Shift (Fx 2) light blue.
+    panelData.accent = v == View::synth  ? 0xF2A33A
+                     : v == View::notes  ? 0x9AE6A0
+                     : v == View::mod    ? 0xC8A8F8
+                     : v == View::shift  ? 0x8CCCFF
+                                         : 0;
     // The lines and the chain take the whole width; everywhere else the ring
     // is on the left.
     const bool wide = v == View::lines || v == View::chain;

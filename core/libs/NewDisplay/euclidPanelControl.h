@@ -41,7 +41,7 @@ struct strEuclidPanelData
     bool chainOn = false;
     bool chainLoop = true;
 
-    // A page's own colour for its bar, frame and names (0: the theme's).
+    // A page's own colour for its bar and the selected row's frame (0: none).
     uint32_t accent = 0;
 
     // Lanes mode: a line per channel, a cell per step, pulses filled.

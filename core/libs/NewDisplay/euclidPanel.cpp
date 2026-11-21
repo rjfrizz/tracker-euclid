@@ -122,10 +122,6 @@ void cEuclidPanel::drawList()
     else if (data->firstRow > rows - visible)
         data->firstRow = static_cast<uint8_t>(rows - visible);
 
-    // A page's colour (the Synth page's amber, like its key) along the top.
-    if (data->accent != 0)
-        fillRect(posX, posY - 8, width, 4, data->accent);
-
     for (uint8_t row = 0; row < visible && data->firstRow + row < rows; row++)
     {
         const uint8_t i = static_cast<uint8_t>(data->firstRow + row);
@@ -136,7 +132,7 @@ void cEuclidPanel::drawList()
             drawOutline(posX, y + 2, width, kRowH - 4, data->accent != 0 ? data->accent : theme.frameColors[0]);
 
         bool dim = data->dimRows & (1ul << i);
-        API_COLOR(dim ? theme.inactiveLabelsColors[0] : (data->accent != 0 ? data->accent : theme.activeLabelsColors[0]));
+        API_COLOR(dim ? theme.inactiveLabelsColors[0] : theme.activeLabelsColors[0]);
         if (data->names[i] != nullptr)
             API_CMD_TEXT(posX + kPad, cy, fonts[kFontBold].handle, OPT_CENTERY, data->names[i]);
         if (data->stagedRows & (1ul << i))
@@ -269,6 +265,10 @@ void cEuclidPanel::update()
 {
     if (data == nullptr)
         return;
+
+    // A page's colour, like its key, along the top (Synth, Note, Mod, Shift).
+    if (data->accent != 0)
+        fillRect(posX, posY - 8, width, 4, data->accent);
 
     if (data->mode == strEuclidPanelData::Mode::list)
         drawList();
