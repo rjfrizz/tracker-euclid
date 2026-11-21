@@ -404,8 +404,9 @@ void cEuclidPanel::drawBlocks()
 void cEuclidPanel::drawLanes()
 {
     const Theme& theme = display.getTheme();
-    const int16_t labelW = 92;
-    const int16_t shiftW = 110; // the Shift lanes' values, at the right
+    const bool compact = data->lanesCompact;
+    const int16_t labelW = compact ? 70 : 92;
+    const int16_t shiftW = compact ? 0 : 110; // the Shift lanes' values, at the right
     const int16_t laneH = height / strEuclidPanelData::kLanes;
     const int16_t cellW = (width - labelW - shiftW - 4) / 32;
     for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
@@ -417,15 +418,19 @@ void cEuclidPanel::drawLanes()
             drawOutline(posX, y + 2, width, laneH - 4, theme.frameColors[0]);
         API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
         if (l.name != nullptr)
-            API_CMD_TEXT(posX + 8, y + 12, fonts[kFontBold].handle, OPT_CENTERY, l.name);
-        if (l.info != nullptr)
+            API_CMD_TEXT(posX + 8, compact ? cy : y + 12, fonts[kFontBold].handle, OPT_CENTERY, l.name);
+        if (compact)
+        {
+            // Just the name, centred, and the steps.
+        }
+        else if (l.info != nullptr)
         {
             API_COLOR(l.pending ? theme.orange : theme.inactiveLabelsColors[0]);
             API_CMD_TEXT(posX + 8, cy + 2, fonts[kFontBold].handle, OPT_CENTERY, l.info);
         }
 
         // The modulators, as four short bars under the name.
-        for (uint8_t k = 0; k < 4; k++)
+        for (uint8_t k = 0; k < 4 && !compact; k++)
         {
             const int16_t bx = posX + 8 + k * 20;
             const int16_t by = y + laneH - 10;
@@ -461,7 +466,7 @@ void cEuclidPanel::drawLanes()
         }
 
         // The Shift lanes' values, only while they're playing.
-        if (l.shift != nullptr)
+        if (l.shift != nullptr && !compact)
         {
             API_COLOR(kShiftColor);
             API_CMD_TEXT(posX + width - shiftW + 6, cy, fonts[kFontBold].handle, OPT_CENTERY, l.shift);

@@ -77,6 +77,18 @@ void cEuclidParams::initDisplayControls()
     pp.data = &panelData;
     panel = display.createControl<cEuclidPanel>(&pp);
 
+    // The Master page shows every channel's line here instead of the ring.
+    strControlProperties mp;
+    mp.x = 10;
+    mp.y = 44;
+    mp.w = 400;
+    mp.h = 376;
+    mp.style = 0; // hidden until the Master page
+    miniData.mode = strEuclidPanelData::Mode::lanes;
+    miniData.lanesCompact = true;
+    mp.data = &miniData;
+    miniLines = display.createControl<cEuclidPanel>(&mp);
+
     for (uint8_t i = 0; i < 8; i++)
     {
         strControlProperties p;
@@ -123,6 +135,18 @@ void cEuclidParams::setView(View v)
     // is on the left.
     const bool wide = v == View::lines || v == View::chain;
     const bool wasWide = view == View::lines || view == View::chain;
+    // The Master (Global) page: the small line view instead of the ring.
+    if (v == View::global)
+    {
+        display.setControlHide(ring);
+        display.setControlShow(miniLines);
+    }
+    else
+    {
+        display.setControlHide(miniLines);
+        if (!wide)
+            display.setControlShow(ring);
+    }
     if (wide)
     {
         display.setControlHide(ring);
@@ -337,6 +361,24 @@ void cEuclidParams::refreshLines()
     if (view != View::lines)
         return;
     panelData.mode = strEuclidPanelData::Mode::lanes;
+    fillLanes(panelData);
+    lastLinesState = linesState();
+    lastLinesMs = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+    display.refreshControl(panel);
+}
+
+void cEuclidParams::refreshMiniLines()
+{
+    if (view != View::global)
+        return;
+    fillLanes(miniData);
+    lastLinesState = linesState();
+    lastLinesMs = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
+    display.refreshControl(miniLines);
+}
+
+void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
+{
     const bool running = euclidEngine.isRunning();
     for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
     {
@@ -412,9 +454,6 @@ void cEuclidParams::refreshLines()
         }
     }
     panelData.laneSelected = static_cast<int8_t>(selectedChannel);
-    lastLinesState = linesState();
-    lastLinesMs = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
-    display.refreshControl(panel);
 }
 
 // The encoder on the lines: the selected channel's pulses, or with Shift
@@ -815,8 +854,12 @@ void cEuclidParams::refreshChannels()
 
 void cEuclidParams::refreshRing()
 {
-    if (view == View::lines || view == View::chain)
+    if (view == View::lines || view == View::chain || view == View::global)
+    {
+        if (view == View::global)
+            refreshMiniLines();
         return; // no ring on those pages
+    }
     const uint8_t ch = selectedChannel;
     euclid::Rhythm active = euclidEngine.getActiveRhythm(ch);
     euclid::Rhythm live = euclidEngine.getLiveRhythm(ch);

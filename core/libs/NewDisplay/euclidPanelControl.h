@@ -65,6 +65,7 @@ struct strEuclidPanelData
         int16_t mod[4] = {};
     } lanes[kLanes];
     int8_t laneSelected = -1;
+    bool lanesCompact = false; // the Master page's small copy: names and steps only
 
     // List mode.
     uint8_t rows = 0;

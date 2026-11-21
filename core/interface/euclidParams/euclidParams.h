@@ -346,6 +346,11 @@ class cEuclidParams : public ModuleBase
 
     strEuclidRingData ringData;
     strEuclidPanelData panelData;
+    // The Master page's small line view, where the ring usually is.
+    strEuclidPanelData miniData;
+    hControl miniLines = -1;
+    void fillLanes(strEuclidPanelData& d);
+    void refreshMiniLines();
 
     char ringText[16];
     char ringText2[32];

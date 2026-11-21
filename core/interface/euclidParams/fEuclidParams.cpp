@@ -132,9 +132,14 @@ void cEuclidParams::update()
 
     // The lines follow the steps being played (checked cheaply: only a
     // change of step redraws them).
-    if (view == View::lines && linesState() != lastLinesState &&
+    if ((view == View::lines || view == View::global) && linesState() != lastLinesState &&
         TrackerImpl::getInstance()->getPlatform()->getTimer()->millis() - lastLinesMs >= 30)
-        refreshLines();
+    {
+        if (view == View::lines)
+            refreshLines();
+        else
+            refreshMiniLines();
+    }
 
     // The chain page follows the step and bar being played.
     if (view == View::chain)
