@@ -15,7 +15,7 @@ constexpr int16_t kPad = 12;
 constexpr int16_t kHeaderH = 44;
 constexpr int16_t kCellH = 54;
 constexpr int16_t kHelpLineH = 24;
-constexpr int16_t kMeterAreaH = 60;
+constexpr int16_t kMeterAreaH = 40; // above the list, so A-D don't look like channel keys
 } // namespace
 
 cEuclidPanel::cEuclidPanel(strControlProperties* properties)
@@ -99,7 +99,9 @@ void cEuclidPanel::drawList()
     const Theme& theme = display.getTheme();
     const uint8_t rows = data->rows < strEuclidPanelData::kMaxRows ? data->rows
                                                                    : strEuclidPanelData::kMaxRows;
-    const int16_t listHeight = data->meterCount > 0 ? height - kMeterAreaH : height;
+    const int16_t meterH = data->meterCount > 0 ? kMeterAreaH : 0;
+    const int16_t listHeight = height - meterH;
+    const int16_t listY = posY + meterH;
     const uint8_t visible = static_cast<uint8_t>(listHeight / kRowH);
 
     // Scroll just far enough to keep the focused row on screen.
@@ -118,7 +120,7 @@ void cEuclidPanel::drawList()
     for (uint8_t row = 0; row < visible && data->firstRow + row < rows; row++)
     {
         const uint8_t i = static_cast<uint8_t>(data->firstRow + row);
-        int16_t y = posY + row * kRowH;
+        int16_t y = listY + row * kRowH;
         int16_t cy = y + kRowH / 2;
 
         if (i == data->focusRow)
@@ -135,7 +137,7 @@ void cEuclidPanel::drawList()
                          data->values[i]);
     }
 
-    drawMeters(posY + listHeight + 8);
+    drawMeters(posY);
 
     // Small marks at the right edge when there are more rows above or below.
     if (rows > visible)
@@ -144,9 +146,9 @@ void cEuclidPanel::drawList()
         API_POINT_SIZE(16 * 3);
         API_BEGIN(FTPOINTS);
         if (data->firstRow > 0)
-            API_VERTEX2F(posX + width + 4, posY + 6);
+            API_VERTEX2F(posX + width + 4, listY + 6);
         if (data->firstRow + visible < rows)
-            API_VERTEX2F(posX + width + 4, posY + visible * kRowH - 6);
+            API_VERTEX2F(posX + width + 4, listY + visible * kRowH - 6);
         API_END();
     }
 }
@@ -169,7 +171,7 @@ void cEuclidPanel::drawMeters(int16_t y)
         const int16_t x = posX + i * cellW;
         const int16_t barX = x + labelW;
         const int16_t barW = cellW - labelW - 10;
-        const int16_t barY = y + 14;
+        const int16_t barY = y + 10;
 
         char label[2] = { static_cast<char>('A' + i), 0 };
         API_COLOR(data->meterActive[i] ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);

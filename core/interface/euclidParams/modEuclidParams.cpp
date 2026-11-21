@@ -262,7 +262,7 @@ void cEuclidParams::refreshMod()
     updateModMeters(true);
 }
 
-// The meters under the list: all four modulators, the edited one outlined.
+// The meters above the list: all four modulators, the edited one outlined.
 void cEuclidParams::updateModMeters(bool force)
 {
     if (view != View::mod)
