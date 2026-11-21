@@ -135,21 +135,20 @@ void cEuclidParams::setView(View v)
     // is on the left.
     const bool wide = v == View::lines || v == View::chain;
     const bool wasWide = view == View::lines || view == View::chain;
-    // The Master (Global) page: the small line view instead of the ring.
-    if (v == View::global)
-    {
-        display.setControlHide(ring);
-        display.setControlShow(miniLines);
-    }
+    // The ring shows on every page but the wide ones and Master (Global),
+    // which has the small line view in its place. A control's last picture
+    // stays until it's redrawn, so both are redrawn after a change.
+    const bool ringShown = !wide && v != View::global;
+    if (ringShown)
+        display.setControlShow(ring);
     else
-    {
+        display.setControlHide(ring);
+    if (v == View::global)
+        display.setControlShow(miniLines);
+    else
         display.setControlHide(miniLines);
-        if (!wide)
-            display.setControlShow(ring);
-    }
     if (wide)
     {
-        display.setControlHide(ring);
         display.setControlPosition(panel, 10, 40);
         display.setControlSize(panel, 780, 380);
     }
@@ -157,8 +156,9 @@ void cEuclidParams::setView(View v)
     {
         display.setControlPosition(panel, 430, 40);
         display.setControlSize(panel, 360, 380);
-        display.setControlShow(ring);
     }
+    display.refreshControl(ring);
+    display.refreshControl(miniLines);
     view = v;
     armedAction = SetAction::none;
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
