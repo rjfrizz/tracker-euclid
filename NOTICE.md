@@ -53,3 +53,8 @@ Polyend Tracker Community Edition (CE) incorporates or links against the followi
 * **Location**: `euclid-synths/` (synth definition files and the scripts that generate them)
 * **License**: Apache License 2.0 (`euclid-synths/LICENSE-Edisyn.txt`)
 * **Copyright**: Copyright 2017 by Sean Luke. Parameter names, ranges, numbering and choice lists are derived from Edisyn's editors (https://github.com/eclab/edisyn).
+
+## 11. jv1080-sysex-manager (JV-1080 parameter tables for the EUCLID synth editor)
+
+* **License**: MIT License (`euclid-synths/LICENSE-jv1080-sysex-manager.txt`)
+* **Copyright**: Copyright (c) 2025 Lt-Blmr. `euclid-synths/JV1080.syn` is generated from `RolandJV1080.ini` in https://github.com/sonic-codex/jv1080-sysex-manager, a transcription of Roland's JV-1080 MIDI implementation tables.

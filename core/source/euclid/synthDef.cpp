@@ -153,6 +153,8 @@ bool parseToken(const char* w, TemplateToken& t)
         t.type = Token::paramHigh;
     else if (strcmp(w, "pl") == 0)
         t.type = Token::paramLow;
+    else if (strcmp(w, "a3") == 0)
+        t.type = Token::address3;
     else if (strcmp(w, "a2") == 0)
         t.type = Token::address2;
     else if (strcmp(w, "a1") == 0)
@@ -165,6 +167,10 @@ bool parseToken(const char* w, TemplateToken& t)
         t.type = Token::valueHigh;
     else if (strcmp(w, "vl") == 0)
         t.type = Token::valueLow;
+    else if (strcmp(w, "n1") == 0)
+        t.type = Token::nibbleHigh;
+    else if (strcmp(w, "n0") == 0)
+        t.type = Token::nibbleLow;
     else if (strcmp(w, "[") == 0)
         t.type = Token::sumStart;
     else if (strcmp(w, "]") == 0)
@@ -225,6 +231,7 @@ const char* readTokens(Line& line, Template& t, Use use)
                 break;
             case Token::literal:
             case Token::device: break;
+            case Token::address3:
             case Token::address2:
             case Token::address1:
             case Token::address0: break;
@@ -245,18 +252,19 @@ const char* readTokens(Line& line, Template& t, Use use)
 // Roland addresses are 7 bits a byte; this makes them plain numbers.
 uint32_t linearAddress(uint32_t a)
 {
-    return ((a >> 16) & 0x7F) * 16384u + ((a >> 8) & 0x7F) * 128u + (a & 0x7F);
+    return ((a >> 24) & 0x7F) * 2097152u + ((a >> 16) & 0x7F) * 16384u + ((a >> 8) & 0x7F) * 128u + (a & 0x7F);
 }
 
 uint32_t printedAddress(uint32_t linear)
 {
-    return ((linear / 16384u) & 0x7F) << 16 | ((linear / 128u) & 0x7F) << 8 | (linear & 0x7F);
+    return ((linear / 2097152u) & 0x7F) << 24 | ((linear / 16384u) & 0x7F) << 16 | ((linear / 128u) & 0x7F) << 8 |
+           (linear & 0x7F);
 }
 
 bool hasAddress(const Template& t)
 {
     for (uint8_t i = 0; i < t.count; i++)
-        if (t.tokens[i].type >= Token::address2 && t.tokens[i].type <= Token::address0)
+        if (t.tokens[i].type >= Token::address3 && t.tokens[i].type <= Token::address0)
             return true;
     return false;
 }
@@ -285,7 +293,10 @@ size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* 
             case Token::paramLow7: b = static_cast<uint8_t>(n & 0x7F); break;
             case Token::paramHigh: b = static_cast<uint8_t>((n >> 7) & 0x7F); break;
             case Token::paramLow: b = static_cast<uint8_t>(n & 0x7F); break;
+            case Token::address3: b = static_cast<uint8_t>((n >> 24) & 0x7F); break;
             case Token::address2: b = static_cast<uint8_t>((n >> 16) & 0x7F); break;
+            case Token::nibbleHigh: b = static_cast<uint8_t>((v >> 4) & 0x0F); break;
+            case Token::nibbleLow: b = static_cast<uint8_t>(v & 0x0F); break;
             case Token::address1: b = static_cast<uint8_t>((n >> 8) & 0x7F); break;
             case Token::address0: b = static_cast<uint8_t>(n & 0x7F); break;
             case Token::value7: b = static_cast<uint8_t>(v & 0x7F); break;
@@ -439,10 +450,25 @@ bool parse(const char* text, size_t length, Definition& d)
             if (d.dumpCount >= kMaxDumps)
                 return fail(d, lineNumber, "too many dumps");
             Dump& dump = d.dumps[d.dumpCount];
-            int t = line.word(w, sizeof(w)) ? findTemplate(d, w) : -1;
-            if (t < 0)
+            // One template, or several joined by +.
+            if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "dump: unknown template");
-            dump.templ = static_cast<uint8_t>(t);
+            dump.templMask = 0;
+            bool first = true;
+            for (char* name = w; name != nullptr && *name != 0;)
+            {
+                char* plus = strchr(name, '+');
+                if (plus != nullptr)
+                    *plus = 0;
+                int t = findTemplate(d, name);
+                if (t < 0)
+                    return fail(d, lineNumber, "dump: unknown template");
+                if (first)
+                    dump.templ = static_cast<uint8_t>(t);
+                first = false;
+                dump.templMask = static_cast<uint16_t>(dump.templMask | (1u << t));
+                name = plus != nullptr ? plus + 1 : nullptr;
+            }
             if (const char* e = readTokens(line, dump.pattern, useDump))
                 return fail(d, lineNumber, e);
             dump.hasAddress = hasAddress(dump.pattern);
@@ -539,6 +565,7 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.stride = 0;
             prm.reload = false;
             prm.map = 0xFF;
+            prm.nibbles = 0;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -599,6 +626,8 @@ bool parse(const char* text, size_t length, Definition& d)
                     prm.stride = static_cast<uint16_t>(v);
                 else if (strcmp(w, "reload") == 0)
                     prm.reload = v != 0;
+                else if (strcmp(w, "nibbles") == 0 && (v == 0 || v == 2))
+                    prm.nibbles = static_cast<uint8_t>(v);
                 else
                     return fail(d, lineNumber, "param: unknown option");
             }
@@ -673,6 +702,7 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
             {
                 case Token::literal: ok = msg[pos++] == tok.value; break;
                 case Token::device: ok = msg[pos++] == static_cast<uint8_t>(tok.value + device - 1); break;
+                case Token::address3: address |= static_cast<uint32_t>(msg[pos++]) << 24; break;
                 case Token::address2: address |= static_cast<uint32_t>(msg[pos++]) << 16; break;
                 case Token::address1: address |= static_cast<uint32_t>(msg[pos++]) << 8; break;
                 case Token::address0: address |= msg[pos++]; break;
@@ -717,21 +747,21 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
 {
     if (dump.dump >= d.dumpCount)
         return 0;
-    const uint8_t templ = d.dumps[dump.dump].templ;
+    const uint16_t mask = d.dumps[dump.dump].templMask;
     int count = 0;
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
         const Param& p = d.params[i];
-        if (p.templ != templ)
+        if (!((mask >> p.templ) & 1u))
             continue;
         long at = dumpIndex(d, dump, p.number, part, p.stride);
-        if (at < 0)
+        if (at < 0 || (p.nibbles == 2 && static_cast<size_t>(at + 1) >= dump.length))
             continue;
-        int v = dump.data[at] - p.send;
+        const int raw = p.nibbles == 2 ? ((dump.data[at] & 0x0F) << 4) | (dump.data[at + 1] & 0x0F) : dump.data[at];
+        int v = raw - p.send;
         if (p.map != 0xFF)
         {
             // Back from the number to the value that sends it.
-            const int raw = dump.data[at];
             v = p.min;
             for (int k = 0; k < d.mapLength[p.map]; k++)
                 if (d.mapPool[d.mapFirst[p.map] + k] == raw)
@@ -762,6 +792,7 @@ void rewrite(const Template& t, uint8_t* msg, size_t length, uint8_t device, uin
         switch (tok.type)
         {
             case Token::device: msg[pos++] = static_cast<uint8_t>(tok.value + device - 1); break;
+            case Token::address3: msg[pos++] = static_cast<uint8_t>((address >> 24) & 0x7F); break;
             case Token::address2: msg[pos++] = static_cast<uint8_t>((address >> 16) & 0x7F); break;
             case Token::address1: msg[pos++] = static_cast<uint8_t>((address >> 8) & 0x7F); break;
             case Token::address0: msg[pos++] = static_cast<uint8_t>(address & 0x7F); break;
@@ -783,17 +814,26 @@ bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t 
     if (!matchDump(d, msg, length, device, dump))
         return false;
     uint8_t* data = msg + (dump.data - msg);
-    const uint8_t templ = d.dumps[dump.dump].templ;
+    const uint16_t mask = d.dumps[dump.dump].templMask;
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
         const Param& p = d.params[i];
-        if (p.templ != templ)
+        if (!((mask >> p.templ) & 1u))
             continue;
         long at = dumpIndex(d, dump, p.number, part, p.stride);
-        if (at < 0)
+        if (at < 0 || (p.nibbles == 2 && static_cast<size_t>(at + 1) >= dump.length))
             continue;
         int v = values[i] < p.min ? p.min : (values[i] > p.max ? p.max : values[i]);
-        data[at] = static_cast<uint8_t>((v + p.send) & 0x7F);
+        int raw = v + p.send;
+        if (p.map != 0xFF)
+            raw = v - p.min < d.mapLength[p.map] ? d.mapPool[d.mapFirst[p.map] + v - p.min] : 0;
+        if (p.nibbles == 2)
+        {
+            data[at] = static_cast<uint8_t>((raw >> 4) & 0x0F);
+            data[at + 1] = static_cast<uint8_t>(raw & 0x0F);
+        }
+        else
+            data[at] = static_cast<uint8_t>(raw & 0x7F);
     }
     rewrite(d.dumps[dump.dump].pattern, msg, length, device, dump.address);
     return true;
@@ -812,7 +852,7 @@ bool moveDump(const Definition& d, uint8_t* msg, size_t length, uint8_t fromDevi
         // The distance between parts of the params this dump holds.
         uint16_t stride = d.partStride;
         for (uint16_t i = 0; i < d.paramCount; i++)
-            if (d.params[i].templ == pattern.templ &&
+            if (((pattern.templMask >> d.params[i].templ) & 1u) &&
                 dumpIndex(d, dump, d.params[i].number, fromPart, d.params[i].stride) >= 0)
             {
                 stride = d.params[i].stride != 0 ? d.params[i].stride : d.partStride;
@@ -835,7 +875,8 @@ bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part)
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
         const Param& p = d.params[i];
-        if (p.reload && p.templ == d.dumps[dump.dump].templ && dumpIndex(d, dump, p.number, part, p.stride) >= 0)
+        if (p.reload && ((d.dumps[dump.dump].templMask >> p.templ) & 1u) &&
+            dumpIndex(d, dump, p.number, part, p.stride) >= 0)
             return true;
     }
     return false;

@@ -446,6 +446,42 @@ static void testValueMap()
     CHECK(!parse(b, std::strlen(b), bad));
 }
 
+// The JV-1080: 4-byte addresses, two-nibble values, one dump for both.
+static void testJv1080Shapes()
+{
+    auto d = load("synth \"JV\"\n"
+                  "template dt1 F0 41 d+10 6A 12 [ a3 a2 a1 a0 v ] F7\n"
+                  "template dt1n F0 41 d+10 6A 12 [ a3 a2 a1 a0 n1 n0 ] F7\n"
+                  "request F0 41 d+10 6A 11 [ 03 00 10 00 00 00 01 01 ] F7\n"
+                  "dump dt1+dt1n F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7\n"
+                  "group \"T1\"\n"
+                  "param dt1 0x03001000 \"Tone switch\" 0 1\n"
+                  "param dt1n 0x03001003 \"Wave number\" 0 254 nibbles=2 show=1\n"
+                  "param dt1 0x03001100 \"Reverb send\" 0 127\n");
+    uint8_t m[kMaxMessage];
+    size_t n = buildMessage(*d, 1, 200, 1, 1, m, sizeof(m)); // 200 = C 8
+    CHECK(n == 13 && m[5] == 0x03 && m[6] == 0x00 && m[7] == 0x10 && m[8] == 0x03 && m[9] == 0x0C && m[10] == 0x08);
+    CHECK(m[11] == rolandChecksum(m + 5, 6));
+    n = buildRequest(*d, 0, 1, 1, m, sizeof(m));
+    CHECK(n == 15 && m[13] == rolandChecksum(m + 5, 8));
+
+    // A 129-byte tone: offset 0x80 is address 03 00 11 00.
+    std::vector<uint8_t> body = { 0x03, 0x00, 0x10, 0x00 };
+    for (int i = 0; i < 129; i++)
+        body.push_back(static_cast<uint8_t>(i == 0 ? 1 : (i == 3 ? 0x0C : (i == 4 ? 0x08 : (i == 128 ? 99 : 0)))));
+    std::vector<uint8_t> msg = { 0xF0, 0x41, 0x10, 0x6A, 0x12 };
+    msg.insert(msg.end(), body.begin(), body.end());
+    msg.push_back(rolandChecksum(body.data(), body.size()));
+    msg.push_back(0xF7);
+    DumpData dd;
+    int16_t values[3] = { -1, -1, -1 };
+    CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.length == 129 && dd.address == 0x03001000);
+    CHECK(applyDump(*d, dd, 1, values) == 3 && values[0] == 1 && values[1] == 200 && values[2] == 99);
+    values[1] = 17; // write back: 0x11 = nibbles 1, 1
+    CHECK(fillDump(*d, values, 1, 1, msg.data(), msg.size()));
+    CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.data[3] == 1 && dd.data[4] == 1);
+}
+
 int main()
 {
     testYamaha();
@@ -461,6 +497,7 @@ int main()
     testMultiMessage();
     testPatchRewrite();
     testValueMap();
+    testJv1080Shapes();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

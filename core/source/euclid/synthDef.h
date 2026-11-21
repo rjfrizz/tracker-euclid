@@ -16,14 +16,15 @@
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
-//                              [stride=16] [reload=1]
+//                              [stride=16] [reload=1] [nibbles=2]
 //   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
 //                                   part 1 listens on MIDI channel 2...
-//   request F0 43 d+20 03 F7        asks the synth for its patch (up to 4)
+//   request F0 43 d+20 03 F7        asks the synth for its patch (up to 8)
 //   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
 //                                   a request with an address (and stride=)
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
+//                                   (dump a+b ...: those of templates a and b)
 //   name vced 77 10                 the patch name: 10 bytes at vced 77
 //   map p2inst 0x0000 0x0101 ...    the numbers a param's values send
 //                                   (map=p2inst: value n sends the n-th)
@@ -37,7 +38,8 @@
 //
 // A template can send several messages, split by | (each F0 ... F7, or a
 // channel message such as d+C0 7F, a program change on the device's
-// channel). Template words: a hex byte; d+XX (device number - 1, plus XX); p (the
+// channel). Template words (also a3 for 4-byte addresses, and n1 n0 for a
+// value sent as two 4-bit nibbles): a hex byte; d+XX (device number - 1, plus XX); p (the
 // number's low 7 bits); ph / pl (bits 7-13 / 0-6); a2 a1 a0 (the number's
 // bytes 2, 1 and 0: Roland addresses as the manuals print them, so 0x040010
 // is 04 00 10); v, vh, vl (the value: low 7 bits, bits 7-13, bits 0-6); and
@@ -68,7 +70,7 @@ constexpr int kMaxTokens = 32;
 constexpr int kMaxLists = 64;
 constexpr int kStringPool = 12288;
 constexpr int kMaxMessage = 32;
-constexpr int kMaxRequests = 4;
+constexpr int kMaxRequests = 8;
 constexpr int kMaxDumps = 8;
 constexpr int kMaxMaps = 4;
 constexpr int kMapPool = 512; // numbers, all maps together
@@ -80,12 +82,15 @@ enum class Token : uint8_t
     paramLow7, // p
     paramHigh, // ph
     paramLow,  // pl
+    address3, // a3: 4-byte Roland addresses (the JV-1080)
     address2,
     address1,
     address0,
     value7, // v
     valueHigh,
     valueLow,
+    nibbleHigh, // n1: the value's bits 4-7, for values sent as two nibbles
+    nibbleLow,  // n0: bits 0-3
     sumStart, // [
     checksum, // ]
     data,     // dumps: the values
@@ -120,11 +125,13 @@ struct Param
     uint16_t stride; // between parts; 0 for the definition's
     bool reload;
     uint8_t map; // 0xFF for none: the value is sent as it is
+    uint8_t nibbles; // 0: a byte in dumps; 2: two bytes of 4 bits, high first
 };
 
 struct Dump
 {
-    uint8_t templ; // whose params it holds
+    uint8_t templ;      // whose params it holds (the first, for the name)
+    uint16_t templMask; // bit per template: all whose params it holds
     bool hasAddress;
     Template pattern;
 };
