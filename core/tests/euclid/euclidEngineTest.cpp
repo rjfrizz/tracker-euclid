@@ -1250,6 +1250,33 @@ static void testShiftedNoteShown()
     e.stop();
 }
 
+static void testStepsByHand()
+{
+    // E(4,16) has pulses on 0, 4, 8, 12. Mute 4, add 2.
+    reset();
+    Engine e = makeEngine();
+    Rhythm r;
+    r.steps = 16;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    e.setEnabled(0, true);
+    e.toggleStep(0, 4);
+    e.toggleStep(0, 2);
+    Rhythm s = e.getRhythm(0);
+    CHECK(s.forceOff == (1u << 4) && s.forceOn == (1u << 2));
+    CHECK(stepIsPulse(s, 2) && !stepIsPulse(s, 4) && stepIsPulse(s, 0));
+    e.start();
+    run(e, 48 * 16);
+    e.stop();
+    CHECK((onTicks(1) == std::vector<uint32_t>{0, 96, 384, 576}));
+    // Again: back to the pattern.
+    e.toggleStep(0, 4);
+    CHECK(e.getRhythm(0).forceOff == 0 && e.getRhythm(0).forceOn == (1u << 2));
+    // A new pattern, even the same pulses again, clears the hand changes.
+    e.setPulses(0, 4);
+    CHECK(e.getRhythm(0).forceOn == 0 && e.getRhythm(0).forceOff == 0);
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1287,6 +1314,7 @@ int main()
     testSamplerOutput();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
+    testStepsByHand();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

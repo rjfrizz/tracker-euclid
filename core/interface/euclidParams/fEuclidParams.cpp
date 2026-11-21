@@ -1472,6 +1472,20 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
+        // On the Pattern page a pad is a step of the selected channel: a
+        // pulse is muted, a rest added, a changed step put back (staged; with
+        // Shift straight away).
+        if (EP->view == cEuclidParams::View::lines)
+        {
+            ShiftEdits shift;
+            euclidEngine.toggleStep(EP->selectedChannel, pad);
+            EP->refreshLines();
+            EP->refreshPads();
+            EP->refreshTitle();
+            EP->refreshChannels();
+            return;
+        }
+
         // On a setting with fixed choices the pads pick the value.
         {
             ShiftEdits shift;

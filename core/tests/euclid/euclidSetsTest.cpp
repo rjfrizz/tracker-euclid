@@ -108,6 +108,7 @@ static void fill(Engine& e)
         x.output = ch % 2 ? ChannelOutput::sampler : ChannelOutput::midi;
         x.instrument = static_cast<uint8_t>(ch * 5);
         e.setExpression(ch, x);
+        e.toggleStep(ch, static_cast<uint8_t>(ch)); // a hand change each
     }
 }
 
@@ -134,6 +135,8 @@ static bool sameSettings(const Engine& a, const Engine& b)
             xa.instrument != xb.instrument)
             return false;
         if (a.getName(ch) != b.getName(ch) || std::strcmp(a.getTextName(ch), b.getTextName(ch)) != 0)
+            return false;
+        if (ra.forceOn != rb.forceOn || ra.forceOff != rb.forceOff)
             return false;
         for (int k = 0; k < kLaneKinds; k++)
         {
@@ -413,7 +416,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 2356);
+    CHECK(kSetFileSize == 2420);
+    CHECK(kSetV9FileSize == 2356);
     CHECK(kSetV8FileSize == 1236);
     CHECK(kSetV7FileSize == 1140);
     CHECK(kSetV6FileSize == 852);

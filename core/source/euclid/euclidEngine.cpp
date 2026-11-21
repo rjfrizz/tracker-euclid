@@ -334,6 +334,18 @@ const char* rootName(uint8_t root)
     return names[root % 12];
 }
 
+bool stepIsPulse(const Rhythm& r, uint8_t i)
+{
+    if (i < 32)
+    {
+        if ((r.forceOn >> i) & 1u)
+            return true;
+        if ((r.forceOff >> i) & 1u)
+            return false;
+    }
+    return isPulse(r.steps, r.pulses, r.rotation, i);
+}
+
 bool isPulse(uint8_t steps, uint8_t pulses, uint8_t rotation, uint8_t index)
 {
     if (steps == 0 || pulses == 0)
@@ -487,7 +499,7 @@ bool sameNotes(const Rhythm& a, const Rhythm& b)
 
 bool sameRhythm(const Rhythm& a, const Rhythm& b)
 {
-    return !rhythmRestarts(a, b) && sameNotes(a, b);
+    return !rhythmRestarts(a, b) && sameNotes(a, b) && a.forceOn == b.forceOn && a.forceOff == b.forceOff;
 }
 
 // Mute is left out: it never goes through staging.
@@ -930,7 +942,7 @@ void Engine::triggerStep(Channel& c)
 {
     const Rhythm& r = c.active;
     const Shift& sh = c.expr.shift;
-    const bool pulse = isPulse(r.steps, r.pulses, r.rotation, c.step);
+    const bool pulse = stepIsPulse(r, c.step);
 
     // Which Shift step applies: per step it moves on every step, played or
     // not; per pulse only on pulses (muted or skipped ones too, like notes);
@@ -1785,7 +1797,7 @@ uint32_t Engine::repeatLength(int ch) const
     const uint32_t cycle = static_cast<uint32_t>(r.steps) * divisionToMicroSteps(r.division);
     uint32_t pulses = 0;
     for (uint8_t i = 0; i < r.steps; i++)
-        pulses += isPulse(r.steps, r.pulses, r.rotation, i);
+        pulses += stepIsPulse(r, i);
     if (pulses == 0)
         return cycle;
 
@@ -1895,14 +1907,44 @@ void Engine::setExpression(int ch, const Expression& e)
 
 void Engine::setSteps(int ch, uint8_t steps)
 {
+    // A new pattern (even the same one again) replaces the hand changes.
     EUCLID_EDIT(staged, {
         v.steps = clampValue<uint8_t>(steps, 1, kMaxSteps);
         if (v.pulses > v.steps)
             v.pulses = v.steps;
+        v.forceOn = v.forceOff = 0;
     })
 }
-void Engine::setPulses(int ch, uint8_t pulses) { EUCLID_EDIT(staged, v.pulses = pulses) }
-void Engine::setRotation(int ch, uint8_t rotation) { EUCLID_EDIT(staged, v.rotation = rotation) }
+void Engine::setPulses(int ch, uint8_t pulses)
+{
+    EUCLID_EDIT(staged, {
+        v.pulses = pulses;
+        v.forceOn = v.forceOff = 0;
+    })
+}
+void Engine::setRotation(int ch, uint8_t rotation)
+{
+    EUCLID_EDIT(staged, {
+        v.rotation = rotation;
+        v.forceOn = v.forceOff = 0;
+    })
+}
+void Engine::toggleStep(int ch, uint8_t step)
+{
+    if (step >= 32)
+        return;
+    const uint32_t bit = 1u << step;
+    EUCLID_EDIT(staged, {
+        if (v.forceOn & bit)
+            v.forceOn &= ~bit;
+        else if (v.forceOff & bit)
+            v.forceOff &= ~bit;
+        else if (isPulse(v.steps, v.pulses, v.rotation, step))
+            v.forceOff |= bit;
+        else
+            v.forceOn |= bit;
+    })
+}
 void Engine::setDivision(int ch, Division d) { EUCLID_EDIT(staged, v.division = d) }
 void Engine::setMode(int ch, NoteMode m) { EUCLID_EDIT(staged, v.mode = m) }
 void Engine::setDirection(int ch, NoteDirection d) { EUCLID_EDIT(staged, v.direction = d) }

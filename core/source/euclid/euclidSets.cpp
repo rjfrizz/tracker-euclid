@@ -135,6 +135,8 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
             for (int i = 0; i < kShiftSteps; i++)
                 q[3 + i] = static_cast<uint8_t>(l.step[i] + 1);
         }
+        putU32(p + kSetForceOffset, r.forceOn);
+        putU32(p + kSetForceOffset + 4, r.forceOff);
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -196,6 +198,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV8FileSize;
     }
     else if (version == 9)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV9ChannelSize;
+        fileSize = kSetV9FileSize;
+    }
+    else if (version == 10)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -310,6 +318,11 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             x.shift.units = enumOr(sh[3], ShiftUnits::count, ShiftUnits::semitones);
             for (int i = 0; i < kShiftSteps; i++)
                 x.shift.step[i] = static_cast<int8_t>(static_cast<int>(sh[4 + i]) - 64);
+        }
+        if (version >= 10)
+        {
+            r.forceOn = getU32(p + kSetForceOffset);
+            r.forceOff = getU32(p + kSetForceOffset + 4);
         }
         if (version >= 9)
         {

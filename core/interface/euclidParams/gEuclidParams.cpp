@@ -336,7 +336,7 @@ uint32_t pulseMask(const euclid::Rhythm& r)
 {
     uint32_t m = 0;
     for (uint8_t s = 0; s < r.steps && s < 32; s++)
-        if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
+        if (euclid::stepIsPulse(r, s))
             m |= 1u << s;
     return m;
 }
@@ -404,8 +404,10 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         strEuclidPanelData::LaneData& l = panelData.lanes[i];
         l.steps = staged.steps;
         l.pulses = pulseMask(staged);
+        l.byHand = staged.forceOn | staged.forceOff;
         l.pending = staged.steps != active.steps || staged.pulses != active.pulses ||
-                    staged.rotation != active.rotation || staged.direction != active.direction;
+                    staged.rotation != active.rotation || staged.direction != active.direction ||
+                    staged.forceOn != active.forceOn || staged.forceOff != active.forceOff;
         l.current = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
         l.on = x.enabled && !x.muted;
         const char* name = euclidEngine.getNameShown(i);

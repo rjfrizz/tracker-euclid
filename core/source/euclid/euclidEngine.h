@@ -148,7 +148,15 @@ struct Rhythm
     // SEQ channel transposes from.
     uint8_t homeRoot = 0;
     uint8_t homeScale = 1; // Minor
+
+    // Steps changed by hand (the Pattern page's pads), bit per step: added
+    // pulses and muted ones. Editing steps, pulses or rotation clears them.
+    uint32_t forceOn = 0;
+    uint32_t forceOff = 0;
 };
+
+// Whether step i plays: the Euclidean pattern with the hand changes.
+bool stepIsPulse(const Rhythm& r, uint8_t i);
 
 // Expression settings: how the channel's notes are played.
 // Modulators. Each channel has four (A-D). A modulator's shape gives a value
@@ -458,6 +466,9 @@ class Engine
     void setSteps(int ch, uint8_t steps);
     void setPulses(int ch, uint8_t pulses);
     void setRotation(int ch, uint8_t rotation);
+    // A step by hand: a pulse is muted, a rest becomes a pulse, and a
+    // changed step goes back to the pattern.
+    void toggleStep(int ch, uint8_t step);
     void setDivision(int ch, Division d);
     void setMode(int ch, NoteMode m);
     void setNotes(int ch, const uint8_t* notes, uint8_t count, uint16_t tieMask = 0);

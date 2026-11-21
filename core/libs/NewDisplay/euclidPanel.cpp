@@ -460,7 +460,19 @@ void cEuclidPanel::drawLanes()
         {
             const int16_t x = posX + labelW + s * cellW;
             const bool pulse = (l.pulses >> s) & 1u;
-            fillRect(x + 1, y + 9, cellW - 3, cellH, pulse ? pulseColor : theme.frameColors[1]);
+            const bool byHand = (l.byHand >> s) & 1u;
+            if (byHand && !pulse)
+            {
+                // Muted by hand: just its outline.
+                fillRect(x + 1, y + 9, cellW - 3, cellH, theme.frameColors[1]);
+                drawOutline(x + 1, y + 9, cellW - 3, cellH, pulseColor);
+            }
+            else
+            {
+                fillRect(x + 1, y + 9, cellW - 3, cellH, pulse ? pulseColor : theme.frameColors[1]);
+                if (byHand) // added by hand: a white edge
+                    drawOutline(x + 1, y + 9, cellW - 3, cellH, theme.activeLabelsColors[0]);
+            }
             if (s == l.current)
                 drawOutline(x - 1, y + 7, cellW + 1, cellH + 4,
                             l.pending ? theme.activeLabelsColors[0] : theme.orange);

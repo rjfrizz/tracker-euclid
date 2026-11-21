@@ -50,6 +50,7 @@ struct strEuclidPanelData
     {
         uint8_t steps = 0;   // as shown: the edit waiting for Rec, if any
         uint32_t pulses = 0; // bit per step
+        uint32_t byHand = 0; // bit per step: changed on the pads (added or muted)
         bool pending = false; // edited, not playing yet: drawn in orange
         int8_t current = -1; // the step playing
         bool on = false;     // enabled and not muted

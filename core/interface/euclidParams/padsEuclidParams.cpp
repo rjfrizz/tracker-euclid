@@ -330,7 +330,23 @@ void cEuclidParams::refreshPads()
     for (uint8_t pad = 0; pad < kPads; pad++)
         padsBacklight.setBackLayer(0, 0, pad);
 
-    if (view == View::notes)
+    if (view == View::lines)
+    {
+        // The selected channel's steps, a pad each: pulses bright, rests dim,
+        // steps changed by hand in between.
+        const euclid::Rhythm r = euclidEngine.getRhythm(selectedChannel);
+        for (uint8_t pad = 0; pad < r.steps && pad < kPads; pad++)
+        {
+            const bool byHand = pad < 32 && (((r.forceOn | r.forceOff) >> pad) & 1u);
+            if (byHand)
+                padsBacklight.setBackLayer(1, mid, pad);
+            else
+                padsBacklight.setBackLayer(1, euclid::stepIsPulse(r, pad) ? bright : dim, pad);
+        }
+        return;
+    }
+
+    if (view == View::notes && !notesSettings)
     {
         // The channel's key on the stock pad layout: notes in the key glow,
         // its root a little brighter.
