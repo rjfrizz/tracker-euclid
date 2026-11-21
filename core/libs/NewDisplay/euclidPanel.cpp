@@ -277,8 +277,9 @@ void cEuclidPanel::drawLanes()
 {
     const Theme& theme = display.getTheme();
     const int16_t labelW = 92;
+    const int16_t shiftW = 110; // the Shift lanes' values, at the right
     const int16_t laneH = height / strEuclidPanelData::kLanes;
-    const int16_t cellW = (width - labelW - 4) / 32;
+    const int16_t cellW = (width - labelW - shiftW - 4) / 32;
     for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
     {
         const strEuclidPanelData::LaneData& l = data->lanes[i];
@@ -330,5 +331,12 @@ void cEuclidPanel::drawLanes()
                 drawOutline(x - 1, y + 7, cellW + 1, cellH + 4,
                             l.pending ? theme.activeLabelsColors[0] : theme.orange);
         }
+
+        API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        const int16_t sx = posX + width - shiftW + 6;
+        if (l.shift[0] != nullptr)
+            API_CMD_TEXT(sx, y + 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift[0]);
+        if (l.shift[1] != nullptr)
+            API_CMD_TEXT(sx, y + laneH - 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift[1]);
     }
 }

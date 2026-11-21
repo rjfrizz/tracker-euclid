@@ -307,6 +307,10 @@ uint32_t cEuclidParams::linesState() const
         for (int k = 0; k < euclid::kModsPerChannel; k++)
             if (x.mod[k].dest != euclid::ModDest::off)
                 state = state * 7 + static_cast<uint32_t>(coarse(euclidEngine.getModValue(i, k)) + 64);
+        state = state * 11 + static_cast<uint32_t>(euclidEngine.getShiftStep(i) + 1) + 3u * x.shift.on;
+        for (int k = 0; k < euclid::kLaneKinds; k++)
+            state = state * 5 + static_cast<uint32_t>(euclidEngine.getLaneStep(i, static_cast<euclid::LaneKind>(k)) + 1) +
+                    2u * x.lanes[k].on;
     }
     return state;
 }
@@ -341,6 +345,38 @@ void cEuclidParams::refreshLines()
         else
             snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d", staged.pulses, staged.steps);
         l.info = lineInfo[i];
+
+        // The Shift lanes that are on, with the value each is playing.
+        char* s0 = lineShift[i][0];
+        char* s1 = lineShift[i][1];
+        s0[0] = 0;
+        s1[0] = 0;
+        auto laneValue = [&](euclid::LaneKind k) -> const char* {
+            const euclid::Lane& ln = x.lanes[static_cast<int>(k)];
+            const int8_t at = euclidEngine.getLaneStep(i, k);
+            if (!ln.on || !running || at < 0 || ln.step[at] == euclid::kLaneNone)
+                return nullptr;
+            return euclid::laneValueName(k, ln.step[at]);
+        };
+        auto add = [](char* line, size_t n, const char* text) {
+            if (text == nullptr)
+                return;
+            const size_t len = strlen(line);
+            snprintf(line + len, n - len, "%s%s", len > 0 ? " " : "", text);
+        };
+        if (x.shift.on && running && euclidEngine.getShiftStep(i) >= 0)
+        {
+            char p[8];
+            snprintf(p, sizeof(p), "P%+d", x.shift.step[euclidEngine.getShiftStep(i)]);
+            add(s0, sizeof(lineShift[i][0]), p);
+        }
+        add(s0, sizeof(lineShift[i][0]), laneValue(euclid::LaneKind::mode));
+        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::chord));
+        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::division));
+        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::order));
+        l.shift[0] = s0[0] != 0 ? s0 : nullptr;
+        l.shift[1] = s1[0] != 0 ? s1 : nullptr;
+
         l.modActive = 0;
         l.modBipolar = 0;
         for (int k = 0; k < euclid::kModsPerChannel && k < 4; k++)
