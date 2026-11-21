@@ -351,11 +351,15 @@ void cEuclidParams::refreshLines()
             snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d", staged.pulses, staged.steps);
         l.info = lineInfo[i];
 
-        // The Shift lanes that are on, with the value each is playing.
-        char* s0 = lineShift[i][0];
-        char* s1 = lineShift[i][1];
+        // Which Shift lanes are on, and the value each is playing.
+        char* s0 = lineShift[i];
         s0[0] = 0;
-        s1[0] = 0;
+        const size_t n0 = sizeof(lineShift[i]);
+        l.shiftOn = static_cast<uint8_t>(
+          (x.shift.on ? 1 : 0) | (x.lanes[static_cast<int>(euclid::LaneKind::mode)].on ? 2 : 0) |
+          (x.lanes[static_cast<int>(euclid::LaneKind::division)].on ? 4 : 0) |
+          (x.lanes[static_cast<int>(euclid::LaneKind::order)].on ? 8 : 0) |
+          (x.lanes[static_cast<int>(euclid::LaneKind::chord)].on ? 16 : 0));
         auto laneValue = [&](euclid::LaneKind k) -> const char* {
             const euclid::Lane& ln = x.lanes[static_cast<int>(k)];
             const int8_t at = euclidEngine.getLaneStep(i, k);
@@ -372,15 +376,16 @@ void cEuclidParams::refreshLines()
         if (x.shift.on && running && euclidEngine.getShiftStep(i) >= 0)
         {
             char p[8];
-            snprintf(p, sizeof(p), "P%+d", x.shift.step[euclidEngine.getShiftStep(i)]);
-            add(s0, sizeof(lineShift[i][0]), p);
+            snprintf(p, sizeof(p), "%+d", x.shift.step[euclidEngine.getShiftStep(i)]);
+            add(s0, n0, p);
         }
-        add(s0, sizeof(lineShift[i][0]), laneValue(euclid::LaneKind::mode));
-        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::chord));
-        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::division));
-        add(s1, sizeof(lineShift[i][1]), laneValue(euclid::LaneKind::order));
-        l.shift[0] = s0[0] != 0 ? s0 : nullptr;
-        l.shift[1] = s1[0] != 0 ? s1 : nullptr;
+        add(s0, n0, laneValue(euclid::LaneKind::mode));
+        add(s0, n0, laneValue(euclid::LaneKind::division));
+        add(s0, n0, laneValue(euclid::LaneKind::order));
+        add(s0, n0, laneValue(euclid::LaneKind::chord));
+        if (strlen(s0) > 13)
+            s0[13] = 0; // as much as the column holds
+        l.shift = s0[0] != 0 ? s0 : nullptr;
 
         l.modActive = 0;
         l.modBipolar = 0;

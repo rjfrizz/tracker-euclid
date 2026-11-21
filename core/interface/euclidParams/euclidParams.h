@@ -253,7 +253,7 @@ class cEuclidParams : public ModuleBase
     uint32_t lastLinesMs = 0;
     char lineNames[8][12];
     char lineInfo[8][12];
-    char lineShift[8][2][16];
+    char lineShift[8][24];
 
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();

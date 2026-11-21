@@ -31,8 +31,10 @@ struct strEuclidPanelData
         const char* name = nullptr;
         const char* info = nullptr; // "5/8", under the name
         // The modulators: -1000..1000 (bipolar) or 0..1000.
-        // The Shift lanes' values playing now, in two short lines.
-        const char* shift[2] = {};
+        // The Shift lanes: which are on (bit per lane: pitch, mode, division,
+        // order, chord), and the values playing now.
+        uint8_t shiftOn = 0;
+        const char* shift = nullptr;
         uint8_t modActive = 0;  // bit per modulator
         uint8_t modBipolar = 0; // bit per modulator
         int16_t mod[4] = {};

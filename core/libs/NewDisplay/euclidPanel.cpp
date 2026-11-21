@@ -16,6 +16,10 @@ constexpr int16_t kHeaderH = 44;
 constexpr int16_t kCellH = 54;
 constexpr int16_t kHelpLineH = 24;
 constexpr int16_t kMeterAreaH = 40; // above the list, so A-D don't look like channel keys
+// The lines' colours for what moves the notes: modulators (like the Fx 1
+// key) and Shift lanes. Pending edits stay orange.
+constexpr uint32_t kModColor = 0xC8A8F8;   // light purple
+constexpr uint32_t kShiftColor = 0x8CCCFF; // light blue
 } // namespace
 
 cEuclidPanel::cEuclidPanel(strControlProperties* properties)
@@ -309,13 +313,13 @@ void cEuclidPanel::drawLanes()
             {
                 const int16_t len = static_cast<int16_t>(8 * (v < 0 ? -v : v) / 1000);
                 if (len > 0)
-                    fillRect(v < 0 ? bx + 8 - len : bx + 8, by, len, 4, theme.activeLabelsColors[0]);
+                    fillRect(v < 0 ? bx + 8 - len : bx + 8, by, len, 4, kModColor);
             }
             else
             {
                 const int16_t len = static_cast<int16_t>(16 * (v < 0 ? 0 : v) / 1000);
                 if (len > 0)
-                    fillRect(bx, by, len, 4, theme.activeLabelsColors[0]);
+                    fillRect(bx, by, len, 4, kModColor);
             }
         }
 
@@ -332,11 +336,19 @@ void cEuclidPanel::drawLanes()
                             l.pending ? theme.activeLabelsColors[0] : theme.orange);
         }
 
-        API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        // The Shift lanes: a letter each, lit when the lane is on (always
+        // shown), and under them the values playing.
         const int16_t sx = posX + width - shiftW + 6;
-        if (l.shift[0] != nullptr)
-            API_CMD_TEXT(sx, y + 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift[0]);
-        if (l.shift[1] != nullptr)
-            API_CMD_TEXT(sx, y + laneH - 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift[1]);
+        static const char* const kLaneLetters[5] = { "P", "M", "D", "O", "C" };
+        for (uint8_t k = 0; k < 5; k++)
+        {
+            API_COLOR(((l.shiftOn >> k) & 1u) ? kShiftColor : theme.frameColors[1]);
+            API_CMD_TEXT(sx + k * 20, y + 13, fonts[kFontBold].handle, OPT_CENTERY, kLaneLetters[k]);
+        }
+        if (l.shift != nullptr)
+        {
+            API_COLOR(kShiftColor);
+            API_CMD_TEXT(sx, y + laneH - 14, fonts[kFontBold].handle, OPT_CENTERY, l.shift);
+        }
     }
 }
