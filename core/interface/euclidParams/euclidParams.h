@@ -246,8 +246,13 @@ class cEuclidParams : public ModuleBase
     // one on screen.
     // Lines view (Pattern): every channel's rhythm and where it's playing.
     void refreshLines();
+    uint32_t linesState() const; // changes when anything the lines show does
+    void changeLines(int16_t delta, bool steps); // pulses, or steps with Shift
+    void rotateLines(int delta);
     uint32_t lastLinesState = 0;
+    uint32_t lastLinesMs = 0;
     char lineNames[8][12];
+    char lineInfo[8][12];
 
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();

@@ -288,20 +288,47 @@ void cEuclidPanel::drawLanes()
             drawOutline(posX, y + 2, width, laneH - 4, theme.frameColors[0]);
         API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
         if (l.name != nullptr)
-            API_CMD_TEXT(posX + 8, cy, fonts[kFontBold].handle, OPT_CENTERY, l.name);
+            API_CMD_TEXT(posX + 8, y + 12, fonts[kFontBold].handle, OPT_CENTERY, l.name);
+        if (l.info != nullptr)
+        {
+            API_COLOR(l.pending ? theme.orange : theme.inactiveLabelsColors[0]);
+            API_CMD_TEXT(posX + 8, cy + 2, fonts[kFontBold].handle, OPT_CENTERY, l.info);
+        }
+
+        // The modulators, as four short bars under the name.
+        for (uint8_t k = 0; k < 4; k++)
+        {
+            const int16_t bx = posX + 8 + k * 20;
+            const int16_t by = y + laneH - 10;
+            fillRect(bx, by, 16, 4, theme.frameColors[1]);
+            if (!((l.modActive >> k) & 1u))
+                continue;
+            int16_t v = l.mod[k] > 1000 ? 1000 : (l.mod[k] < -1000 ? -1000 : l.mod[k]);
+            if ((l.modBipolar >> k) & 1u)
+            {
+                const int16_t len = static_cast<int16_t>(8 * (v < 0 ? -v : v) / 1000);
+                if (len > 0)
+                    fillRect(v < 0 ? bx + 8 - len : bx + 8, by, len, 4, theme.activeLabelsColors[0]);
+            }
+            else
+            {
+                const int16_t len = static_cast<int16_t>(16 * (v < 0 ? 0 : v) / 1000);
+                if (len > 0)
+                    fillRect(bx, by, len, 4, theme.activeLabelsColors[0]);
+            }
+        }
 
         const int16_t cellH = laneH - 18;
+        const uint32_t pulseColor =
+          l.pending ? theme.orange : (l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
         for (uint8_t s = 0; s < l.steps && s < 32; s++)
         {
             const int16_t x = posX + labelW + s * cellW;
             const bool pulse = (l.pulses >> s) & 1u;
-            if (pulse)
-                fillRect(x + 1, y + 9, cellW - 3, cellH,
-                         l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
-            else
-                fillRect(x + 1, y + 9, cellW - 3, cellH, theme.frameColors[1]);
+            fillRect(x + 1, y + 9, cellW - 3, cellH, pulse ? pulseColor : theme.frameColors[1]);
             if (s == l.current)
-                drawOutline(x - 1, y + 7, cellW + 1, cellH + 4, theme.orange);
+                drawOutline(x - 1, y + 7, cellW + 1, cellH + 4,
+                            l.pending ? theme.activeLabelsColors[0] : theme.orange);
         }
     }
 }

@@ -23,11 +23,17 @@ struct strEuclidPanelData
     static constexpr uint8_t kLanes = 8;
     struct LaneData
     {
-        uint8_t steps = 0;
+        uint8_t steps = 0;   // as shown: the edit waiting for Rec, if any
         uint32_t pulses = 0; // bit per step
+        bool pending = false; // edited, not playing yet: drawn in orange
         int8_t current = -1; // the step playing
         bool on = false;     // enabled and not muted
         const char* name = nullptr;
+        const char* info = nullptr; // "5/8", under the name
+        // The modulators: -1000..1000 (bipolar) or 0..1000.
+        uint8_t modActive = 0;  // bit per modulator
+        uint8_t modBipolar = 0; // bit per modulator
+        int16_t mod[4] = {};
     } lanes[kLanes];
     int8_t laneSelected = -1;
 

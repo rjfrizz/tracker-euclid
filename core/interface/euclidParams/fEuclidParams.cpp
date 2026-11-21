@@ -132,23 +132,9 @@ void cEuclidParams::update()
 
     // The lines follow the steps being played (checked cheaply: only a
     // change of step redraws them).
-    if (view == View::lines)
-    {
-        uint32_t state = selectedChannel;
-        for (uint8_t i = 0; i < euclid::kChannels; i++)
-        {
-            const euclid::Rhythm r = euclidEngine.getActiveRhythm(i);
-            const euclid::Expression x = euclidEngine.getExpression(i);
-            uint32_t pulses = 0;
-            for (uint8_t s = 0; s < r.steps && s < 32; s++)
-                if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
-                    pulses |= 1u << s;
-            const int8_t current = euclidEngine.isRunning() ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
-            state = state * 131 + current + 7 * (x.enabled && !x.muted) + 13 * pulses;
-        }
-        if (state != lastLinesState)
-            refreshLines();
-    }
+    if (view == View::lines && linesState() != lastLinesState &&
+        TrackerImpl::getInstance()->getPlatform()->getTimer()->millis() - lastLinesMs >= 30)
+        refreshLines();
 
     // The chain page follows the step and bar being played.
     if (view == View::chain)
@@ -858,6 +844,12 @@ void cEuclidParams::duplicateNote()
 //==============================================================================================
 static void functEncoder(int16_t value)
 {
+    // On the lines Shift changes steps rather than skipping Rec.
+    if (EP->view == cEuclidParams::View::lines)
+    {
+        EP->changeLines(value, EP->buttons->isButtonPressed(interfaceButtonShift));
+        return;
+    }
     ShiftEdits shift;
     if (EP->view == cEuclidParams::View::chain)
     {
@@ -1037,6 +1029,11 @@ static void functDown()
 
 static void functLeft()
 {
+    if (EP->view == cEuclidParams::View::lines)
+    {
+        EP->rotateLines(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainField(-1);
@@ -1062,6 +1059,11 @@ static void functLeft()
 
 static void functRight()
 {
+    if (EP->view == cEuclidParams::View::lines)
+    {
+        EP->rotateLines(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainField(1);

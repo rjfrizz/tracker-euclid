@@ -275,23 +275,59 @@ void cEuclidParams::refreshTitle()
     titleBar->setTitle(titleText);
 }
 
+namespace
+{
+uint32_t pulseMask(const euclid::Rhythm& r)
+{
+    uint32_t m = 0;
+    for (uint8_t s = 0; s < r.steps && s < 32; s++)
+        if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
+            m |= 1u << s;
+    return m;
+}
+
+// Modulator values move all the time: coarse steps keep the redraws down.
+int16_t coarse(int16_t v)
+{
+    return static_cast<int16_t>(v / 64);
+}
+} // namespace
+
+uint32_t cEuclidParams::linesState() const
+{
+    uint32_t state = selectedChannel;
+    const bool running = euclidEngine.isRunning();
+    for (uint8_t i = 0; i < euclid::kChannels; i++)
+    {
+        const euclid::Rhythm r = euclidEngine.getRhythm(i);
+        const euclid::Expression x = euclidEngine.getExpression(i);
+        state = state * 131 + pulseMask(r) + 7u * r.steps + 3u * r.rotation;
+        state = state * 31 + (running ? euclidEngine.getCurrentStep(i) : 255) + 5u * (x.enabled && !x.muted);
+        state = state * 17 + (euclidEngine.hasStagedChange(i) || euclidEngine.hasPendingChange(i));
+        for (int k = 0; k < euclid::kModsPerChannel; k++)
+            if (x.mod[k].dest != euclid::ModDest::off)
+                state = state * 7 + static_cast<uint32_t>(coarse(euclidEngine.getModValue(i, k)) + 64);
+    }
+    return state;
+}
+
 void cEuclidParams::refreshLines()
 {
     if (view != View::lines)
         return;
     panelData.mode = strEuclidPanelData::Mode::lanes;
     const bool running = euclidEngine.isRunning();
-    uint32_t state = selectedChannel;
     for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
     {
-        const euclid::Rhythm r = euclidEngine.getActiveRhythm(i);
+        // What's edited (and waiting for Rec) if anything, else what plays.
+        const euclid::Rhythm staged = euclidEngine.getRhythm(i);
+        const euclid::Rhythm active = euclidEngine.getActiveRhythm(i);
         const euclid::Expression x = euclidEngine.getExpression(i);
         strEuclidPanelData::LaneData& l = panelData.lanes[i];
-        l.steps = r.steps;
-        l.pulses = 0;
-        for (uint8_t s = 0; s < r.steps && s < 32; s++)
-            if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
-                l.pulses |= 1u << s;
+        l.steps = staged.steps;
+        l.pulses = pulseMask(staged);
+        l.pending = staged.steps != active.steps || staged.pulses != active.pulses ||
+                    staged.rotation != active.rotation;
         l.current = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
         l.on = x.enabled && !x.muted;
         const char* name = euclidEngine.getNameShown(i);
@@ -300,11 +336,63 @@ void cEuclidParams::refreshLines()
         else
             snprintf(lineNames[i], sizeof(lineNames[i]), "%d", i + 1);
         l.name = lineNames[i];
-        state = state * 131 + l.current + 7 * l.on + 13 * l.pulses;
+        if (staged.rotation != 0)
+            snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d r%d", staged.pulses, staged.steps, staged.rotation);
+        else
+            snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d", staged.pulses, staged.steps);
+        l.info = lineInfo[i];
+        l.modActive = 0;
+        l.modBipolar = 0;
+        for (int k = 0; k < euclid::kModsPerChannel && k < 4; k++)
+        {
+            if (x.mod[k].dest == euclid::ModDest::off)
+                continue;
+            l.modActive |= 1u << k;
+            if (!euclid::isEuclidShape(x.mod[k].shape))
+                l.modBipolar |= 1u << k;
+            l.mod[k] = euclidEngine.getModValue(i, k);
+        }
     }
     panelData.laneSelected = static_cast<int8_t>(selectedChannel);
-    lastLinesState = state;
+    lastLinesState = linesState();
+    lastLinesMs = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
     display.refreshControl(panel);
+}
+
+// The encoder on the lines: the selected channel's pulses, or with Shift
+// its steps. Like the Params page, edits wait for Rec.
+void cEuclidParams::changeLines(int16_t delta, bool steps)
+{
+    const uint8_t ch = selectedChannel;
+    const euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    const int step = delta > 0 ? 1 : -1;
+    if (steps)
+    {
+        int s = r.steps + step;
+        s = s < 1 ? 1 : (s > euclid::kMaxSteps ? euclid::kMaxSteps : s);
+        euclidEngine.setSteps(ch, static_cast<uint8_t>(s));
+    }
+    else
+    {
+        int p = r.pulses + step;
+        p = p < 0 ? 0 : (p > r.steps ? r.steps : p);
+        euclidEngine.setPulses(ch, static_cast<uint8_t>(p));
+    }
+    refreshLines();
+    refreshTitle();
+    refreshChannels();
+}
+
+void cEuclidParams::rotateLines(int delta)
+{
+    const uint8_t ch = selectedChannel;
+    const euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    if (r.steps == 0)
+        return;
+    euclidEngine.setRotation(ch, static_cast<uint8_t>((r.rotation + r.steps + delta) % r.steps));
+    refreshLines();
+    refreshTitle();
+    refreshChannels();
 }
 
 void cEuclidParams::refreshFrame()
