@@ -42,6 +42,7 @@ static void functModView();
 static void functShiftView();
 static void functSynthView();
 static void functChainView();
+static void functLinesView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -129,6 +130,26 @@ void cEuclidParams::update()
         }
     }
 
+    // The lines follow the steps being played (checked cheaply: only a
+    // change of step redraws them).
+    if (view == View::lines)
+    {
+        uint32_t state = selectedChannel;
+        for (uint8_t i = 0; i < euclid::kChannels; i++)
+        {
+            const euclid::Rhythm r = euclidEngine.getActiveRhythm(i);
+            const euclid::Expression x = euclidEngine.getExpression(i);
+            uint32_t pulses = 0;
+            for (uint8_t s = 0; s < r.steps && s < 32; s++)
+                if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
+                    pulses |= 1u << s;
+            const int8_t current = euclidEngine.isRunning() ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
+            state = state * 131 + current + 7 * (x.enabled && !x.muted) + 13 * pulses;
+        }
+        if (state != lastLinesState)
+            refreshLines();
+    }
+
     // The chain page follows the step and bar being played.
     if (view == View::chain)
     {
@@ -204,12 +225,12 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functScene);
     // There's no stock Pattern or Song screen: both keys come home.
-    // Pattern is home (the Params page, and back from a scene); Song the chain.
+    // Pattern shows all eight channels as lines; Song the chain.
     ip->setButtonObj(interfaceButtonSong, buttonPress, functChainView);
-    ip->setButtonObj(interfaceButtonPattern, buttonPress, functParamsView);
+    ip->setButtonObj(interfaceButtonPattern, buttonPress, functLinesView);
 
-    // Params is the channel's sound: its synth, or its sample instrument.
-    ip->setButtonObj(interfaceButtonParams, buttonPress, functSynthView);
+    // Params is home: the channel's settings (and back from a scene).
+    ip->setButtonObj(interfaceButtonParams, buttonPress, functParamsView);
     ip->setButtonObj(interfaceButtonNote, buttonPress, functNotesView);
     // File opens Sets here, Shift + File the stock project screen.
     ip->setButtonObj(interfaceButtonFile, buttonPress, functSetsView);
@@ -299,6 +320,8 @@ void cEuclidParams::selectChannel(uint8_t ch)
     replaceNextNote = false;
     if (view == View::synth && synthPatches)
         openPatches(true); // that channel's synth's patches
+    if (view == View::lines)
+        refreshLines(); // the frame moves to it
     refreshTitle();
     if (view == View::params)
         refreshParams();
@@ -448,14 +471,7 @@ void cEuclidParams::changeParam(int16_t delta)
         case paramMidiChannel:
             euclidEngine.setMidiChannel(ch, static_cast<uint8_t>(clampInt(x.midiChannel + delta, 1, 16)));
             break;
-        case paramOutput:
-            x.output = delta > 0 ? euclid::ChannelOutput::sampler : euclid::ChannelOutput::midi;
-            euclidEngine.setExpression(ch, x);
-            break;
-        case paramInstrument:
-            x.instrument = static_cast<uint8_t>(clampInt(x.instrument + delta, 0, euclid::kSampleInstruments - 1));
-            euclidEngine.setExpression(ch, x);
-            break;
+
         case paramEnabled: euclidEngine.setEnabled(ch, delta > 0); break;
         default: return;
     }
@@ -887,6 +903,11 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::lines)
+    {
+        EP->selectChannel((EP->selectedChannel + euclid::kChannels - 1) % euclid::kChannels);
+        return;
+    }
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainRow(-1);
@@ -949,6 +970,11 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::lines)
+    {
+        EP->selectChannel((EP->selectedChannel + 1) % euclid::kChannels);
+        return;
+    }
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainRow(1);
@@ -1120,7 +1146,7 @@ static void functInsert()
 
 static void functParamsView()
 {
-    // While a scene plays, Pattern goes back to what was playing before it.
+    // While a scene plays, Params goes back to what was playing before it.
     if (euclidScenes::returnHome())
     {
         char text[48];
@@ -1149,10 +1175,10 @@ static void functParamsView()
 
 static void functSynthView()
 {
-    // A sampler channel's sound is its instrument: the stock instrument
-    // editor, on that instrument.
+    // Shift + Instr on a sampler channel: the stock instrument editor, for
+    // what the Synth page doesn't have (envelopes, LFOs, the rest).
     const euclid::Expression x = euclidEngine.getExpression(EP->selectedChannel);
-    if (x.output == euclid::ChannelOutput::sampler)
+    if (x.output == euclid::ChannelOutput::sampler && EP->buttons->isButtonPressed(interfaceButtonShift))
     {
         mtProject.values.lastUsedInstrument = x.instrument;
         functSwitchModule(interfaceButtonInstr);
@@ -1168,6 +1194,14 @@ static void functSynthView()
 // Like Fx 1 on the Mod page, pressing Fx 2 again moves on to the next lane
 // (Pitch, Mode, Division, Order, Chord); Shift + Fx 2 switches between the
 // lane's steps and its settings.
+static void functLinesView()
+{
+    if (EP->view == cEuclidParams::View::lines)
+        return;
+    EP->setView(cEuclidParams::View::lines);
+    EP->setDefaultScreenFunct();
+}
+
 static void functChainView()
 {
     if (EP->view == cEuclidParams::View::chain)

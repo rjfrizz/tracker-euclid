@@ -263,6 +263,45 @@ void cEuclidPanel::update()
 
     if (data->mode == strEuclidPanelData::Mode::list)
         drawList();
+    else if (data->mode == strEuclidPanelData::Mode::lanes)
+        drawLanes();
     else
         drawGrid();
+}
+
+// One line per channel: its name, then a cell per step (pulses filled,
+// bright while the channel is heard), the step playing outlined in orange
+// and the selected channel's line framed. Steps are the same width on every
+// line, so channels of the same division line up in time.
+void cEuclidPanel::drawLanes()
+{
+    const Theme& theme = display.getTheme();
+    const int16_t labelW = 92;
+    const int16_t laneH = height / strEuclidPanelData::kLanes;
+    const int16_t cellW = (width - labelW - 4) / 32;
+    for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
+    {
+        const strEuclidPanelData::LaneData& l = data->lanes[i];
+        const int16_t y = posY + i * laneH;
+        const int16_t cy = y + laneH / 2;
+        if (i == data->laneSelected)
+            drawOutline(posX, y + 2, width, laneH - 4, theme.frameColors[0]);
+        API_COLOR(l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        if (l.name != nullptr)
+            API_CMD_TEXT(posX + 8, cy, fonts[kFontBold].handle, OPT_CENTERY, l.name);
+
+        const int16_t cellH = laneH - 18;
+        for (uint8_t s = 0; s < l.steps && s < 32; s++)
+        {
+            const int16_t x = posX + labelW + s * cellW;
+            const bool pulse = (l.pulses >> s) & 1u;
+            if (pulse)
+                fillRect(x + 1, y + 9, cellW - 3, cellH,
+                         l.on ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+            else
+                fillRect(x + 1, y + 9, cellW - 3, cellH, theme.frameColors[1]);
+            if (s == l.current)
+                drawOutline(x - 1, y + 7, cellW + 1, cellH + 4, theme.orange);
+        }
+    }
 }

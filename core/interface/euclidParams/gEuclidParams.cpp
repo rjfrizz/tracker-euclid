@@ -16,7 +16,7 @@ namespace
 const char* const kParamNames[cEuclidParams::paramCount] = {
     "Name",      "Steps",    "Pulses",   "Rotation", "Division", "Mode",   "Chord",  "Chord chance", "Note order",
     "Key",       "Own root", "Own scale", "Octave",  "Range",  "Transpose", "Velocity",
-    "Gate",      "Chance",   "Output",       "MIDI channel", "Instrument", "Channel",
+    "Gate",      "Chance",   "MIDI channel", "Channel",
 };
 
 const char* const kGlobalNames[cEuclidParams::globalCount] = { "Tempo", "Root", "Scale", "Launch" };
@@ -110,6 +110,19 @@ void cEuclidParams::setView(View v)
 {
     if (v != View::synth)
         synthPatches = false;
+    // The lines take the whole width; everywhere else the ring is on the left.
+    if (v == View::lines)
+    {
+        display.setControlHide(ring);
+        display.setControlPosition(panel, 10, 40);
+        display.setControlSize(panel, 780, 380);
+    }
+    else if (view == View::lines)
+    {
+        display.setControlPosition(panel, 430, 40);
+        display.setControlSize(panel, 360, 380);
+        display.setControlShow(ring);
+    }
     view = v;
     armedAction = SetAction::none;
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
@@ -124,6 +137,15 @@ void cEuclidParams::setView(View v)
     // Point the panel at the right list (Mod and Synth fill their own rows).
     if (view == View::mod)
         buildModRows();
+    if (view == View::lines)
+    {
+        refreshTitle();
+        refreshLines();
+        refreshChannels();
+        refreshPads();
+        display.synchronizeRefresh();
+        return;
+    }
     if (view == View::synth || view == View::chain)
     {
         panelData.rows = 0;
@@ -185,6 +207,8 @@ void cEuclidParams::setView(View v)
         refreshSynth();
     else if (view == View::chain)
         refreshChain();
+    else if (view == View::lines)
+        refreshLines();
     else
         refreshGlobal();
     refreshChannels();
@@ -216,6 +240,8 @@ void cEuclidParams::refreshTitle()
                  shiftLane == 0 ? "Pitch" : (shiftLane == 1 ? "Mode" : (shiftLane == 2 ? "Division" : (shiftLane == 3 ? "Order" : "Chord"))),
                  shiftSettings ? " set" : "",
                  selectedChannel + 1, hint);
+    else if (view == View::lines)
+        snprintf(titleText, sizeof(titleText), "Pattern  -  all channels");
     else if (view == View::chain)
         snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on
                                                               ? "  -  playing"
@@ -247,6 +273,38 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "%s  Ch %d%s", name, selectedChannel + 1, hint);
     }
     titleBar->setTitle(titleText);
+}
+
+void cEuclidParams::refreshLines()
+{
+    if (view != View::lines)
+        return;
+    panelData.mode = strEuclidPanelData::Mode::lanes;
+    const bool running = euclidEngine.isRunning();
+    uint32_t state = selectedChannel;
+    for (uint8_t i = 0; i < strEuclidPanelData::kLanes; i++)
+    {
+        const euclid::Rhythm r = euclidEngine.getActiveRhythm(i);
+        const euclid::Expression x = euclidEngine.getExpression(i);
+        strEuclidPanelData::LaneData& l = panelData.lanes[i];
+        l.steps = r.steps;
+        l.pulses = 0;
+        for (uint8_t s = 0; s < r.steps && s < 32; s++)
+            if (euclid::isPulse(r.steps, r.pulses, r.rotation, s))
+                l.pulses |= 1u << s;
+        l.current = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
+        l.on = x.enabled && !x.muted;
+        const char* name = euclidEngine.getNameShown(i);
+        if (name != nullptr)
+            snprintf(lineNames[i], sizeof(lineNames[i]), "%d %.7s", i + 1, name);
+        else
+            snprintf(lineNames[i], sizeof(lineNames[i]), "%d", i + 1);
+        l.name = lineNames[i];
+        state = state * 131 + l.current + 7 * l.on + 13 * l.pulses;
+    }
+    panelData.laneSelected = static_cast<int8_t>(selectedChannel);
+    lastLinesState = state;
+    display.refreshControl(panel);
 }
 
 void cEuclidParams::refreshFrame()
@@ -308,18 +366,12 @@ void cEuclidParams::refreshParam(uint8_t param)
         case paramVelocity: snprintf(t, n, "%d", x.velocity); break;
         case paramGate: snprintf(t, n, "%d%%", x.gate); break;
         case paramChance: snprintf(t, n, "%d%%", x.probability); break;
-        case paramOutput: snprintf(t, n, "%s", x.output == euclid::ChannelOutput::sampler ? "Sampler" : "MIDI"); break;
-        case paramMidiChannel: snprintf(t, n, "%d", x.midiChannel); break;
-        case paramInstrument:
-        {
-            // As the stock screens number them, with the sample's name.
-            const strInstrument& in = mtProject.instrument[x.instrument];
-            if (in.isActive == 1 && in.sample.file_name[0] != 0)
-                snprintf(t, n, "%d %s", x.instrument + 1, in.sample.file_name);
+        case paramMidiChannel:
+            if (x.output == euclid::ChannelOutput::sampler)
+                snprintf(t, n, "Sampler"); // set on the Synth page (Instr)
             else
-                snprintf(t, n, "%d empty", x.instrument + 1);
+                snprintf(t, n, "%d", x.midiChannel);
             break;
-        }
         case paramEnabled: snprintf(t, n, "%s", x.enabled ? "On" : "Off"); break;
         default: t[0] = 0; break;
     }
@@ -371,12 +423,9 @@ uint32_t cEuclidParams::paramDimMask() const
     if (x.chord == euclid::ChordType::single || arp)
         dim |= 1ul << paramChordChance;
 
-    // The sampler plays one note at a time and has no MIDI channel; MIDI no
-    // instrument.
+    // The sampler plays one note at a time and has no MIDI channel.
     if (x.output == euclid::ChannelOutput::sampler)
         dim |= (1ul << paramMidiChannel) | (1ul << paramChord) | (1ul << paramChordChance);
-    else
-        dim |= 1ul << paramInstrument;
     return dim;
 }
 
@@ -573,6 +622,8 @@ void cEuclidParams::refreshChannels()
 
 void cEuclidParams::refreshRing()
 {
+    if (view == View::lines)
+        return; // no ring on that page
     const uint8_t ch = selectedChannel;
     euclid::Rhythm active = euclidEngine.getActiveRhythm(ch);
     euclid::Rhythm live = euclidEngine.getLiveRhythm(ch);

@@ -86,8 +86,7 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         case paramGate: return { PadMap::level, kPads, 1, 100 };
         case paramChance: return { PadMap::level, kPads, 0, 100 };
         case paramMidiChannel: return { PadMap::list, 16, 1, 0 };
-        case paramOutput: return { PadMap::list, 2, 0, 0 };
-        case paramInstrument: return { PadMap::list, euclid::kSampleInstruments, 0, 0 }; // a pad an instrument
+
         case paramEnabled: return { PadMap::list, 2, 0, 0 };
         default: return { PadMap::none, 0, 0, 0 };
     }
@@ -142,8 +141,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         case paramGate: return x.gate;
         case paramChance: return x.probability;
         case paramMidiChannel: return x.midiChannel;
-        case paramOutput: return static_cast<int>(x.output);
-        case paramInstrument: return x.instrument;
+
         case paramEnabled: return x.enabled ? 1 : 0;
         default: return kNoValue;
     }
@@ -263,14 +261,7 @@ void cEuclidParams::setRowValue(uint8_t row, int v)
         case paramGate: euclidEngine.setGate(ch, static_cast<uint8_t>(clampInt(v, 1, 100))); break;
         case paramChance: euclidEngine.setProbability(ch, static_cast<uint8_t>(clampInt(v, 0, 100))); break;
         case paramMidiChannel: euclidEngine.setMidiChannel(ch, static_cast<uint8_t>(clampInt(v, 1, 16))); break;
-        case paramOutput:
-            x.output = v != 0 ? euclid::ChannelOutput::sampler : euclid::ChannelOutput::midi;
-            euclidEngine.setExpression(ch, x);
-            break;
-        case paramInstrument:
-            x.instrument = static_cast<uint8_t>(clampInt(v, 0, euclid::kSampleInstruments - 1));
-            euclidEngine.setExpression(ch, x);
-            break;
+
         case paramEnabled: euclidEngine.setEnabled(ch, v != 0); break;
         default: return;
     }

@@ -9,6 +9,8 @@
 
 #include "euclid/euclidPlatform.h"
 #include "euclid/synthDef.h"
+#include "fileManager.h"
+#include "mtAudioEngine.h"
 
 #include <stdio.h>
 
@@ -48,10 +50,152 @@ int clampInt(int v, int lo, int hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
+
+// The Synth row: 0 none (plain MIDI), 1 the sampler, 2 on the definition
+// files.
+constexpr int kSynthRowSampler = 1;
+constexpr int kSynthRowFirstFile = 2;
+
+// With the sampler, the rows under Synth are its instrument's settings, as
+// the stock instrument editor has them (envelopes and the rest stay there:
+// Shift + Instr).
+enum SampleRow : uint8_t
+{
+    sampleSynth = 0,
+    sampleInstrument,
+    sampleVolume,
+    samplePan,
+    sampleTune,
+    sampleFine,
+    sampleFilter,
+    sampleCutoff,
+    sampleResonance,
+    sampleReverb,
+    sampleDelay,
+    sampleRowCount
+};
+const char* const kSampleRowNames[sampleRowCount] = { "Synth",  "Instrument", "Volume",    "Pan",
+                                                      "Tune",   "Fine tune",  "Filter",    "Cutoff",
+                                                      "Resonance", "Reverb send", "Delay send" };
+const char* const kFilterNames[] = { "Off", "Low pass", "High pass", "Band pass" };
+
+bool isSampler(uint8_t ch)
+{
+    return euclidEngine.getExpression(ch).output == euclid::ChannelOutput::sampler;
+}
+
+int sampleValue(const strInstrument& in, uint8_t row)
+{
+    switch (row)
+    {
+        case sampleVolume: return in.volume;
+        case samplePan: return in.panning;
+        case sampleTune: return in.tune;
+        case sampleFine: return in.fineTune;
+        case sampleFilter: return in.filterEnable ? 1 + in.filterType : 0;
+        case sampleCutoff: return static_cast<int>(in.cutOff * 100.0f + 0.5f);
+        case sampleResonance: return static_cast<int>(in.resonance * 100.0f / RESONANCE_MAX + 0.5f);
+        case sampleReverb: return in.reverbSend;
+        case sampleDelay: return in.delaySend;
+        default: return 0;
+    }
+}
+
+// Changes an instrument setting as the instrument editor does: the value,
+// then a refresh for whichever tracks play it, then the project's to save.
+void setSampleValue(uint8_t instrument, uint8_t row, int v)
+{
+    strInstrument& in = mtProject.instrument[instrument];
+    uint32_t mask = 0;
+    switch (row)
+    {
+        case sampleVolume:
+            in.volume = static_cast<uint8_t>(clampInt(v, 0, MAX_INSTRUMENT_VOLUME));
+            mask = VOLUME_MASK;
+            break;
+        case samplePan:
+            in.panning = static_cast<int16_t>(clampInt(v, PANNING_MIN, PANNING_MAX));
+            mask = PANNING_MASK;
+            break;
+        case sampleTune:
+            in.tune = static_cast<int8_t>(clampInt(v, MIN_INSTRUMENT_TUNE, MAX_INSTRUMENT_TUNE));
+            mask = TUNE_MASK;
+            break;
+        case sampleFine:
+            in.fineTune = static_cast<int8_t>(clampInt(v, MIN_INSTRUMENT_FINETUNE, MAX_INSTRUMENT_FINETUNE));
+            mask = FINETUNE_MASK;
+            break;
+        case sampleFilter:
+            v = clampInt(v, 0, 3);
+            in.filterEnable = v != 0;
+            in.filterType = static_cast<uint8_t>(v == 0 ? lowPass : v - 1);
+            mask = CUTOFF_MASK | RESONANCE_MASK;
+            break;
+        case sampleCutoff:
+            in.cutOff = clampInt(v, 0, 100) / 100.0f;
+            mask = CUTOFF_MASK;
+            break;
+        case sampleResonance:
+            in.resonance = clampInt(v, 0, 100) * RESONANCE_MAX / 100.0f;
+            mask = RESONANCE_MASK;
+            break;
+        case sampleReverb:
+            in.reverbSend = static_cast<uint8_t>(clampInt(v, SEND_MIN, SEND_MAX));
+            mask = REVERB_SEND_MASK;
+            break;
+        case sampleDelay:
+            in.delaySend = static_cast<uint8_t>(clampInt(v, SEND_MIN, SEND_MAX));
+            mask = DELAY_SEND_MASK;
+            break;
+        default: return;
+    }
+    for (uint8_t i = 0; i < 8; i++)
+        instrumentPlayer[i].setRefreshBit(mask);
+    newFileManager.setInstrumentStructChanged(instrument);
+}
+
+void formatSample(const strInstrument& in, uint8_t instrument, uint8_t row, char* t, size_t n)
+{
+    const int v = sampleValue(in, row);
+    switch (row)
+    {
+        case sampleInstrument:
+            if (in.isActive == 1 && in.sample.file_name[0] != 0)
+                snprintf(t, n, "%d %s", instrument + 1, in.sample.file_name);
+            else
+                snprintf(t, n, "%d empty", instrument + 1);
+            break;
+        case samplePan:
+            if (v == 50)
+                snprintf(t, n, "Centre");
+            else
+                snprintf(t, n, "%s %d", v < 50 ? "L" : "R", v < 50 ? 50 - v : v - 50);
+            break;
+        case sampleTune: snprintf(t, n, "%+d", v); break;
+        case sampleFine: snprintf(t, n, "%+d", v); break;
+        case sampleFilter: snprintf(t, n, "%s", kFilterNames[clampInt(v, 0, 3)]); break;
+        default: snprintf(t, n, "%d", v); break;
+    }
+}
+
+// The channel's instrument (or output) chosen now, not at Rec: the Synth
+// page's changes are heard straight away.
+void setChannelSound(uint8_t ch, euclid::ChannelOutput output, int instrument)
+{
+    euclid::Expression x = euclidEngine.getExpression(ch);
+    x.output = output;
+    if (instrument >= 0)
+        x.instrument = static_cast<uint8_t>(instrument);
+    euclidEngine.setImmediate(true);
+    euclidEngine.setExpression(ch, x);
+    euclidEngine.setImmediate(false);
+}
 } // namespace
 
 uint8_t cEuclidParams::synthRowCount() const
 {
+    if (!synthPatches && isSampler(selectedChannel))
+        return sampleRowCount;
     if (synthPatches)
     {
         const uint8_t left = static_cast<uint8_t>(euclidSynth::patches() - patchFirst);
@@ -83,10 +227,24 @@ cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
 {
     if (synthPatches)
         return { PadMap::none, 0, 0, 0 };
+    if (row == 0)
+        return { PadMap::list, static_cast<uint8_t>(euclidSynth::files() + kSynthRowFirstFile), 0, 0 };
+    if (isSampler(selectedChannel))
+    {
+        switch (row)
+        {
+            case sampleInstrument: return { PadMap::list, euclid::kSampleInstruments, 0, 0 };
+            case samplePan: return { PadMap::level, kPads, PANNING_MIN, PANNING_MAX };
+            case sampleTune: return { PadMap::level, kPads, MIN_INSTRUMENT_TUNE, MAX_INSTRUMENT_TUNE };
+            case sampleFine: return { PadMap::level, kPads, MIN_INSTRUMENT_FINETUNE, MAX_INSTRUMENT_FINETUNE };
+            case sampleFilter: return { PadMap::list, 4, 0, 0 };
+            default: return { PadMap::level, kPads, 0, 100 };
+        }
+    }
     const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
     switch (headerAt(d, row))
     {
-        case Header::synth: return { PadMap::list, static_cast<uint8_t>(euclidSynth::files() + 1), 0, 0 };
+        case Header::synth: break; // above
         case Header::device: return { PadMap::list, 16, 1, 0 };
         case Header::port: return { PadMap::list, 4, 0, 0 };
         case Header::part:
@@ -110,9 +268,19 @@ int cEuclidParams::synthRowValue(uint8_t row) const
 {
     if (synthPatches)
         return kNoValue;
+    if (row == 0)
+        return isSampler(selectedChannel) ? kSynthRowSampler
+                                          : (euclidSynth::assignedFile(selectedChannel) < 0
+                                               ? 0
+                                               : euclidSynth::assignedFile(selectedChannel) + kSynthRowFirstFile);
+    if (isSampler(selectedChannel))
+    {
+        const uint8_t in = euclidEngine.getExpression(selectedChannel).instrument;
+        return row == sampleInstrument ? in : sampleValue(mtProject.instrument[in], row);
+    }
     switch (headerAt(euclidSynth::definition(selectedChannel), row))
     {
-        case Header::synth: return euclidSynth::assignedFile(selectedChannel) + 1; // 0 = none
+        case Header::synth: return kNoValue; // above
         case Header::device: return euclidSynth::device(selectedChannel);
         case Header::port: return euclidSynth::ports(selectedChannel);
         case Header::part: return euclidSynth::partSetting(selectedChannel);
@@ -128,17 +296,41 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
     if (synthPatches)
         return;
     const uint8_t ch = selectedChannel;
+    if (row == 0)
+    {
+        // None, Sampler or a synth definition.
+        v = clampInt(v, 0, euclidSynth::files() + kSynthRowFirstFile - 1);
+        if (v == kSynthRowSampler)
+        {
+            euclidSynth::assign(ch, -1);
+            setChannelSound(ch, euclid::ChannelOutput::sampler, -1);
+        }
+        else
+        {
+            setChannelSound(ch, euclid::ChannelOutput::midi, -1);
+            if (!euclidSynth::assign(ch, v == 0 ? -1 : v - kSynthRowFirstFile))
+                showMessage(euclidSynth::error());
+        }
+        synthGroup[ch] = 0;
+        euclidSynth::saveAssignments();
+        refreshSynth();
+        refreshPads();
+        refreshParams();
+        return;
+    }
+    if (isSampler(ch))
+    {
+        if (row == sampleInstrument)
+            setChannelSound(ch, euclid::ChannelOutput::sampler, clampInt(v, 0, euclid::kSampleInstruments - 1));
+        else
+            setSampleValue(euclidEngine.getExpression(ch).instrument, row, v);
+        refreshSynth();
+        refreshPads();
+        return;
+    }
     switch (headerAt(euclidSynth::definition(ch), row))
     {
-        case Header::synth:
-        {
-            int file = clampInt(v, 0, euclidSynth::files()) - 1;
-            if (!euclidSynth::assign(ch, file))
-                showMessage(euclidSynth::error());
-            synthGroup[ch] = 0;
-            euclidSynth::saveAssignments();
-            break;
-        }
+        case Header::synth: break; // above
         case Header::device:
             euclidSynth::setDevice(ch, static_cast<uint8_t>(clampInt(v, 1, 16)));
             euclidSynth::saveAssignments();
@@ -182,6 +374,13 @@ void cEuclidParams::changeSynth(int16_t delta)
     }
     const uint8_t row = selectedSynthRow;
     const int step = delta > 0 ? 1 : -1;
+    if (row != 0 && isSampler(selectedChannel))
+    {
+        // The wide ranges follow the encoder's speed.
+        const bool fine = row != sampleInstrument && row != sampleFilter && row != sampleTune;
+        setSynthRowValue(row, synthRowValue(row) + (fine ? delta : step));
+        return;
+    }
     int p = synthParamAt(row);
     // Parameters with long ranges follow the encoder's speed.
     bool fine = false;
@@ -221,6 +420,28 @@ void cEuclidParams::refreshSynth()
         refreshFrame();
         return;
     }
+    if (isSampler(ch))
+    {
+        const uint8_t in = euclidEngine.getExpression(ch).instrument;
+        panelData.rows = sampleRowCount;
+        if (selectedSynthRow >= sampleRowCount)
+            selectedSynthRow = sampleRowCount - 1;
+        for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
+        {
+            panelData.names[i] = i < sampleRowCount ? kSampleRowNames[i] : nullptr;
+            panelData.values[i] = i < sampleRowCount ? synthText[i] : nullptr;
+        }
+        snprintf(synthText[0], sizeof(synthText[0]), "Sampler");
+        for (uint8_t row = 1; row < sampleRowCount; row++)
+            formatSample(mtProject.instrument[in], in, row, synthText[row], sizeof(synthText[row]));
+        // The filter's settings don't apply while it's off.
+        panelData.dimRows =
+          mtProject.instrument[in].filterEnable ? 0 : ((1ul << sampleCutoff) | (1ul << sampleResonance));
+        panelData.stagedRows = 0;
+        panelData.meterCount = 0;
+        refreshFrame();
+        return;
+    }
     panelData.rows = synthRowCount();
     if (selectedSynthRow >= panelData.rows)
         selectedSynthRow = static_cast<uint8_t>(panelData.rows - 1);
@@ -241,12 +462,7 @@ void cEuclidParams::refreshSynth()
             panelData.names[row] = kHeaderNames[static_cast<uint8_t>(h)];
             switch (h)
             {
-                case Header::synth:
-                    if (euclidSynth::files() == 0)
-                        snprintf(t, n, "None in Synths/");
-                    else
-                        snprintf(t, n, "%s", d ? d->name : "None");
-                    break;
+                case Header::synth: snprintf(t, n, "%s", d ? d->name : "None (MIDI)"); break;
                 case Header::device: snprintf(t, n, "%d", euclidSynth::device(ch)); break;
                 case Header::port: snprintf(t, n, "%s", kPortNames[euclidSynth::ports(ch) & 3]); break;
                 case Header::part:

@@ -33,9 +33,7 @@ class cEuclidParams : public ModuleBase
         paramVelocity,
         paramGate,
         paramChance,
-        paramOutput,     // MIDI or the sampler
         paramMidiChannel,
-        paramInstrument, // the sampler's instrument
         paramEnabled,
         paramCount
     };
@@ -50,6 +48,7 @@ class cEuclidParams : public ModuleBase
         shift,
         synth,
         chain,
+        lines, // all channels as lines of steps (Pattern)
     };
 
     // The Shift page's settings rows (Fx 2 again switches to them).
@@ -245,6 +244,11 @@ class cEuclidParams : public ModuleBase
     uint32_t lastSynthEvents = 0;
     // The Synth page's patch list (File): the selected patch, and the first
     // one on screen.
+    // Lines view (Pattern): every channel's rhythm and where it's playing.
+    void refreshLines();
+    uint32_t lastLinesState = 0;
+    char lineNames[8][12];
+
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();
     uint8_t chainRowCount() const;

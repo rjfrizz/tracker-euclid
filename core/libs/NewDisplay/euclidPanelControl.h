@@ -16,7 +16,20 @@ struct strEuclidPanelData
     {
         list,
         grid,
+        lanes, // every channel's rhythm as a line of steps (the Pattern key)
     } mode = Mode::list;
+
+    // Lanes mode: a line per channel, a cell per step, pulses filled.
+    static constexpr uint8_t kLanes = 8;
+    struct LaneData
+    {
+        uint8_t steps = 0;
+        uint32_t pulses = 0; // bit per step
+        int8_t current = -1; // the step playing
+        bool on = false;     // enabled and not muted
+        const char* name = nullptr;
+    } lanes[kLanes];
+    int8_t laneSelected = -1;
 
     // List mode.
     uint8_t rows = 0;
@@ -68,6 +81,7 @@ class cEuclidPanel : public cDisplayControl
     void drawList();
     void drawGrid();
     void drawMeters(int16_t y);
+    void drawLanes();
     void drawOutline(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
     void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
 
