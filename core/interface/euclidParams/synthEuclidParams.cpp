@@ -13,6 +13,7 @@
 #include "mtAudioEngine.h"
 
 #include <stdio.h>
+#include <string.h>
 
 namespace
 {
@@ -304,6 +305,7 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
         {
             euclidSynth::assign(ch, -1);
             setChannelSound(ch, euclid::ChannelOutput::sampler, -1);
+            nameSamplerChannels(ch, true);
         }
         else
         {
@@ -321,7 +323,11 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
     if (isSampler(ch))
     {
         if (row == sampleInstrument)
+        {
             setChannelSound(ch, euclid::ChannelOutput::sampler, clampInt(v, 0, euclid::kSampleInstruments - 1));
+            nameSamplerChannels(ch, true);
+            refreshChannels();
+        }
         else
             setSampleValue(euclidEngine.getExpression(ch).instrument, row, v);
         refreshSynth();
@@ -570,4 +576,41 @@ void cEuclidParams::deletePatch()
         patchFirst = patchCursor;
     showMessage(text);
     refreshSynth();
+}
+
+//------------------------------------------------------------------------------
+// Sampler channels take their sample's name.
+
+void cEuclidParams::nameSamplerChannels(int onlyChannel, bool force)
+{
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+    {
+        if (onlyChannel >= 0 && ch != onlyChannel)
+            continue;
+        const euclid::Expression x = euclidEngine.getExpression(ch);
+        if (x.output != euclid::ChannelOutput::sampler)
+            continue;
+        const strInstrument& in = mtProject.instrument[x.instrument];
+        if (in.isActive != 1 || in.sample.file_name[0] == 0)
+            continue;
+
+        // The file's name without its extension.
+        char name[12];
+        snprintf(name, sizeof(name), "%s", in.sample.file_name);
+        for (char* c = name + strlen(name); c > name; c--)
+            if (*c == '.')
+            {
+                *c = 0;
+                break;
+            }
+        name[euclid::Engine::kTextNameLength] = 0;
+
+        const char* current = euclidEngine.getTextName(ch);
+        // Not if it's been given a name from the list, or another name.
+        const bool ours =
+          (current[0] == 0 && euclidEngine.getName(ch) == 0) || strcmp(current, sampleNamed[ch]) == 0;
+        if ((force || ours) && strcmp(current, name) != 0)
+            euclidEngine.setTextName(ch, name);
+        snprintf(sampleNamed[ch], sizeof(sampleNamed[ch]), "%s", euclidEngine.getTextName(ch));
+    }
 }

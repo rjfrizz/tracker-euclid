@@ -269,6 +269,11 @@ class cEuclidParams : public ModuleBase
     char chainNames[24][4];
     char chainText[strEuclidPanelData::kMaxRows][24];
 
+    // Sampler channels are named after their sample (force: just chosen;
+    // otherwise only if the name is still one this gave it).
+    void nameSamplerChannels(int onlyChannel, bool force);
+    char sampleNamed[8][12] = {};
+
     bool synthPatches = false;
     uint8_t patchCursor = 0;
     uint8_t patchFirst = 0;

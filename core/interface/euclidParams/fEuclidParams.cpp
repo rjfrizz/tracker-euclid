@@ -235,6 +235,7 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // The first time this screen opens the SD card is ready, so this is
     // where the working state from before the last power-off comes back.
     euclidSets::bootLoad();
+    nameSamplerChannels(-1, false); // a sample may have been loaded meanwhile
     {
         static bool synthsLoaded = false;
         if (!synthsLoaded)
