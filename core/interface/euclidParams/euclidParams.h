@@ -52,7 +52,8 @@ class cEuclidParams : public ModuleBase
     // The Shift page's settings rows (Fx 2 again switches to them).
     enum ShiftRow : uint8_t
     {
-        shiftRowOn = 0,
+        shiftRowLane = 0, // which lane the page shows: Pitch, Mode, Division, Order, Chord
+        shiftRowOn,
         shiftRowLength,
         shiftRowAdvance,
         shiftRowUnits,
@@ -103,7 +104,7 @@ class cEuclidParams : public ModuleBase
         if (view == View::mod)
             return modVisibleCount;
         if (isShiftSettings())
-            return shiftRowCount;
+            return shiftRows();
         if (view == View::synth)
             return synthRowCount();
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
@@ -261,6 +262,13 @@ class cEuclidParams : public ModuleBase
     void moveShiftCursor(int8_t delta);
     void clearShiftStep(bool all);
     bool shiftSettings = false; // the settings list rather than the steps
+    uint8_t shiftLane = 0;      // 0 the pitch lane, 1 + euclid::LaneKind for the others
+    uint8_t shiftRows() const { return shiftLane == 0 ? shiftRowCount : shiftRowCount - 1; } // Units: pitch only
+    // The selected lane, whichever it is.
+    bool shiftLaneOn() const;
+    uint8_t shiftLaneLength() const;
+    bool shiftStepUsed(uint8_t step) const; // not zero (pitch) or none
+    int8_t shiftPlayedStep() const;
     uint8_t selectedShiftRow = shiftRowOn;
     uint8_t shiftCursor = 0;
     int8_t lastShiftPlayed = -2;

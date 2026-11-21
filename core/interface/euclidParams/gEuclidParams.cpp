@@ -207,7 +207,9 @@ void cEuclidParams::refreshTitle()
     else if (view == View::mod)
         snprintf(titleText, sizeof(titleText), "Mod %c  Ch %d%s", 'A' + selectedMod, selectedChannel + 1, hint);
     else if (view == View::shift)
-        snprintf(titleText, sizeof(titleText), "Shift%s  Ch %d%s", shiftSettings ? " settings" : "",
+        snprintf(titleText, sizeof(titleText), "Shift %s%s  Ch %d%s",
+                 shiftLane == 0 ? "Pitch" : (shiftLane == 1 ? "Mode" : (shiftLane == 2 ? "Division" : (shiftLane == 3 ? "Order" : "Chord"))),
+                 shiftSettings ? " set" : "",
                  selectedChannel + 1, hint);
     else if (view == View::synth && synthPatches)
     {
@@ -615,9 +617,8 @@ void cEuclidParams::refreshRing()
     }
     else if (view == View::shift)
     {
-        const euclid::Shift& sh = x.shift;
-        if (sh.on)
-            snprintf(ringText2, sizeof(ringText2), "Shift: %d steps", sh.length);
+        if (shiftLaneOn())
+            snprintf(ringText2, sizeof(ringText2), "Shift: %d steps", shiftLaneLength());
         else
             snprintf(ringText2, sizeof(ringText2), "Shift off");
         ringData.centerText2 = ringText2;

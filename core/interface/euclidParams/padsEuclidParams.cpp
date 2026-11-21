@@ -363,12 +363,12 @@ void cEuclidParams::refreshPads()
     {
         // The lane: steps in use glow, steps with a shift a little more,
         // the cursor brightest.
-        const euclid::Shift& s = euclidEngine.getExpression(selectedChannel).shift;
-        for (uint8_t pad = 0; pad < s.length && pad < kPads; pad++)
+        const uint8_t length = shiftLaneLength();
+        for (uint8_t pad = 0; pad < length && pad < kPads; pad++)
         {
             if (pad == shiftCursor)
                 padsBacklight.setBackLayer(1, bright, pad);
-            else if (s.step[pad] != 0)
+            else if (shiftStepUsed(pad))
                 padsBacklight.setBackLayer(1, mid, pad);
             else
                 padsBacklight.setBackLayer(1, dim, pad);

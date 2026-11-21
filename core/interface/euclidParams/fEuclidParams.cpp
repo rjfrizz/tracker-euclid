@@ -128,7 +128,7 @@ void cEuclidParams::update()
     }
 
     // The Shift grid follows the step being played.
-    if (view == View::shift && !shiftSettings && euclidEngine.getShiftStep(selectedChannel) != lastShiftPlayed)
+    if (view == View::shift && !shiftSettings && shiftPlayedStep() != lastShiftPlayed)
         refreshShift();
 
     // Auto-rotation moves the modulator's ring; the meters follow the values.
@@ -996,7 +996,7 @@ static void functDown()
     {
         if (EP->shiftSettings)
         {
-            if (EP->selectedShiftRow + 1 < cEuclidParams::shiftRowCount)
+            if (EP->selectedShiftRow + 1 < EP->shiftRows())
                 EP->selectedShiftRow++;
             EP->refreshFrame();
             EP->refreshPads();

@@ -36,9 +36,12 @@
 //        140 text name (10 characters, 0-padded, then a 0; shown instead of
 //            the list name when it isn't empty)
 //        151 reserved
-//   1232 CRC-32 (little-endian) of bytes 0-1231
+//        152 4 more Shift lanes (mode, division, order, chord) of 35 bytes:
+//            on, length, advance, then 32 steps (value + 1; 0 = none)
+//   2352 CRC-32 (little-endian) of bytes 0-2351
 //
 // Older files still load, and the fields they don't have get defaults:
+//   version 8 (1236 bytes: 152-byte records, CRC at 1232): no extra lanes.
 //   version 7 (1140 bytes: 140-byte records, CRC at 1136): no text names.
 //   version 6 (852 bytes: 104-byte records, CRC at 848): no Shift.
 //   version 5 (596 bytes: 72-byte records, CRC at 592): two modulators of
@@ -59,14 +62,20 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 8;
+constexpr uint8_t kSetVersion = 9;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
-constexpr size_t kSetChannelSize = 152;
+constexpr size_t kSetChannelSize = 292;
 constexpr size_t kSetTextNameOffset = 140;
+constexpr size_t kSetLanesOffset = 152;
+constexpr size_t kSetLaneSize = 35;
 constexpr size_t kSetShiftOffset = 104;
 constexpr size_t kSetModSize = 14;
 constexpr size_t kSetFileSize = kSetHeaderSize + kChannels * kSetChannelSize + 4;
+
+// Version 8, read only.
+constexpr size_t kSetV8ChannelSize = 152;
+constexpr size_t kSetV8FileSize = kSetHeaderSize + kChannels * kSetV8ChannelSize + 4;
 
 // Version 7, read only.
 constexpr size_t kSetV7ChannelSize = 140;

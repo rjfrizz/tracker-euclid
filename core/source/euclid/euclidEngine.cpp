@@ -288,6 +288,35 @@ const char* noteModeName(NoteMode m)
     }
 }
 
+uint8_t laneValueCount(LaneKind k)
+{
+    switch (k)
+    {
+        case LaneKind::mode: return static_cast<uint8_t>(NoteMode::count);
+        case LaneKind::division: return static_cast<uint8_t>(Division::count);
+        case LaneKind::order: return static_cast<uint8_t>(NoteDirection::count);
+        case LaneKind::chord: return static_cast<uint8_t>(ChordType::count);
+        default: return 0;
+    }
+}
+
+const char* laneValueName(LaneKind k, int8_t v)
+{
+    if (v < 0 || v >= laneValueCount(k))
+        return "-";
+    static const char* const modes[] = { "SEQ", "Rand", "Walk", "ScUp", "ScUD", "ArUp", "ArUD" };
+    static const char* const orders[] = { "Fwd", "Back", "Pong", "Rand" };
+    static const char* const chords[] = { "One", "Triad", "7th", "9th", "Sus2", "Sus4", "Power", "4ths" };
+    switch (k)
+    {
+        case LaneKind::mode: return modes[v];
+        case LaneKind::division: return divisionName(static_cast<Division>(v));
+        case LaneKind::order: return orders[v];
+        case LaneKind::chord: return chords[v];
+        default: return "-";
+    }
+}
+
 uint8_t scaleCount()
 {
     return MAX_SCALE + 1;
@@ -397,6 +426,16 @@ Expression Engine::clampExpression(const Expression& e) const
         x.shift.units = ShiftUnits::semitones;
     for (int8_t& v : x.shift.step)
         v = clampValue<int8_t>(v, -kMaxShift, kMaxShift);
+    for (int k = 0; k < kLaneKinds; k++)
+    {
+        Lane& l = x.lanes[k];
+        l.length = clampValue<uint8_t>(l.length, 1, kShiftSteps);
+        if (l.advance >= ShiftAdvance::count || k == static_cast<int>(LaneKind::division))
+            l.advance = ShiftAdvance::perCycle;
+        for (int8_t& v : l.step)
+            if (v < kLaneNone || v >= laneValueCount(static_cast<LaneKind>(k)))
+                v = kLaneNone;
+    }
     for (Mod& m : x.mod)
     {
         if (m.dest >= ModDest::count)
@@ -466,10 +505,23 @@ bool sameShift(const Shift& a, const Shift& b)
     return true;
 }
 
+bool sameLane(const Lane& a, const Lane& b)
+{
+    if (a.on != b.on || a.length != b.length || a.advance != b.advance)
+        return false;
+    for (int i = 0; i < kShiftSteps; i++)
+        if (a.step[i] != b.step[i])
+            return false;
+    return true;
+}
+
 bool sameExpression(const Expression& a, const Expression& b)
 {
     if (!sameShift(a.shift, b.shift))
         return false;
+    for (int k = 0; k < kLaneKinds; k++)
+        if (!sameLane(a.lanes[k], b.lanes[k]))
+            return false;
     for (int k = 0; k < kModsPerChannel; k++)
         if (!sameMod(a.mod[k], b.mod[k]))
             return false;
@@ -518,6 +570,13 @@ void Engine::resetChannelPosition(Channel& c)
     c.shiftCounter = 0;
     c.shiftPlayed = -1;
     c.shiftIndex = 0;
+    for (int k = 0; k < kLaneKinds; k++)
+    {
+        c.laneCounter[k] = 0;
+        c.laneIndex[k] = 0;
+        c.lanePlayed[k] = -1;
+    }
+    c.stepDivision = c.active.division;
 }
 
 void Engine::closeNote(Channel& c)
@@ -867,6 +926,50 @@ void Engine::triggerStep(Channel& c)
     // not; per pulse only on pulses (muted or skipped ones too, like notes);
     // per cycle on the rhythm's first step, and holds for the whole cycle.
     int8_t shiftAmount = 0;
+
+    // The other lanes move the same way, each on its own; a division lane
+    // picks the step length for the cycle on its first step.
+    int8_t laneValue[kLaneKinds] = { kLaneNone, kLaneNone, kLaneNone, kLaneNone };
+    for (int k = 0; k < kLaneKinds; k++)
+    {
+        const Lane& l = c.expr.lanes[k];
+        if (!l.on)
+        {
+            c.lanePlayed[k] = -1;
+            continue;
+        }
+        const bool perCycle = l.advance == ShiftAdvance::perCycle || k == static_cast<int>(LaneKind::division);
+        const bool advance = (perCycle && c.step == 0) || (!perCycle && (l.advance == ShiftAdvance::perStep || pulse));
+        if (advance)
+        {
+            c.laneIndex[k] = static_cast<uint8_t>(c.laneCounter[k] % l.length);
+            c.laneCounter[k]++;
+        }
+        const uint8_t index = static_cast<uint8_t>(c.laneIndex[k] % l.length);
+        if (k == static_cast<int>(LaneKind::division))
+        {
+            if (advance)
+            {
+                laneValue[k] = l.step[index];
+                c.lanePlayed[k] = static_cast<int8_t>(index);
+            }
+        }
+        else if (pulse && (advance || perCycle))
+        {
+            laneValue[k] = l.step[index];
+            c.lanePlayed[k] = static_cast<int8_t>(index);
+        }
+    }
+    {
+        const Lane& dl = c.expr.lanes[static_cast<int>(LaneKind::division)];
+        if (!dl.on)
+            c.stepDivision = r.division;
+        else if (c.step == 0)
+            c.stepDivision = laneValue[static_cast<int>(LaneKind::division)] >= 0
+                               ? static_cast<Division>(laneValue[static_cast<int>(LaneKind::division)])
+                               : r.division;
+    }
+
     if (sh.on)
     {
         const bool advance = sh.advance == ShiftAdvance::perStep || (sh.advance == ShiftAdvance::perPulse && pulse) ||
@@ -885,6 +988,29 @@ void Engine::triggerStep(Channel& c)
     }
     if (!pulse)
         return;
+
+    // This step's mode, order and chord from the lanes, for this note only:
+    // the channel's own settings come back when the step is done.
+    struct LaneOverride
+    {
+        Channel& c;
+        NoteMode mode;
+        NoteDirection direction;
+        ChordType chord;
+        explicit LaneOverride(Channel& ch) : c(ch), mode(ch.active.mode), direction(ch.active.direction), chord(ch.expr.chord) {}
+        ~LaneOverride()
+        {
+            c.active.mode = mode;
+            c.active.direction = direction;
+            c.expr.chord = chord;
+        }
+    } restore(c);
+    if (laneValue[static_cast<int>(LaneKind::mode)] >= 0)
+        c.active.mode = static_cast<NoteMode>(laneValue[static_cast<int>(LaneKind::mode)]);
+    if (laneValue[static_cast<int>(LaneKind::order)] >= 0)
+        c.active.direction = static_cast<NoteDirection>(laneValue[static_cast<int>(LaneKind::order)]);
+    if (laneValue[static_cast<int>(LaneKind::chord)] >= 0)
+        c.expr.chord = static_cast<ChordType>(laneValue[static_cast<int>(LaneKind::chord)]);
 
     // The note sequence advances on every pulse, even muted or skipped ones,
     // so muting a channel doesn't shift where its melody lands.
@@ -937,7 +1063,7 @@ void Engine::triggerStep(Channel& c)
 
     closeNote(c);
 
-    uint16_t stepLength = divisionToMicroSteps(r.division);
+    uint16_t stepLength = divisionToMicroSteps(c.stepDivision);
     uint16_t gate = static_cast<uint16_t>((static_cast<uint32_t>(stepLength) * gatePercent) / 100);
     if (gate < 1)
         gate = 1;
@@ -1236,6 +1362,11 @@ int8_t Engine::getShiftStep(int ch) const
     return validChannel(ch) ? channels[ch].shiftPlayed : -1;
 }
 
+int8_t Engine::getLaneStep(int ch, LaneKind k) const
+{
+    return validChannel(ch) && k < LaneKind::count ? channels[ch].lanePlayed[static_cast<int>(k)] : -1;
+}
+
 void Engine::onMicroStep()
 {
     if (!running)
@@ -1270,7 +1401,7 @@ void Engine::onMicroStep()
             triggerStep(c);
 
         c.microStepInStep++;
-        if (c.microStepInStep >= divisionToMicroSteps(c.active.division))
+        if (c.microStepInStep >= divisionToMicroSteps(c.stepDivision))
         {
             c.microStepInStep = 0;
             c.step++;
@@ -1545,6 +1676,14 @@ uint32_t Engine::repeatLength(int ch) const
     const Expression x = channels[ch].expr;
     unlock();
 
+    // Lanes that change the mode, order or step length make the notes too
+    // hard to foresee: no repeat. (A chord lane counts like the pitch lane,
+    // except on an arp, where the chord is the melody.)
+    const bool arp = r.mode == NoteMode::arpUp || r.mode == NoteMode::arpUpDown;
+    if (x.lanes[static_cast<int>(LaneKind::mode)].on || x.lanes[static_cast<int>(LaneKind::division)].on ||
+        x.lanes[static_cast<int>(LaneKind::order)].on || (x.lanes[static_cast<int>(LaneKind::chord)].on && arp))
+        return 0;
+
     const uint32_t cycle = static_cast<uint32_t>(r.steps) * divisionToMicroSteps(r.division);
     uint32_t pulses = 0;
     for (uint8_t i = 0; i < r.steps; i++)
@@ -1599,6 +1738,16 @@ uint32_t Engine::repeatLength(int ch) const
             period = lcm32(period, cycle * x.shift.length);
         else
             period = lcm32(period, static_cast<uint32_t>(x.shift.length) * divisionToMicroSteps(r.division));
+    }
+    const Lane& cl = x.lanes[static_cast<int>(LaneKind::chord)];
+    if (cl.on && period != 0)
+    {
+        if (cl.advance == ShiftAdvance::perPulse)
+            period = lcm32(period, cycle * (lcm32(cl.length, pulses) / pulses));
+        else if (cl.advance == ShiftAdvance::perCycle)
+            period = lcm32(period, cycle * cl.length);
+        else
+            period = lcm32(period, static_cast<uint32_t>(cl.length) * divisionToMicroSteps(r.division));
     }
     return period;
 }

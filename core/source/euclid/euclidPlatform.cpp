@@ -72,6 +72,9 @@ uint32_t changeCountSaved = 0;
 uint32_t lastSeenChangeCount = 0;
 uint32_t lastChangeMs = 0;
 
+// Set files in and out, one at a time (too big for the stack).
+__NOINIT(EXTERNAL_RAM) uint8_t setBuffer[euclid::kSetFileSize];
+
 FileSystem* fs()
 {
     return TrackerImpl::getInstance()->getPlatform()->getFileSystem();
@@ -124,13 +127,13 @@ bool readSetFile(const char* path, uint8_t* slotOut)
     if (!f->exists(path))
         return false;
 
-    uint8_t buf[euclid::kSetFileSize];
+    uint8_t* buf = setBuffer; // one at a time, from the main loop
     auto [isOpen, file] = f->openFile(path);
     if (!isOpen)
         return false;
     // Older versions are smaller; deserializeSet checks the exact size.
     size_t size = f->getFileSize(file);
-    int32_t got = size <= sizeof(buf) ? f->readFile(buf, size, file) : -1;
+    int32_t got = size <= euclid::kSetFileSize ? f->readFile(buf, size, file) : -1;
     f->closeFile(file);
 
     if (got != static_cast<int32_t>(size))
@@ -234,13 +237,13 @@ bool writeScenesFile(const char* path, const char* tempPath);
 
 bool saveCurrent()
 {
-    uint8_t buf[euclid::kSetFileSize];
+    uint8_t* buf = setBuffer; // one at a time, from the main loop
     uint32_t count = euclidEngine.getChangeCount();
-    if (activeScene >= 0 && homeLength == sizeof(buf))
-        memcpy(buf, homeImage, sizeof(buf));
-    else if (euclid::serializeSet(euclidEngine, slotOfState, buf, sizeof(buf)) == 0)
+    if (activeScene >= 0 && homeLength == euclid::kSetFileSize)
+        memcpy(buf, homeImage, euclid::kSetFileSize);
+    else if (euclid::serializeSet(euclidEngine, slotOfState, buf, euclid::kSetFileSize) == 0)
         return false;
-    if (!writeFileSafely(kCurrentPath, kCurrentTempPath, buf, sizeof(buf)))
+    if (!writeFileSafely(kCurrentPath, kCurrentTempPath, buf, euclid::kSetFileSize))
     {
         LOG("euclid: autosave failed");
         return false;
@@ -344,10 +347,10 @@ bool save(uint8_t slot)
     slotPath(slot, path, sizeof(path));
     snprintf(temp, sizeof(temp), "%s/set%d.tmp", kSetsDir, slot);
 
-    uint8_t buf[euclid::kSetFileSize];
-    if (euclid::serializeSet(euclidEngine, slot, buf, sizeof(buf)) == 0)
+    uint8_t* buf = setBuffer; // one at a time, from the main loop
+    if (euclid::serializeSet(euclidEngine, slot, buf, euclid::kSetFileSize) == 0)
         return false;
-    if (!writeFileSafely(path, temp, buf, sizeof(buf)))
+    if (!writeFileSafely(path, temp, buf, euclid::kSetFileSize))
         return false;
 
     char scn[32];

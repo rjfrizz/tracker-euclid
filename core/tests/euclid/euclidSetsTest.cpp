@@ -97,6 +97,16 @@ static void fill(Engine& e)
         e.setName(ch, static_cast<uint8_t>(ch * 4));
     e.setTextName(2, "E.PIANO 1");
     e.setTextName(5, "Fantasia");
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        Expression x = e.getExpression(ch);
+        Lane& l = x.lanes[ch % kLaneKinds];
+        l.on = true;
+        l.length = static_cast<uint8_t>(3 + ch);
+        l.advance = static_cast<ShiftAdvance>(ch % 3);
+        l.step[1] = static_cast<int8_t>(ch % 3);
+        e.setExpression(ch, x);
+    }
 }
 
 static bool sameSettings(const Engine& a, const Engine& b)
@@ -122,6 +132,13 @@ static bool sameSettings(const Engine& a, const Engine& b)
             return false;
         if (a.getName(ch) != b.getName(ch) || std::strcmp(a.getTextName(ch), b.getTextName(ch)) != 0)
             return false;
+        for (int k = 0; k < kLaneKinds; k++)
+        {
+            const Lane &la = xa.lanes[k], &lb = xb.lanes[k];
+            if (la.on != lb.on || la.length != lb.length || la.advance != lb.advance ||
+                std::memcmp(la.step, lb.step, sizeof(la.step)) != 0)
+                return false;
+        }
         if (xa.shift.on != xb.shift.on || xa.shift.length != xb.shift.length ||
             xa.shift.advance != xb.shift.advance || xa.shift.units != xb.shift.units)
             return false;
@@ -393,7 +410,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 1236);
+    CHECK(kSetFileSize == 2356);
+    CHECK(kSetV8FileSize == 1236);
     CHECK(kSetV7FileSize == 1140);
     CHECK(kSetV6FileSize == 852);
     CHECK(kSetV5FileSize == 596);

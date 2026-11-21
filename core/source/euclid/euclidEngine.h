@@ -278,6 +278,40 @@ struct Shift
     int8_t step[kShiftSteps] = {};
 };
 
+// More Shift lanes, beside the pitch one: each step sets the channel's
+// mode, division, note order (SEQ) or chord for the notes it applies to, or
+// is kLaneNone (the channel's own setting). Each lane has its own length and
+// advance; a division lane only changes per cycle, so a cycle keeps one step
+// length. Stored in set files, so only add at the end.
+enum class LaneKind : uint8_t
+{
+    mode = 0,
+    division,
+    order,
+    chord,
+    count
+};
+constexpr int kLaneKinds = static_cast<int>(LaneKind::count);
+constexpr int8_t kLaneNone = -1;
+
+struct Lane
+{
+    bool on = false;
+    uint8_t length = 4; // 1-32
+    ShiftAdvance advance = ShiftAdvance::perCycle;
+    int8_t step[kShiftSteps];
+    Lane()
+    {
+        for (int8_t& v : step)
+            v = kLaneNone;
+    }
+};
+
+// How many values a lane's steps can take (besides none).
+uint8_t laneValueCount(LaneKind k);
+// A step's value, short enough for a grid cell ("-" for none).
+const char* laneValueName(LaneKind k, int8_t value);
+
 struct Expression
 {
     bool enabled = false;
@@ -305,6 +339,7 @@ struct Expression
 
     Mod mod[kModsPerChannel];
     Shift shift;
+    Lane lanes[kLaneKinds]; // by LaneKind
 };
 
 // SEQ list entries.
@@ -486,6 +521,7 @@ class Engine
     uint8_t getModRotation(int ch, int mod) const; // including auto-rotation
     // The Shift step the channel last played (for the screen), or -1.
     int8_t getShiftStep(int ch) const;
+    int8_t getLaneStep(int ch, LaneKind k) const; // the step used last, -1 for none
 
     // Goes up on every settings change, for autosave and for screens that
     // need to notice changes made elsewhere (such as loading a set).
@@ -519,6 +555,10 @@ class Engine
         uint32_t shiftCounter = 0; // Shift steps advanced since the channel started
         int8_t shiftPlayed = -1;   // Shift step used last, for the screen
         uint8_t shiftIndex = 0;    // the Shift step in use (per cycle: all cycle long)
+        uint32_t laneCounter[kLaneKinds] = {};
+        uint8_t laneIndex[kLaneKinds] = {};
+        int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1 };
+        Division stepDivision = Division::d1_16; // this cycle's (a division lane)
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
 

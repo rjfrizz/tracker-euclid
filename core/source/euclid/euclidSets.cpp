@@ -123,6 +123,16 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         const char* text = engine.getTextName(ch);
         for (int i = 0; i < Engine::kTextNameLength && text[i] != 0; i++)
             p[kSetTextNameOffset + i] = static_cast<uint8_t>(text[i]);
+        for (int k = 0; k < kLaneKinds; k++)
+        {
+            const Lane& l = x.lanes[k];
+            uint8_t* q = p + kSetLanesOffset + k * kSetLaneSize;
+            q[0] = l.on ? 1 : 0;
+            q[1] = l.length;
+            q[2] = static_cast<uint8_t>(l.advance);
+            for (int i = 0; i < kShiftSteps; i++)
+                q[3 + i] = static_cast<uint8_t>(l.step[i] + 1);
+        }
     }
 
     const size_t crcOffset = kSetFileSize - 4;
@@ -178,6 +188,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV7FileSize;
     }
     else if (version == 8)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV8ChannelSize;
+        fileSize = kSetV8FileSize;
+    }
+    else if (version == 9)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -290,6 +306,19 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             x.shift.units = enumOr(sh[3], ShiftUnits::count, ShiftUnits::semitones);
             for (int i = 0; i < kShiftSteps; i++)
                 x.shift.step[i] = static_cast<int8_t>(static_cast<int>(sh[4 + i]) - 64);
+        }
+        if (version >= 9)
+        {
+            for (int k = 0; k < kLaneKinds; k++)
+            {
+                const uint8_t* q = p + kSetLanesOffset + k * kSetLaneSize;
+                Lane& l = x.lanes[k];
+                l.on = q[0] != 0;
+                l.length = q[1];
+                l.advance = enumOr(q[2], ShiftAdvance::count, ShiftAdvance::perCycle);
+                for (int i = 0; i < kShiftSteps; i++)
+                    l.step[i] = static_cast<int8_t>(static_cast<int>(q[3 + i]) - 1);
+            }
         }
         if (version == 5)
         {

@@ -1059,6 +1059,79 @@ static void testShiftPerCycleHoldsForTheCycle()
     CHECK(e.repeatLength(0) == 2u * 4 * 48);
 }
 
+static void testChordLanePerPulse()
+{
+    // C major, a lone C: every other note a triad.
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Expression x = e.getExpression(0);
+    Lane& l = x.lanes[static_cast<int>(LaneKind::chord)];
+    l.on = true;
+    l.length = 2;
+    l.advance = ShiftAdvance::perPulse;
+    l.step[1] = static_cast<int8_t>(ChordType::triad);
+    e.setExpression(0, x);
+    CHECK((playSeq(e, 4) == std::vector<uint8_t>{60, 60, 64, 67, 60, 60, 64, 67}));
+    CHECK(e.getExpression(0).chord == ChordType::single); // the channel's own chord is untouched
+}
+
+static void testDivisionLanePerCycle()
+{
+    // Four 1/16 pulses, then a cycle of 1/8s, then 1/16s again.
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Expression x = e.getExpression(0);
+    Lane& l = x.lanes[static_cast<int>(LaneKind::division)];
+    l.on = true;
+    l.length = 2;
+    l.advance = ShiftAdvance::perStep; // division lanes go per cycle whatever this says
+    l.step[1] = static_cast<int8_t>(Division::d1_8);
+    e.setExpression(0, x);
+    reset();
+    e.start();
+    run(e, 48 * 4 + 96 * 4 + 48 * 2);
+    e.stop();
+    CHECK((onTicks(1) == std::vector<uint32_t>{0, 48, 96, 144, 192, 288, 384, 480, 576, 624}));
+    CHECK(e.repeatLength(0) == 0); // a division lane: no repeat worked out
+}
+
+static void testModeLaneAndNone()
+{
+    // Scale up with a lane that does nothing plays as without it...
+    Engine plain = makeGeneratedEngine(NoteMode::scaleUp);
+    plain.setGlobalKey(Key{0, 2});
+    reset();
+    plain.start();
+    run(plain, 48 * 8);
+    const std::vector<uint8_t> want = playedNotes();
+
+    Engine e = makeGeneratedEngine(NoteMode::scaleUp);
+    e.setGlobalKey(Key{0, 2});
+    Expression x = e.getExpression(0);
+    x.lanes[static_cast<int>(LaneKind::mode)].on = true; // all steps "-"
+    e.setExpression(0, x);
+    reset();
+    e.start();
+    run(e, 48 * 8);
+    CHECK(playedNotes() == want);
+
+    // ...and a SEQ step plays the list's note in its place.
+    e.stop();
+    e.setNotes(0, std::vector<uint8_t>{72}.data(), 1);
+    x = e.getExpression(0);
+    Lane& l = x.lanes[static_cast<int>(LaneKind::mode)];
+    l.length = 2;
+    l.advance = ShiftAdvance::perPulse;
+    l.step[1] = static_cast<int8_t>(NoteMode::seq);
+    e.setExpression(0, x);
+    reset();
+    e.start();
+    run(e, 48 * 4);
+    std::vector<uint8_t> got = playedNotes();
+    CHECK(got.size() == 4 && got[1] == 72 && got[3] == 72 && got[0] != 72);
+    CHECK(e.getRhythm(0).mode == NoteMode::scaleUp);
+    CHECK(laneValueName(LaneKind::mode, static_cast<int8_t>(NoteMode::seq))[0] == 'S');
+    CHECK(laneValueName(LaneKind::chord, kLaneNone)[0] == '-');
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1090,6 +1163,9 @@ int main()
     testShiftPerStepDriftsAgainstTheRhythm();
     testShiftPerPulseSkipsRests();
     testShiftPerCycleHoldsForTheCycle();
+    testChordLanePerPulse();
+    testDivisionLanePerCycle();
+    testModeLaneAndNone();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();
