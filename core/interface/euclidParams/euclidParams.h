@@ -257,10 +257,11 @@ class cEuclidParams : public ModuleBase
     uint32_t linesState() const; // changes when anything the lines show does
     void changeLines(int16_t delta, bool steps); // pulses, or steps with Shift
     void rotateLines(int delta);
+    void orderLines(int delta); // the SEQ note order
     uint32_t lastLinesState = 0;
     uint32_t lastLinesMs = 0;
     char lineNames[8][12];
-    char lineInfo[8][12];
+    char lineInfo[8][20];
     char lineShift[8][24];
 
     // Chain view (chainEuclidParams.cpp).

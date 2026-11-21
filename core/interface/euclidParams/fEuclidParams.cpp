@@ -1085,7 +1085,10 @@ static void functLeft()
 {
     if (EP->view == cEuclidParams::View::lines)
     {
-        EP->rotateLines(-1);
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+            EP->orderLines(-1); // Shift: the note order
+        else
+            EP->rotateLines(-1);
         return;
     }
     if (EP->view == cEuclidParams::View::chain)
@@ -1115,7 +1118,10 @@ static void functRight()
 {
     if (EP->view == cEuclidParams::View::lines)
     {
-        EP->rotateLines(1);
+        if (EP->buttons->isButtonPressed(interfaceButtonShift))
+            EP->orderLines(1);
+        else
+            EP->rotateLines(1);
         return;
     }
     if (EP->view == cEuclidParams::View::chain)

@@ -342,7 +342,7 @@ uint32_t cEuclidParams::linesState() const
     {
         const euclid::Rhythm r = euclidEngine.getRhythm(i);
         const euclid::Expression x = euclidEngine.getExpression(i);
-        state = state * 131 + pulseMask(r) + 7u * r.steps + 3u * r.rotation;
+        state = state * 131 + pulseMask(r) + 7u * r.steps + 3u * r.rotation + 11u * static_cast<uint32_t>(r.direction);
         state = state * 31 + (running ? euclidEngine.getCurrentStep(i) : 255) + 5u * (x.enabled && !x.muted);
         state = state * 17 + (euclidEngine.hasStagedChange(i) || euclidEngine.hasPendingChange(i));
         for (int k = 0; k < euclid::kModsPerChannel; k++)
@@ -390,7 +390,7 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         l.steps = staged.steps;
         l.pulses = pulseMask(staged);
         l.pending = staged.steps != active.steps || staged.pulses != active.pulses ||
-                    staged.rotation != active.rotation;
+                    staged.rotation != active.rotation || staged.direction != active.direction;
         l.current = running ? static_cast<int8_t>(euclidEngine.getCurrentStep(i)) : -1;
         l.on = x.enabled && !x.muted;
         const char* name = euclidEngine.getNameShown(i);
@@ -399,10 +399,17 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         else
             snprintf(lineNames[i], sizeof(lineNames[i]), "%d", i + 1);
         l.name = lineNames[i];
-        if (staged.rotation != 0)
-            snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d r%d", staged.pulses, staged.steps, staged.rotation);
-        else
-            snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d", staged.pulses, staged.steps);
+        // Pulses/steps, rotation, and the note order if it isn't forward:
+        // < backward, <> ping-pong, ? random (short, to fit beside the steps).
+        int n = staged.rotation != 0
+                  ? snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d r%d", staged.pulses, staged.steps, staged.rotation)
+                  : snprintf(lineInfo[i], sizeof(lineInfo[i]), "%d/%d", staged.pulses, staged.steps);
+        if (staged.direction != euclid::NoteDirection::forward && n > 0 && n < static_cast<int>(sizeof(lineInfo[i])))
+        {
+            static const char* const kOrder[] = { "", "<", "<>", "?" };
+            snprintf(lineInfo[i] + n, sizeof(lineInfo[i]) - n, " %s",
+                     kOrder[static_cast<uint8_t>(staged.direction) & 3]);
+        }
         l.info = lineInfo[i];
 
         // Which Shift lanes are on, and the value each is playing.
@@ -475,6 +482,17 @@ void cEuclidParams::changeLines(int16_t delta, bool steps)
         p = p < 0 ? 0 : (p > r.steps ? r.steps : p);
         euclidEngine.setPulses(ch, static_cast<uint8_t>(p));
     }
+    refreshLines();
+    refreshTitle();
+    refreshChannels();
+}
+
+void cEuclidParams::orderLines(int delta)
+{
+    const uint8_t ch = selectedChannel;
+    const euclid::Rhythm r = euclidEngine.getRhythm(ch);
+    const int count = static_cast<int>(euclid::NoteDirection::count);
+    euclidEngine.setDirection(ch, static_cast<euclid::NoteDirection>((static_cast<int>(r.direction) + count + delta) % count));
     refreshLines();
     refreshTitle();
     refreshChannels();
