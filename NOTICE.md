@@ -58,3 +58,8 @@ Polyend Tracker Community Edition (CE) incorporates or links against the followi
 
 * **License**: MIT License (`euclid-synths/LICENSE-jv1080-sysex-manager.txt`)
 * **Copyright**: Copyright (c) 2025 Lt-Blmr. `euclid-synths/JV1080.syn` is generated from `RolandJV1080.ini` in https://github.com/sonic-codex/jv1080-sysex-manager, a transcription of Roland's JV-1080 MIDI implementation tables.
+
+## 12. Jx8pEditor (JX-8P parameter table for the EUCLID synth editor)
+
+* **License**: MIT License (`euclid-synths/LICENSE-Jx8pEditor.txt`)
+* **Copyright**: Copyright (c) 2026 Grapelane Studio. `euclid-synths/JX8P.syn` is generated from `Source/Jx8pSysex.cpp` in https://github.com/grapelanestudios/Jx8pEditor.

@@ -383,7 +383,36 @@ void takeInbox()
     while (inboxTail != inboxHead)
     {
         const uint8_t slot = inboxTail;
-        if (requestChannel >= 0)
+        if (requestChannel < 0)
+        {
+            // Synths that send their patch unasked (when a patch is chosen
+            // on them): it's taken by the channels using them.
+            for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+            {
+                const Definition* d = definition(ch);
+                euclid::synth::DumpData dump;
+                if (d == nullptr || !d->listen ||
+                    !euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], channels[ch].device, dump))
+                    continue;
+                const uint8_t part = euclidSynth::part(ch);
+                if (part == 0)
+                    continue;
+                euclid::synth::applyDump(*d, dump, part, values[ch]);
+                char name[24] = "";
+                euclid::synth::dumpName(*d, dump, part, name, sizeof(name));
+                imageCount[ch] = 0;
+                keepImage(ch, inbox[slot], inboxLength[slot], channels[ch].device, part);
+                if (name[0] != 0)
+                {
+                    euclidEngine.setTextName(ch, name);
+                    snprintf(eventText, sizeof(eventText), "Got \"%s\"", name);
+                }
+                else
+                    snprintf(eventText, sizeof(eventText), "Got the patch");
+                events++;
+            }
+        }
+        else
         {
             const uint8_t ch = static_cast<uint8_t>(requestChannel);
             const Definition* d = definition(ch);
@@ -638,7 +667,10 @@ bool requestPatch(uint8_t ch)
         return false;
     if (d->requestCount == 0)
     {
-        snprintf(lastError, sizeof(lastError), "%s can't send its patch", d->name);
+        if (d->listen)
+            snprintf(lastError, sizeof(lastError), "Pick a patch on the %s: it sends it", d->name);
+        else
+            snprintf(lastError, sizeof(lastError), "%s can't send its patch", d->name);
         return false;
     }
     const uint8_t part = euclidSynth::part(ch);

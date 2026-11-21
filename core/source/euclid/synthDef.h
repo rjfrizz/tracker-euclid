@@ -17,6 +17,8 @@
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
 //                              [stride=16] [reload=1] [nibbles=2]
+//   listen                          take its dumps whenever they come (a synth
+//                                   that sends its patch itself, unasked)
 //   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
 //                                   part 1 listens on MIDI channel 2...
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 8)
@@ -165,6 +167,7 @@ struct Definition
     uint8_t listCount;
     List lists[kMaxLists];
     char listNames[kMaxLists][12];
+    bool listen;       // dumps are taken whenever they arrive, not just when asked
     uint8_t partCount; // 0: no parts
     uint16_t partStride;
     uint8_t partChannel; // the MIDI channel part 1 listens on, 0 if none

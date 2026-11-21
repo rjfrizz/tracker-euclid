@@ -493,6 +493,10 @@ bool parse(const char* text, size_t length, Definition& d)
             }
             d.mapCount++;
         }
+        else if (strcmp(key, "listen") == 0)
+        {
+            d.listen = true;
+        }
         else if (strcmp(key, "parts") == 0)
         {
             long count, stride;
