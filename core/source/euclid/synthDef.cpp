@@ -448,6 +448,25 @@ bool parse(const char* text, size_t length, Definition& d)
             dump.hasAddress = hasAddress(dump.pattern);
             d.dumpCount++;
         }
+        else if (strcmp(key, "map") == 0)
+        {
+            if (d.mapCount >= kMaxMaps)
+                return fail(d, lineNumber, "too many maps");
+            const uint8_t m = d.mapCount;
+            if (!line.word(d.mapNames[m], sizeof(d.mapNames[0])))
+                return fail(d, lineNumber, "map: name missing");
+            d.mapFirst[m] = d.mapUsed;
+            d.mapLength[m] = 0;
+            long v;
+            while (line.word(w, sizeof(w)))
+            {
+                if (!parseInt(w, v) || v < 0 || v > 0x3FFF || d.mapUsed >= kMapPool)
+                    return fail(d, lineNumber, "map: numbers 0-16383, not too many");
+                d.mapPool[d.mapUsed++] = static_cast<uint16_t>(v);
+                d.mapLength[m]++;
+            }
+            d.mapCount++;
+        }
         else if (strcmp(key, "parts") == 0)
         {
             long count, stride;
@@ -519,6 +538,7 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.send = 0;
             prm.stride = 0;
             prm.reload = false;
+            prm.map = 0xFF;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -548,6 +568,17 @@ bool parse(const char* text, size_t length, Definition& d)
                 *eq = 0;
                 const char* value = eq + 1;
                 long v = 0;
+                if (strcmp(w, "map") == 0)
+                {
+                    int m = -1;
+                    for (int i = 0; i < d.mapCount; i++)
+                        if (strcmp(d.mapNames[i], value) == 0)
+                            m = i;
+                    if (m < 0)
+                        return fail(d, lineNumber, "param: unknown map");
+                    prm.map = static_cast<uint8_t>(m);
+                    continue;
+                }
                 if (strcmp(w, "list") == 0)
                 {
                     int l = findList(d, value);
@@ -598,7 +629,12 @@ size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t devi
         value = p.min;
     if (value > p.max)
         value = p.max;
-    const unsigned v = static_cast<unsigned>(value + p.send) & 0x3FFF;
+    unsigned v = static_cast<unsigned>(value + p.send) & 0x3FFF;
+    if (p.map != 0xFF)
+    {
+        const int i = value - p.min;
+        v = i >= 0 && i < d.mapLength[p.map] ? d.mapPool[d.mapFirst[p.map] + i] : 0;
+    }
     return emit(t, forPart(d, p.number, hasAddress(t), part, p.stride), v, device, out, maxLength);
 }
 
@@ -692,6 +728,15 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
         if (at < 0)
             continue;
         int v = dump.data[at] - p.send;
+        if (p.map != 0xFF)
+        {
+            // Back from the number to the value that sends it.
+            const int raw = dump.data[at];
+            v = p.min;
+            for (int k = 0; k < d.mapLength[p.map]; k++)
+                if (d.mapPool[d.mapFirst[p.map] + k] == raw)
+                    v = p.min + k;
+        }
         values[i] = static_cast<int16_t>(v < p.min ? p.min : (v > p.max ? p.max : v));
         count++;
     }

@@ -25,6 +25,8 @@
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
 //   name vced 77 10                 the patch name: 10 bytes at vced 77
+//   map p2inst 0x0000 0x0101 ...    the numbers a param's values send
+//                                   (map=p2inst: value n sends the n-th)
 //
 // A param line gives its template, its number (decimal or 0x hex: the
 // parameter number, or a Roland address as printed), its name and its
@@ -68,6 +70,8 @@ constexpr int kStringPool = 12288;
 constexpr int kMaxMessage = 32;
 constexpr int kMaxRequests = 4;
 constexpr int kMaxDumps = 8;
+constexpr int kMaxMaps = 4;
+constexpr int kMapPool = 512; // numbers, all maps together
 
 enum class Token : uint8_t
 {
@@ -115,6 +119,7 @@ struct Param
     uint8_t list; // 0xFF for none
     uint16_t stride; // between parts; 0 for the definition's
     bool reload;
+    uint8_t map; // 0xFF for none: the value is sent as it is
 };
 
 struct Dump
@@ -162,6 +167,12 @@ struct Definition
     uint16_t requestStride[kMaxRequests]; // 0 for the definition's
     uint8_t dumpCount;
     Dump dumps[kMaxDumps];
+    uint8_t mapCount;
+    char mapNames[kMaxMaps][12];
+    uint16_t mapFirst[kMaxMaps];
+    uint16_t mapLength[kMaxMaps];
+    uint16_t mapUsed;
+    uint16_t mapPool[kMapPool];
     uint8_t nameTempl; // 0xFF for none
     uint32_t nameNumber;
     uint8_t nameLength;

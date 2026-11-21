@@ -423,6 +423,29 @@ static void testPatchRewrite()
     CHECK(!moveDump(*d, settings.data(), settings.size(), 5, 1, 1, 1));
 }
 
+// A value map: the Proteus/2 numbers its instruments out of order.
+static void testValueMap()
+{
+    auto d = load("synth \"P\"\n"
+                  "template p F0 18 04 d+00 03 pl ph vl vh F7\n"
+                  "list inst \"None\" \"Basses\" \"Celli\"\n"
+                  "map pmap 0x0000 0x0101 0x0205\n"
+                  "group \"G\"\n"
+                  "param p 23 \"Instrument\" 0 2 list=inst map=pmap\n"
+                  "param p 28 \"Pan\" -7 7\n");
+    uint8_t m[kMaxMessage];
+    CHECK(buildMessage(*d, 0, 2, 1, 1, m, sizeof(m)) == 10 && m[5] == 23 && m[6] == 0 && m[7] == 0x05 && m[8] == 0x04);
+    CHECK(buildMessage(*d, 0, 1, 1, 1, m, sizeof(m)) == 10 && m[7] == 0x01 && m[8] == 0x02);
+    // Negative values go as 14-bit two's complement.
+    CHECK(buildMessage(*d, 1, -3, 1, 1, m, sizeof(m)) == 10 && m[7] == 0x7D && m[8] == 0x7F);
+    char t[16];
+    formatValue(*d, 0, 2, t, sizeof(t));
+    CHECK(std::strcmp(t, "Celli") == 0);
+    Definition bad;
+    const char* b = "template p F0 v F7\ngroup \"G\"\nparam p 0 \"A\" 0 1 map=nope\n";
+    CHECK(!parse(b, std::strlen(b), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -437,6 +460,7 @@ int main()
     testPartStride();
     testMultiMessage();
     testPatchRewrite();
+    testValueMap();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;
