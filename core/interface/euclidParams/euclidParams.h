@@ -49,6 +49,7 @@ class cEuclidParams : public ModuleBase
         mod,
         shift,
         synth,
+        chain,
     };
 
     // The Shift page's settings rows (Fx 2 again switches to them).
@@ -89,7 +90,7 @@ class cEuclidParams : public ModuleBase
     bool isListView() const
     {
         return view == View::params || view == View::global || view == View::mod || view == View::synth ||
-               isShiftSettings();
+               view == View::chain || isShiftSettings();
     }
     uint8_t focusedRow() const
     {
@@ -97,6 +98,8 @@ class cEuclidParams : public ModuleBase
             return selectedShiftRow;
         if (view == View::synth)
             return selectedSynthRow;
+        if (view == View::chain)
+            return selectedChainRow;
         return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
     }
     uint8_t listRowCount() const
@@ -109,6 +112,8 @@ class cEuclidParams : public ModuleBase
             return shiftRows();
         if (view == View::synth)
             return synthRowCount();
+        if (view == View::chain)
+            return chainRowCount();
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
     }
 
@@ -240,6 +245,21 @@ class cEuclidParams : public ModuleBase
     uint32_t lastSynthEvents = 0;
     // The Synth page's patch list (File): the selected patch, and the first
     // one on screen.
+    // Chain view (chainEuclidParams.cpp).
+    void refreshChain();
+    uint8_t chainRowCount() const;
+    void changeChain(int16_t delta);
+    void moveChainRow(int delta);
+    void moveChainField(int delta);
+    void insertChainStep();
+    void deleteChainStep();
+    uint8_t selectedChainRow = 0;
+    uint8_t chainField = 0; // 0 set, 1 scene, 2 bars
+    int8_t lastChainPlaying = -1;
+    uint32_t lastChainBar = 0;
+    char chainNames[24][4];
+    char chainText[strEuclidPanelData::kMaxRows][24];
+
     bool synthPatches = false;
     uint8_t patchCursor = 0;
     uint8_t patchFirst = 0;

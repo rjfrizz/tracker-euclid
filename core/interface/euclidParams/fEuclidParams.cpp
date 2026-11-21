@@ -1,5 +1,6 @@
 #include "euclidParams/euclidParams.h"
 
+#include "euclid/euclidChain.h"
 #include "euclid/euclidPlatform.h"
 #include "euclid/euclidSets.h"
 #include "Platform.h"
@@ -40,6 +41,7 @@ static void functGlobalView();
 static void functModView();
 static void functShiftView();
 static void functSynthView();
+static void functChainView();
 static void functDelete();
 static void functInsert();
 static void functPads(uint8_t pad, uint8_t state, int16_t velo);
@@ -127,6 +129,18 @@ void cEuclidParams::update()
         }
     }
 
+    // The chain page follows the step and bar being played.
+    if (view == View::chain)
+    {
+        uint32_t bar = 0;
+        const int8_t playing = euclidChain::playingStep(&bar, nullptr);
+        if (playing != lastChainPlaying || bar != lastChainBar)
+        {
+            refreshChain();
+            refreshTitle();
+        }
+    }
+
     // The Shift grid follows the step being played.
     if (view == View::shift && !shiftSettings && shiftPlayedStep() != lastShiftPlayed)
         refreshShift();
@@ -190,10 +204,12 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     ip->setButtonObj(interfaceButtonSampleEdit, buttonPress, functScene);
     ip->setButtonObj(interfaceButtonSampleRec, buttonPress, functScene);
     // There's no stock Pattern or Song screen: both keys come home.
-    ip->setButtonObj(interfaceButtonSong, buttonPress, functParamsView);
+    // Pattern is home (the Params page, and back from a scene); Song the chain.
+    ip->setButtonObj(interfaceButtonSong, buttonPress, functChainView);
     ip->setButtonObj(interfaceButtonPattern, buttonPress, functParamsView);
 
-    ip->setButtonObj(interfaceButtonParams, buttonPress, functParamsView);
+    // Params is the channel's sound: its synth, or its sample instrument.
+    ip->setButtonObj(interfaceButtonParams, buttonPress, functSynthView);
     ip->setButtonObj(interfaceButtonNote, buttonPress, functNotesView);
     // File opens Sets here, Shift + File the stock project screen.
     ip->setButtonObj(interfaceButtonFile, buttonPress, functSetsView);
@@ -206,7 +222,7 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     // again switches between the steps and their settings.
     ip->setButtonObj(interfaceButtonFx1, buttonPress, functShiftView);
     // Instr opens the Synth page: the channel's hardware synth. The Original
-    // has no Instr key, so Shift + Params does the same (functParamsView).
+    // has no Instr key; Params (with or without Shift) does the same.
     ip->setButtonObj(interfaceButtonInstr, buttonPress, functSynthView);
 
     // The first time this screen opens the SD card is ready, so this is
@@ -827,6 +843,11 @@ void cEuclidParams::duplicateNote()
 static void functEncoder(int16_t value)
 {
     ShiftEdits shift;
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->changeChain(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
     {
         EP->changeSynth(value);
@@ -866,6 +887,11 @@ static void functEncoder(int16_t value)
 
 static void functUp()
 {
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->moveChainRow(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
     {
         EP->movePatchCursor(-1);
@@ -923,6 +949,11 @@ static void functUp()
 
 static void functDown()
 {
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->moveChainRow(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
     {
         EP->movePatchCursor(1);
@@ -980,6 +1011,11 @@ static void functDown()
 
 static void functLeft()
 {
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->moveChainField(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
     {
         EP->moveShiftCursor(-1);
@@ -1000,6 +1036,11 @@ static void functLeft()
 
 static void functRight()
 {
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->moveChainField(1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
     {
         EP->moveShiftCursor(1);
@@ -1020,6 +1061,11 @@ static void functRight()
 
 static void functDelete()
 {
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->deleteChainStep();
+        return;
+    }
     // Shift + Delete removes the selected patch from the card.
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
     {
@@ -1047,6 +1093,11 @@ static void functInsert()
     // On the Synth page: send the whole patch, so the synth matches the
     // screen. Shift + Insert does the opposite: it gets the synth's patch.
     // In the patch list, Insert loads the selected patch.
+    if (EP->view == cEuclidParams::View::chain)
+    {
+        EP->insertChainStep();
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches &&
         !EP->buttons->isButtonPressed(interfaceButtonShift))
     {
@@ -1069,14 +1120,7 @@ static void functInsert()
 
 static void functParamsView()
 {
-    // The Original has no Instr key: like the stock firmware, Shift + Params
-    // is the instrument key, and here it opens the Synth page.
-    if (EP->buttons->isButtonPressed(interfaceButtonShift))
-    {
-        functSynthView();
-        return;
-    }
-    // While a scene plays, Params goes back to what was playing before it.
+    // While a scene plays, Pattern goes back to what was playing before it.
     if (euclidScenes::returnHome())
     {
         char text[48];
@@ -1124,6 +1168,14 @@ static void functSynthView()
 // Like Fx 1 on the Mod page, pressing Fx 2 again moves on to the next lane
 // (Pitch, Mode, Division, Order, Chord); Shift + Fx 2 switches between the
 // lane's steps and its settings.
+static void functChainView()
+{
+    if (EP->view == cEuclidParams::View::chain)
+        return;
+    EP->setView(cEuclidParams::View::chain);
+    EP->setDefaultScreenFunct();
+}
+
 static void functShiftView()
 {
     if (EP->view == cEuclidParams::View::shift)

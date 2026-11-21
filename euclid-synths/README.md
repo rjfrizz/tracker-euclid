@@ -1,7 +1,6 @@
 # EUCLID synth definitions
 
-Definition files for the EUCLID Synth page (Shift + Params on the Original,
-Instr on the Tracker+): one `.syn` file per hardware synth. Copy them to
+Definition files for the EUCLID Synth page (Params on a MIDI channel): one `.syn` file per hardware synth. Copy them to
 `Synths/` on the Tracker's SD card. The format is described at the top of
 `core/source/euclid/synthDef.h`.
 

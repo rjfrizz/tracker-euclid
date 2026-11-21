@@ -52,6 +52,20 @@ bool returnHome(); // false if no scene was playing
 int8_t active();   // the scene playing, or -1 for home
 } // namespace euclidScenes
 
+// The chain (Song key; euclidChain.h): saved in Sets/chain.chn. While it's
+// on, stopping readies its first step and Play runs the steps in order.
+namespace euclid
+{
+struct Chain;
+}
+namespace euclidChain
+{
+euclid::Chain& get();
+void changed(); // after editing get(): saves it
+// The step playing (-1 if none), the bar within it and its length.
+int8_t playingStep(uint32_t* barInStep, uint32_t* stepBars);
+} // namespace euclidChain
+
 // The synth editor (euclidSynthPlatform.cpp): synth definitions from
 // Synths/*.syn, which one each channel edits, and the values being edited.
 // Edits go out straight away (they aren't staged): the synth plays them.

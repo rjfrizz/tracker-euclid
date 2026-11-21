@@ -1,4 +1,4 @@
-// The Synth page (Instr, or Shift + Params): the selected channel's hardware
+// The Synth page (Params, or Instr): the selected channel's hardware
 // synth. The first rows choose the synth (a definition file in Synths/), its
 // device number, the port, the part (for multitimbral synths) and a group of
 // parameters; the rest are that group's parameters.

@@ -1,5 +1,6 @@
 #include "euclidParams/euclidParams.h"
 
+#include "euclid/euclidChain.h"
 #include "euclid/euclidPlatform.h"
 #include "euclid/euclidSets.h"
 #include "Platform.h"
@@ -123,7 +124,7 @@ void cEuclidParams::setView(View v)
     // Point the panel at the right list (Mod and Synth fill their own rows).
     if (view == View::mod)
         buildModRows();
-    if (view == View::synth)
+    if (view == View::synth || view == View::chain)
     {
         panelData.rows = 0;
         panelData.meterCount = 0;
@@ -131,7 +132,10 @@ void cEuclidParams::setView(View v)
         panelData.dimRows = 0;
         panelData.stagedRows = 0;
         refreshTitle();
-        refreshSynth();
+        if (view == View::chain)
+            refreshChain();
+        else
+            refreshSynth();
         refreshChannels();
         refreshRing();
         refreshPads();
@@ -179,6 +183,8 @@ void cEuclidParams::setView(View v)
         refreshShift();
     else if (view == View::synth)
         refreshSynth();
+    else if (view == View::chain)
+        refreshChain();
     else
         refreshGlobal();
     refreshChannels();
@@ -210,6 +216,10 @@ void cEuclidParams::refreshTitle()
                  shiftLane == 0 ? "Pitch" : (shiftLane == 1 ? "Mode" : (shiftLane == 2 ? "Division" : (shiftLane == 3 ? "Order" : "Chord"))),
                  shiftSettings ? " set" : "",
                  selectedChannel + 1, hint);
+    else if (view == View::chain)
+        snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on
+                                                              ? "  -  playing"
+                                                              : "");
     else if (view == View::synth && synthPatches)
     {
         // Named after the synth's folder (TX81Z, D110), short enough to fit.

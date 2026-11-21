@@ -7,6 +7,7 @@
 #include "TrackerImpl.h"
 #include "config.h"
 #include "euclidEngine.h"
+#include "euclidChain.h"
 #include "euclidSets.h"
 #include "fileManager.h"
 #include "log.h"
@@ -308,12 +309,132 @@ void euclidPlatformInit()
     euclid::loadDemoDefaults(euclidEngine);
 }
 
+//------------------------------------------------------------------------------
+// The chain (Song key): steps of a set and a scene for some bars.
+
+namespace
+{
+constexpr const char* kChainPath = "Sets/chain.chn";
+constexpr const char* kChainTempPath = "Sets/chain.tmp";
+euclid::Chain chainData;
+bool chainDirty = false;
+uint32_t chainChangedMs = 0;
+int8_t chainIssued = -1; // the step last sent to the engine
+
+// A step's set and scene, which the engine plays from the next launch point
+// (straight away while stopped).
+void applyChainStep(int i)
+{
+    const euclid::ChainStep& s = chainData.steps[i];
+    if (s.set != 0 && cardReady())
+        euclidSets::load(s.set);
+    if (s.scene != 0)
+        euclidScenes::recall(static_cast<uint8_t>(s.scene - 1));
+    else if (s.set == 0)
+        euclidScenes::returnHome();
+}
+
+void updateChain()
+{
+    if (!chainData.on)
+    {
+        chainIssued = -1;
+        return;
+    }
+    // Stopped, the first step is ready to go.
+    if (!euclidEngine.isRunning())
+    {
+        if (chainIssued != 0)
+        {
+            applyChainStep(0);
+            chainIssued = 0;
+        }
+        return;
+    }
+    const uint32_t bar = euclid::kMicroStepsPerBar;
+    const uint32_t now = euclidEngine.getPlayTime();
+    if (euclid::chainStepAt(chainData, now / bar) < 0)
+    {
+        sequencer.stop(); // the end of a chain that doesn't loop
+        return;
+    }
+    // Each step goes to the engine a launch period early, so it lands on
+    // the step's first bar.
+    const int ahead =
+      euclid::chainStepAt(chainData, (now + euclid::launchToMicroSteps(euclidEngine.getLaunch())) / bar);
+    if (ahead >= 0 && ahead != chainIssued)
+    {
+        applyChainStep(ahead);
+        chainIssued = static_cast<int8_t>(ahead);
+    }
+}
+
+void saveChain()
+{
+    uint8_t buf[euclid::kChainFileSize];
+    if (euclid::serializeChain(chainData, buf, sizeof(buf)) > 0 &&
+        writeFileSafely(kChainPath, kChainTempPath, buf, sizeof(buf)))
+        chainDirty = false;
+}
+
+void loadChain()
+{
+    FileSystem* f = fs();
+    if (f == nullptr || !f->exists(kChainPath))
+        return;
+    auto [isOpen, file] = f->openFile(kChainPath);
+    if (!isOpen)
+        return;
+    uint8_t buf[euclid::kChainFileSize];
+    const size_t size = f->getFileSize(file);
+    const int32_t got = size == sizeof(buf) ? f->readFile(buf, size, file) : -1;
+    f->closeFile(file);
+    if (got == static_cast<int32_t>(sizeof(buf)))
+        euclid::deserializeChain(chainData, buf, sizeof(buf));
+}
+} // namespace
+
+namespace euclidChain
+{
+euclid::Chain& get()
+{
+    return chainData;
+}
+
+void changed()
+{
+    chainDirty = true;
+    chainChangedMs = nowMs();
+}
+
+int8_t playingStep(uint32_t* barInStep, uint32_t* stepBars)
+{
+    if (!chainData.on || !euclidEngine.isRunning())
+        return -1;
+    uint32_t start = 0;
+    const uint32_t bar = euclidEngine.getPlayTime() / euclid::kMicroStepsPerBar;
+    const int i = euclid::chainStepAt(chainData, bar, &start);
+    if (i >= 0)
+    {
+        if (barInStep != nullptr)
+            *barInStep = bar - start;
+        if (stepBars != nullptr)
+            *stepBars = chainData.steps[i].bars;
+    }
+    return static_cast<int8_t>(i);
+}
+} // namespace euclidChain
+
 void euclidPlatformUpdate()
 {
     euclidSynth::update();
 
     if (!bootLoaded)
         return;
+
+    updateChain();
+    if (chainDirty && nowMs() - chainChangedMs >= kAutosaveDelayMs && cardReady())
+        saveChain();
 
     uint32_t count = euclidEngine.getChangeCount();
     if (count != lastSeenChangeCount)
@@ -348,6 +469,7 @@ void bootLoad()
             LOG("euclid: restored working state");
         }
         readScenesFile(kCurrentScenesPath);
+        loadChain();
     }
 
     bootLoaded = true;
