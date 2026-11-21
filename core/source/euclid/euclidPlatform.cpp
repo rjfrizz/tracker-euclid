@@ -385,12 +385,12 @@ void loadChain()
     auto [isOpen, file] = f->openFile(kChainPath);
     if (!isOpen)
         return;
-    uint8_t buf[euclid::kChainFileSize];
+    uint8_t buf[euclid::kChainFileSize]; // the newest is the largest
     const size_t size = f->getFileSize(file);
-    const int32_t got = size == sizeof(buf) ? f->readFile(buf, size, file) : -1;
+    const int32_t got = size <= sizeof(buf) ? f->readFile(buf, size, file) : -1;
     f->closeFile(file);
-    if (got == static_cast<int32_t>(sizeof(buf)))
-        euclid::deserializeChain(chainData, buf, sizeof(buf));
+    if (got == static_cast<int32_t>(size))
+        euclid::deserializeChain(chainData, buf, size);
 }
 } // namespace
 

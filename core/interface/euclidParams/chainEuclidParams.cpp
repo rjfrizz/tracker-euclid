@@ -1,19 +1,21 @@
-// The Chain page (Song): an arrangement for the live engine. Two rows turn
-// it on and choose what happens at the end; then one row a step, each a set
-// ("-" stays on the set playing), a scene ("-" the set's own settings) and
-// a length in bars. Left and right pick the part of a step to change.
+// The Chain page (Song): an arrangement for the live engine, drawn like the
+// stock Song editor with a block a step. Across the top: the chain's On and
+// At-the-end switches; then a row a step, its scene ("Own settings" for the
+// set's own), its set ("-" stays on the set playing), its bars and how many
+// times it repeats. Left and right pick the part of a step to change.
 
 #include "euclidParams/euclidParams.h"
 
 #include "euclid/euclidChain.h"
-#include "euclid/euclidSets.h"
 #include "euclid/euclidPlatform.h"
+#include "euclid/euclidSets.h"
 
 #include <stdio.h>
 
 namespace
 {
-constexpr uint8_t kChainHeader = 2; // On, At end
+constexpr uint8_t kChainHeader = 2; // On, At the end
+constexpr uint8_t kChainFields = 4; // set, scene, bars, repeats
 
 int clampInt(int v, int lo, int hi)
 {
@@ -38,12 +40,13 @@ void cEuclidParams::changeChain(int16_t delta)
     else
     {
         euclid::ChainStep& s = c.steps[row - kChainHeader];
-        if (chainField == 0)
-            s.set = static_cast<uint8_t>(clampInt(s.set + step, 0, euclid::kSetSlots));
-        else if (chainField == 1)
-            s.scene = static_cast<uint8_t>(clampInt(s.scene + step, 0, 4));
-        else
-            s.bars = static_cast<uint8_t>(clampInt(s.bars + delta, 1, euclid::kChainMaxBars));
+        switch (chainField)
+        {
+            case 0: s.set = static_cast<uint8_t>(clampInt(s.set + step, 0, euclid::kSetSlots)); break;
+            case 1: s.scene = static_cast<uint8_t>(clampInt(s.scene + step, 0, 4)); break;
+            case 2: s.bars = static_cast<uint8_t>(clampInt(s.bars + delta, 1, euclid::kChainMaxBars)); break;
+            default: s.repeats = static_cast<uint8_t>(clampInt(s.repeats + step, 1, euclid::kChainMaxRepeats)); break;
+        }
     }
     euclidChain::changed();
     refreshChain();
@@ -55,13 +58,17 @@ void cEuclidParams::moveChainRow(int delta)
     refreshChain();
 }
 
+// Left and right: across a step's parts, or between the two switches.
 void cEuclidParams::moveChainField(int delta)
 {
-    chainField = static_cast<uint8_t>(clampInt(chainField + delta, 0, 2));
+    if (selectedChainRow < kChainHeader)
+        selectedChainRow = static_cast<uint8_t>(clampInt(selectedChainRow + delta, 0, kChainHeader - 1));
+    else
+        chainField = static_cast<uint8_t>(clampInt(chainField + delta, 0, kChainFields - 1));
     refreshChain();
 }
 
-// Insert: a copy of the step under the cursor after it (or a first step).
+// Insert: a copy of the step under the cursor after it (or after the last).
 void cEuclidParams::insertChainStep()
 {
     euclid::Chain& c = euclidChain::get();
@@ -106,49 +113,25 @@ void cEuclidParams::refreshChain()
     lastChainPlaying = playing;
     lastChainBar = barInStep;
 
-    panelData.rows = chainRowCount();
-    for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
-    {
-        panelData.names[i] = nullptr;
-        panelData.values[i] = nullptr;
-    }
-    panelData.names[0] = "Chain";
-    snprintf(chainText[0], sizeof(chainText[0]), "%s", c.on ? "On: Play runs it" : "Off");
-    panelData.names[1] = "At the end";
-    snprintf(chainText[1], sizeof(chainText[1]), "%s", c.loop ? "Loop" : "Stop");
-
-    // Steps: "3", "[Set 2]  B  8 bars", the part being changed in brackets;
-    // the one playing shows its bar.
-    uint32_t staged = 0;
-    for (uint8_t i = 0; i < c.count && kChainHeader + i < strEuclidPanelData::kMaxRows; i++)
+    panelData.mode = strEuclidPanelData::Mode::blocks;
+    panelData.chainOn = c.on;
+    panelData.chainLoop = c.loop;
+    panelData.blockCount = c.count;
+    for (uint8_t i = 0; i < c.count && i < strEuclidPanelData::kMaxBlocks; i++)
     {
         const euclid::ChainStep& s = c.steps[i];
-        const uint8_t row = static_cast<uint8_t>(kChainHeader + i);
-        const bool here = row == selectedChainRow;
-        char set[8], scene[4], bars[16];
-        if (s.set == 0)
-            snprintf(set, sizeof(set), "Set -");
-        else
-            snprintf(set, sizeof(set), "Set %d", s.set);
-        snprintf(scene, sizeof(scene), "%c", s.scene == 0 ? '-' : static_cast<char>('A' + s.scene - 1));
-        if (i == playing)
-            snprintf(bars, sizeof(bars), "%lu/%d bars", static_cast<unsigned long>(barInStep + 1), s.bars);
-        else
-            snprintf(bars, sizeof(bars), "%d bar%s", s.bars, s.bars == 1 ? "" : "s");
-        snprintf(chainNames[i], sizeof(chainNames[i]), "%d", i + 1);
-        snprintf(chainText[row], sizeof(chainText[row]), here && chainField == 0 ? "[%s] %s %s"
-                                                         : here && chainField == 1 ? "%s [%s] %s"
-                                                         : here ? "%s %s [%s]"
-                                                                : "%s  %s  %s",
-                 set, scene, bars);
-        panelData.names[row] = chainNames[i];
-        if (i == playing)
-            staged |= 1ul << row; // the step playing shows in orange
+        strEuclidPanelData::BlockData& b = panelData.blocks[i];
+        b.set = s.set;
+        b.scene = s.scene;
+        b.bars = s.bars;
+        b.repeats = s.repeats;
+        b.playing = i == playing;
+        b.repeat = b.playing ? static_cast<uint8_t>(barInStep / s.bars) : 0;
+        b.bar = b.playing ? static_cast<uint8_t>(barInStep % s.bars) : 0;
     }
-    for (uint8_t row = 0; row < panelData.rows && row < strEuclidPanelData::kMaxRows; row++)
-        panelData.values[row] = chainText[row];
-    panelData.dimRows = c.on ? 0 : ~1ul; // all but the On row while it's off
-    panelData.stagedRows = staged;
-    panelData.meterCount = 0;
-    refreshFrame();
+    panelData.blockSelected =
+      selectedChainRow < kChainHeader ? static_cast<int8_t>(-1 - selectedChainRow)
+                                      : static_cast<int8_t>(selectedChainRow - kChainHeader);
+    panelData.blockField = chainField;
+    display.refreshControl(panel);
 }

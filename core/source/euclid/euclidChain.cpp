@@ -9,7 +9,7 @@ uint32_t Chain::totalBars() const
 {
     uint32_t total = 0;
     for (uint8_t i = 0; i < count && i < kChainSteps; i++)
-        total += steps[i].bars;
+        total += steps[i].length();
     return total;
 }
 
@@ -29,13 +29,13 @@ int chainStepAt(const Chain& c, uint32_t bar, uint32_t* stepStart)
     uint32_t start = 0;
     for (uint8_t i = 0; i < c.count; i++)
     {
-        if (bar < start + c.steps[i].bars)
+        if (bar < start + c.steps[i].length())
         {
             if (stepStart != nullptr)
                 *stepStart = base + start;
             return i;
         }
-        start += c.steps[i].bars;
+        start += c.steps[i].length();
     }
     return -1;
 }
@@ -56,10 +56,11 @@ size_t serializeChain(const Chain& c, uint8_t* buf, size_t length)
     buf[7] = c.count;
     for (int i = 0; i < kChainSteps; i++)
     {
-        uint8_t* p = buf + 8 + i * 3;
+        uint8_t* p = buf + 8 + i * 4;
         p[0] = c.steps[i].set;
         p[1] = c.steps[i].scene;
         p[2] = c.steps[i].bars;
+        p[3] = c.steps[i].repeats;
     }
     const uint32_t crc = crc32(buf, kChainFileSize - 4);
     for (int i = 0; i < 4; i++)
@@ -69,13 +70,17 @@ size_t serializeChain(const Chain& c, uint8_t* buf, size_t length)
 
 bool deserializeChain(Chain& c, const uint8_t* buf, size_t length)
 {
-    if (buf == nullptr || length != kChainFileSize || buf[0] != 'E' || buf[1] != 'U' || buf[2] != 'C' ||
-        buf[3] != 'H' || buf[4] != kChainVersion)
+    if (buf == nullptr || length < 8 || buf[0] != 'E' || buf[1] != 'U' || buf[2] != 'C' || buf[3] != 'H')
+        return false;
+    const uint8_t version = buf[4];
+    const size_t size = version == 1 ? kChainV1FileSize : (version == kChainVersion ? kChainFileSize : 0);
+    const size_t stepSize = version == 1 ? 3 : 4;
+    if (size == 0 || length != size)
         return false;
     uint32_t crc = 0;
     for (int i = 0; i < 4; i++)
-        crc |= static_cast<uint32_t>(buf[kChainFileSize - 4 + i]) << (8 * i);
-    if (crc != crc32(buf, kChainFileSize - 4))
+        crc |= static_cast<uint32_t>(buf[size - 4 + i]) << (8 * i);
+    if (crc != crc32(buf, size - 4))
         return false;
 
     Chain out;
@@ -84,11 +89,12 @@ bool deserializeChain(Chain& c, const uint8_t* buf, size_t length)
     out.count = buf[7] >= 1 && buf[7] <= kChainSteps ? buf[7] : 1;
     for (int i = 0; i < kChainSteps; i++)
     {
-        const uint8_t* p = buf + 8 + i * 3;
+        const uint8_t* p = buf + 8 + i * stepSize;
         ChainStep& s = out.steps[i];
         s.set = p[0] <= kSetSlots ? p[0] : 0;
         s.scene = p[1] <= 4 ? p[1] : 0;
         s.bars = p[2] >= 1 && p[2] <= kChainMaxBars ? p[2] : 4;
+        s.repeats = stepSize == 4 && p[3] >= 1 && p[3] <= kChainMaxRepeats ? p[3] : 1;
     }
     c = out;
     return true;

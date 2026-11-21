@@ -2,6 +2,7 @@
 
 #include "display.h"
 #include "euclidPanelControl.h"
+#include <stdio.h>
 
 namespace
 {
@@ -269,8 +270,121 @@ void cEuclidPanel::update()
         drawList();
     else if (data->mode == strEuclidPanelData::Mode::lanes)
         drawLanes();
+    else if (data->mode == strEuclidPanelData::Mode::blocks)
+        drawBlocks();
     else
         drawGrid();
+}
+
+// The chain as blocks, like the stock Song editor: a row a step, the block
+// coloured by scene.
+void cEuclidPanel::drawBlocks()
+{
+    const Theme& theme = display.getTheme();
+    static const uint32_t kSceneColors[5] = { 0x9E9E9E, 0xE57373, 0x64B5F6, 0x81C784, 0xFFD54F };
+    const uint32_t ink = 0x101010; // text on a block
+    const int16_t topH = 40;
+    const int16_t rowH = 38;
+
+    // The switches.
+    char text[48];
+    snprintf(text, sizeof(text), "Chain: %s", data->chainOn ? "On" : "Off");
+    API_COLOR(data->chainOn ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+    API_CMD_TEXT(posX + 12, posY + topH / 2, fonts[kFontBold].handle, OPT_CENTERY, text);
+    if (data->blockSelected == -1)
+        drawOutline(posX + 2, posY + 4, 200, topH - 8, theme.frameColors[0]);
+    snprintf(text, sizeof(text), "At the end: %s", data->chainLoop ? "Loop" : "Stop");
+    API_COLOR(theme.activeLabelsColors[0]);
+    API_CMD_TEXT(posX + 232, posY + topH / 2, fonts[kFontBold].handle, OPT_CENTERY, text);
+    if (data->blockSelected == -2)
+        drawOutline(posX + 222, posY + 4, 220, topH - 8, theme.frameColors[0]);
+
+    // Scroll to keep the selected step on screen.
+    const uint8_t visible = static_cast<uint8_t>((height - topH) / rowH);
+    if (data->blockSelected >= 0)
+    {
+        if (data->blockSelected < data->blockFirst)
+            data->blockFirst = static_cast<uint8_t>(data->blockSelected);
+        else if (data->blockSelected >= data->blockFirst + visible)
+            data->blockFirst = static_cast<uint8_t>(data->blockSelected - visible + 1);
+    }
+    if (data->blockCount <= visible)
+        data->blockFirst = 0;
+
+    const int16_t blockX = posX + 44;
+    const int16_t blockW = 300;
+    for (uint8_t r = 0; r < visible && data->blockFirst + r < data->blockCount; r++)
+    {
+        const uint8_t i = static_cast<uint8_t>(data->blockFirst + r);
+        const strEuclidPanelData::BlockData& b = data->blocks[i];
+        const int16_t y = posY + topH + r * rowH;
+        const int16_t cy = y + rowH / 2;
+        const bool here = i == data->blockSelected;
+
+        API_COLOR(theme.inactiveLabelsColors[0]);
+        snprintf(text, sizeof(text), "%d", i + 1);
+        API_CMD_TEXT(posX + 12, cy, fonts[kFontBold].handle, OPT_CENTERY, text);
+
+        // The block: scene on the left, set on the right.
+        const uint32_t color = data->chainOn ? kSceneColors[b.scene <= 4 ? b.scene : 0] : theme.frameColors[1];
+        fillRect(blockX, y + 4, blockW, rowH - 8, color);
+        API_COLOR(data->chainOn ? ink : theme.inactiveLabelsColors[0]);
+        if (b.scene == 0)
+            snprintf(text, sizeof(text), "Own settings");
+        else
+            snprintf(text, sizeof(text), "Scene %c", 'A' + b.scene - 1);
+        API_CMD_TEXT(blockX + 10, cy, fonts[kFontBold].handle, OPT_CENTERY, text);
+        if (b.set == 0)
+            snprintf(text, sizeof(text), "Set -");
+        else
+            snprintf(text, sizeof(text), "Set %d", b.set);
+        API_CMD_TEXT(blockX + blockW - 10, cy, fonts[kFontBold].handle, OPT_CENTERY | OPT_RIGHTX, text);
+        if (b.playing)
+        {
+            // How far through the step, along the bottom of the block.
+            const uint32_t total = static_cast<uint32_t>(b.bars) * b.repeats;
+            const uint32_t done = static_cast<uint32_t>(b.repeat) * b.bars + b.bar + 1;
+            fillRect(blockX, y + rowH - 9, static_cast<int16_t>(blockW * done / (total ? total : 1)), 4,
+                     theme.orange);
+        }
+
+        // Bars and repeats.
+        API_COLOR(data->chainOn ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        snprintf(text, sizeof(text), "%d bar%s", b.bars, b.bars == 1 ? "" : "s");
+        API_CMD_TEXT(blockX + blockW + 20, cy, fonts[kFontBold].handle, OPT_CENTERY, text);
+        snprintf(text, sizeof(text), "x%d", b.repeats);
+        API_CMD_TEXT(blockX + blockW + 130, cy, fonts[kFontBold].handle, OPT_CENTERY, text);
+        if (b.playing)
+        {
+            API_COLOR(theme.orange);
+            snprintf(text, sizeof(text), "rep %d/%d  bar %d/%d", b.repeat + 1, b.repeats, b.bar + 1, b.bars);
+            API_CMD_TEXT(blockX + blockW + 190, cy, fonts[kFontBold].handle, OPT_CENTERY, text);
+        }
+
+        // The part being changed.
+        if (here)
+        {
+            const int16_t fx[4] = { static_cast<int16_t>(blockX + blockW / 2), blockX,
+                                    static_cast<int16_t>(blockX + blockW + 12),
+                                    static_cast<int16_t>(blockX + blockW + 122) };
+            const int16_t fw[4] = { static_cast<int16_t>(blockW / 2), static_cast<int16_t>(blockW / 2), 100, 50 };
+            const uint8_t f = data->blockField < 4 ? data->blockField : 0;
+            drawOutline(fx[f] - 2, y + 2, fw[f] + 4, rowH - 4, theme.activeLabelsColors[0]);
+        }
+    }
+
+    // More steps above or below.
+    if (data->blockCount > visible)
+    {
+        API_COLOR(theme.inactiveLabelsColors[0]);
+        API_POINT_SIZE(16 * 3);
+        API_BEGIN(FTPOINTS);
+        if (data->blockFirst > 0)
+            API_VERTEX2F(posX + width - 6, posY + topH + 6);
+        if (data->blockFirst + visible < data->blockCount)
+            API_VERTEX2F(posX + width - 6, posY + topH + visible * rowH - 6);
+        API_END();
+    }
 }
 
 // One line per channel: its name, then a cell per step (pulses filled,

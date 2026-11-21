@@ -16,8 +16,30 @@ struct strEuclidPanelData
     {
         list,
         grid,
-        lanes, // every channel's rhythm as a line of steps (the Pattern key)
+        lanes,  // every channel's rhythm as a line of steps (the Pattern key)
+        blocks, // the chain, a block a step (the Song key)
     } mode = Mode::list;
+
+    // Blocks mode: the chain's On and At-the-end switches across the top,
+    // then a row a step: its scene's coloured block (with the set), bars and
+    // repeats; the step playing shows how far through it is.
+    static constexpr uint8_t kMaxBlocks = 24;
+    struct BlockData
+    {
+        uint8_t set = 0;   // 0 = stay
+        uint8_t scene = 0; // 0 = the set's own, 1-4 = A-D
+        uint8_t bars = 4;
+        uint8_t repeats = 1;
+        bool playing = false;
+        uint8_t repeat = 0; // while playing: which repeat, and the bar in it
+        uint8_t bar = 0;
+    } blocks[kMaxBlocks];
+    uint8_t blockCount = 0;
+    int8_t blockSelected = -1; // a step, or -1 / -2 for the On / At-the-end switch
+    uint8_t blockField = 0;    // 0 set, 1 scene, 2 bars, 3 repeats
+    uint8_t blockFirst = 0;    // the top row on screen (kept by the control)
+    bool chainOn = false;
+    bool chainLoop = true;
 
     // Lanes mode: a line per channel, a cell per step, pulses filled.
     static constexpr uint8_t kLanes = 8;
@@ -92,6 +114,7 @@ class cEuclidPanel : public cDisplayControl
     void drawGrid();
     void drawMeters(int16_t y);
     void drawLanes();
+    void drawBlocks();
     void drawOutline(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
     void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
 

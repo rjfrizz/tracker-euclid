@@ -264,11 +264,9 @@ class cEuclidParams : public ModuleBase
     void insertChainStep();
     void deleteChainStep();
     uint8_t selectedChainRow = 0;
-    uint8_t chainField = 0; // 0 set, 1 scene, 2 bars
+    uint8_t chainField = 0; // 0 set, 1 scene, 2 bars, 3 repeats
     int8_t lastChainPlaying = -1;
     uint32_t lastChainBar = 0;
-    char chainNames[24][4];
-    char chainText[strEuclidPanelData::kMaxRows][24];
 
     // Sampler channels are named after their sample (force: just chosen;
     // otherwise only if the name is still one this gave it).

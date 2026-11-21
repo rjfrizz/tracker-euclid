@@ -110,14 +110,17 @@ void cEuclidParams::setView(View v)
 {
     if (v != View::synth)
         synthPatches = false;
-    // The lines take the whole width; everywhere else the ring is on the left.
-    if (v == View::lines)
+    // The lines and the chain take the whole width; everywhere else the ring
+    // is on the left.
+    const bool wide = v == View::lines || v == View::chain;
+    const bool wasWide = view == View::lines || view == View::chain;
+    if (wide)
     {
         display.setControlHide(ring);
         display.setControlPosition(panel, 10, 40);
         display.setControlSize(panel, 780, 380);
     }
-    else if (view == View::lines)
+    else if (wasWide)
     {
         display.setControlPosition(panel, 430, 40);
         display.setControlSize(panel, 360, 380);
@@ -756,8 +759,8 @@ void cEuclidParams::refreshChannels()
 
 void cEuclidParams::refreshRing()
 {
-    if (view == View::lines)
-        return; // no ring on that page
+    if (view == View::lines || view == View::chain)
+        return; // no ring on those pages
     const uint8_t ch = selectedChannel;
     euclid::Rhythm active = euclidEngine.getActiveRhythm(ch);
     euclid::Rhythm live = euclidEngine.getLiveRhythm(ch);

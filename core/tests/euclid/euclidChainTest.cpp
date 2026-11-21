@@ -4,6 +4,7 @@
 //       core/source/euclid/euclidEngine.cpp -o /tmp/euclidChainTest
 
 #include "euclid/euclidChain.h"
+#include "euclid/euclidSets.h"
 
 #include <cstdio>
 
@@ -25,9 +26,9 @@ static Chain threeSteps()
 {
     Chain c;
     c.count = 3;
-    c.steps[0] = { 1, 0, 8 };
-    c.steps[1] = { 0, 2, 4 };
-    c.steps[2] = { 3, 1, 2 };
+    c.steps[0] = { 1, 0, 8, 1 };
+    c.steps[1] = { 0, 2, 4, 1 };
+    c.steps[2] = { 3, 1, 2, 1 };
     return c;
 }
 
@@ -66,8 +67,34 @@ static void testFile()
     CHECK(!deserializeChain(d, buf, sizeof(buf) - 1));
 }
 
+static void testRepeatsAndOldFiles()
+{
+    // 4 bars twice, then 2 bars: the second step starts at bar 8.
+    Chain c;
+    c.count = 2;
+    c.steps[0] = { 1, 1, 4, 2 };
+    c.steps[1] = { 0, 2, 2, 1 };
+    CHECK(c.totalBars() == 10);
+    uint32_t start = 0;
+    CHECK(chainStepAt(c, 7, &start) == 0 && start == 0);
+    CHECK(chainStepAt(c, 8, &start) == 1 && start == 8);
+
+    // A version 1 file (3-byte steps) loads with one repeat each.
+    uint8_t v1[kChainV1FileSize] = { 'E', 'U', 'C', 'H', 1, 1, 1, 2 };
+    v1[8] = 2; v1[9] = 3; v1[10] = 8;
+    v1[11] = 0; v1[12] = 1; v1[13] = 4;
+    uint32_t crc = crc32(v1, kChainV1FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v1[kChainV1FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    Chain d;
+    CHECK(deserializeChain(d, v1, sizeof(v1)));
+    CHECK(d.count == 2 && d.steps[0].set == 2 && d.steps[0].scene == 3 && d.steps[0].bars == 8 &&
+          d.steps[0].repeats == 1 && d.steps[1].bars == 4);
+}
+
 int main()
 {
+    testRepeatsAndOldFiles();
     testStepAt();
     testFile();
     if (failures == 0)
