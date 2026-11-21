@@ -1662,6 +1662,9 @@ void Engine::commitLocked(int ch, bool immediate)
         c.active.homeRoot = c.staged.homeRoot;
         c.active.homeScale = c.staged.homeScale;
         c.active.tieMask = c.staged.tieMask;
+        // Steps changed by hand too (a step at a time, so mid-bar is fine).
+        c.active.forceOn = c.staged.forceOn;
+        c.active.forceOff = c.staged.forceOff;
         if (c.noteIndex >= entryCount(c.active))
             c.noteIndex = 0;
 
@@ -1672,6 +1675,7 @@ void Engine::commitLocked(int ch, bool immediate)
     }
 
     c.pendingDirty = c.pendingMute || rhythmRestarts(c.active, c.pending) || !sameNotes(c.active, c.pending) ||
+                     c.active.forceOn != c.pending.forceOn || c.active.forceOff != c.pending.forceOff ||
                      !sameExpression(c.expr, c.pendingExpr) || !sameKeySettings(c.expr, c.pendingExpr);
 }
 

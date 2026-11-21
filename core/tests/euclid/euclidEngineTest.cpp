@@ -1275,6 +1275,21 @@ static void testStepsByHand()
     // A new pattern, even the same pulses again, clears the hand changes.
     e.setPulses(0, 4);
     CHECK(e.getRhythm(0).forceOn == 0 && e.getRhythm(0).forceOff == 0);
+
+    // While playing: staged, then live at the launch point after a commit.
+    e.start();
+    run(e, 48 * 3);
+    e.toggleStep(0, 4); // mute step 4
+    CHECK(e.getLiveRhythm(0).forceOff == 0);
+    e.commitAll();
+    run(e, 48 * 16 * 2);
+    CHECK(e.getLiveRhythm(0).forceOff == (1u << 4));
+    // Immediate (Shift): live straight away.
+    e.setImmediate(true);
+    e.toggleStep(0, 4);
+    e.setImmediate(false);
+    CHECK(e.getLiveRhythm(0).forceOff == 0);
+    e.stop();
 }
 
 static void testShiftInScaleSteps()
