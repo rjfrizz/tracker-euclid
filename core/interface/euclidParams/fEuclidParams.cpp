@@ -15,6 +15,7 @@
 #include "fileManager.h"
 
 #include <stdio.h>
+#include <string.h>
 
 cEuclidParams euclidParams;
 static cEuclidParams* EP = &euclidParams;
@@ -695,7 +696,12 @@ uint32_t nowMs()
 void cEuclidParams::showMessage(const char* text)
 {
     snprintf(message, sizeof(message), "%s", text);
-    messageUntil = nowMs() + 5000;
+    // A long one: the start for a moment, then a letter at a time to the
+    // end, which stays a little before the title comes back.
+    const int extra = static_cast<int>(strlen(message)) - kTitleChars;
+    messageScroll = 0;
+    messageScrollNext = nowMs() + 1000;
+    messageUntil = nowMs() + (extra > 0 ? 1000 + extra * 180 + 1500 : 5000);
     refreshTitle();
 }
 
@@ -747,6 +753,14 @@ void cEuclidParams::requestClear(bool all)
 
 void cEuclidParams::updateMessage()
 {
+    const int extra = static_cast<int>(strlen(message)) - kTitleChars;
+    if (messageUntil != 0 && extra > 0 && messageScroll < extra &&
+        static_cast<int32_t>(nowMs() - messageScrollNext) >= 0)
+    {
+        messageScroll++;
+        messageScrollNext = nowMs() + 180;
+        refreshTitle();
+    }
     // Put the normal title back when a message runs out.
     if (messageUntil != 0 && static_cast<int32_t>(messageUntil - nowMs()) <= 0)
     {

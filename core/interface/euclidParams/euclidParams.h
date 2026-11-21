@@ -204,6 +204,10 @@ class cEuclidParams : public ModuleBase
     void updateMessage(); // puts the normal title back when one runs out
     char message[48] = "";
     uint32_t messageUntil = 0; // ms
+    // A message too long for the title scrolls once to its end.
+    static constexpr uint8_t kTitleChars = 22;
+    uint8_t messageScroll = 0;
+    uint32_t messageScrollNext = 0; // ms
     bool recHeld = false;
     bool recCommittedChannel = false;
     uint16_t lastPendingMask = 0;

@@ -259,7 +259,8 @@ void cEuclidParams::refreshTitle()
     uint32_t now = TrackerImpl::getInstance()->getPlatform()->getTimer()->millis();
     if (static_cast<int32_t>(messageUntil - now) > 0)
     {
-        snprintf(titleText, sizeof(titleText), "%s", message);
+        const size_t len = strlen(message);
+        snprintf(titleText, sizeof(titleText), "%s", message + (messageScroll < len ? messageScroll : 0));
         titleBar->setTitle(titleText);
         return;
     }
