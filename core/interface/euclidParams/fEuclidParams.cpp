@@ -761,19 +761,7 @@ void cEuclidParams::showMessage(const char* text)
 void cEuclidParams::clearChannel(uint8_t ch)
 {
     // What the channel is called and where it plays stay; the music goes.
-    const euclid::Expression old = euclidEngine.getExpression(ch);
-    euclid::Expression x;
-    x.enabled = old.enabled;
-    x.muted = old.muted;
-    x.midiChannel = old.midiChannel;
-    x.output = old.output;
-    x.instrument = old.instrument;
-    euclid::Rhythm r;
-    const euclid::Key k = euclidEngine.getGlobalKey();
-    r.homeRoot = k.root;
-    r.homeScale = k.scale;
-    euclidEngine.setRhythm(ch, r);
-    euclidEngine.setExpression(ch, x);
+    euclidSession::clearChannel(ch);
 }
 
 void cEuclidParams::requestClear(bool all)

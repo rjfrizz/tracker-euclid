@@ -573,6 +573,23 @@ void clear()
     slotOfState = 0;
     lastChangeMs = nowMs();
 }
+
+void clearChannel(uint8_t ch)
+{
+    const euclid::Expression old = euclidEngine.getExpression(ch);
+    euclid::Expression x;
+    x.enabled = old.enabled;
+    x.muted = old.muted;
+    x.midiChannel = old.midiChannel;
+    x.output = old.output;
+    x.instrument = old.instrument;
+    euclid::Rhythm r;
+    const euclid::Key k = euclidEngine.getGlobalKey();
+    r.homeRoot = k.root;
+    r.homeScale = k.scale;
+    euclidEngine.setRhythm(ch, r);
+    euclidEngine.setExpression(ch, x);
+}
 } // namespace euclidSession
 
 namespace euclidProject
@@ -651,6 +668,42 @@ void opened(const char* projectDir)
     changeCountAtSlot = changeCountSaved;
     lastSeenChangeCount = changeCountSaved;
     LOG("euclid: opened with the project");
+}
+
+void created()
+{
+    FileSystem* f = fs();
+    if (f != nullptr && f->isSdCardInserted())
+    {
+        // What's on the card now, in case it wasn't saved with a project.
+        if (bootLoaded)
+            saveCurrent();
+        char previous[24];
+        snprintf(previous, sizeof(previous), "%s/Previous", kSetsDir);
+        if (!f->exists(kSetsDir))
+            f->mkdir(0, kSetsDir);
+        if (!f->exists(previous))
+            f->mkdir(0, previous);
+        copySets(previous, false);
+        char path[48];
+        snprintf(path, sizeof(path), "%s/synths.bin", previous);
+        euclidSynth::saveState(path);
+        // The new project's set slots start empty.
+        char name[16];
+        for (uint8_t i = 3; i < kProjectFiles; i++)
+        {
+            projectFileName(i, name, sizeof(name));
+            snprintf(path, sizeof(path), "%s/%s", kSetsDir, name);
+            if (f->exists(path))
+                f->remove(path);
+        }
+    }
+    euclidSession::clear();
+    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+        euclidSession::clearChannel(ch);
+    euclidEngine.commitAll();
+    bootLoaded = true;
+    LOG("euclid: a new project, a clean slate");
 }
 } // namespace euclidProject
 

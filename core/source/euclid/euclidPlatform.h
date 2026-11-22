@@ -59,7 +59,9 @@ int8_t active();   // the scene playing, or -1 for home
 namespace euclidSession
 {
 void clear();
-}
+// A channel's music goes; its name and where it plays stay.
+void clearChannel(uint8_t ch);
+} // namespace euclidSession
 
 // Projects: a stock project keeps the EUCLID side in its Euclid/ folder
 // (the working state, its scenes, the 8 set slots and theirs, the chain,
@@ -72,6 +74,9 @@ namespace euclidProject
 {
 void saved(const char* projectDir);  // after the stock project is saved
 void opened(const char* projectDir); // after a project is opened
+// A new project: a clean slate (channels, scenes, chain and the set slots;
+// the card's are kept in Sets/Previous/ first). Synth setups stay.
+void created();
 } // namespace euclidProject
 
 // The chain (Song key; euclidChain.h): saved in Sets/chain.chn. While it's

@@ -1,3 +1,4 @@
+#include "euclid/euclidPlatform.h"
 #include "mtSliceDetector.h"
 #include <mtAudioExport.h>
 #include <mtRandomNameGenerator.h>
@@ -611,6 +612,7 @@ void cProjectEditor::createNewProject()
     }
 
     newFileManager.createNewProjectInWorkspace();
+    euclidProject::created(); // EUCLID: a clean slate too
 
     if (newFileManager.openProjectFromWorkspace())
     {
