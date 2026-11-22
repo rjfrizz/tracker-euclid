@@ -19,6 +19,7 @@
 #include <cr_section_macros.h>
 #include <stdio.h>
 #include <string.h>
+#include <new>
 
 namespace
 {
@@ -59,8 +60,11 @@ void pitchBend(int16_t value, uint8_t channel)
     sendPitchbend(value, static_cast<int8_t>(channel), false);
 }
 
-// Freeze works out each channel's next notes on a copy of the engine.
-__NOINIT(EXTERNAL_RAM) euclid::Engine freezeScratch;
+// Freeze works out each channel's next notes on a copy of the engine: raw
+// bytes here, made an engine only when freezing. (An object with a
+// constructor in external RAM would be built at startup, before that RAM
+// is set up, and the Tracker wouldn't boot.)
+__NOINIT(EXTERNAL_RAM) alignas(euclid::Engine) uint8_t freezeScratch[sizeof(euclid::Engine)];
 
 uint8_t randomPercent()
 {
@@ -295,7 +299,8 @@ void scenesPath(uint8_t slot, char* out, size_t len, bool temp)
 
 void euclidFreeze()
 {
-    euclidEngine.freeze(freezeScratch);
+    euclid::Engine* scratch = new (freezeScratch) euclid::Engine();
+    euclidEngine.freeze(*scratch);
 }
 
 void euclidRoutePlay()
