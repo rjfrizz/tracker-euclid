@@ -1398,6 +1398,62 @@ static void testFreezeChord()
     e.stop();
 }
 
+// Long gates and legato: a note can last up to 8 steps, or hold until the
+// next pulse (overlapping it).
+static void testLongGatesAndLegato()
+{
+    // One pulse in 8 steps (48 micro-steps each), gate 300%: three steps.
+    Engine e = makeEngine();
+    Rhythm r;
+    r.steps = 8;
+    r.pulses = 1;
+    e.setRhythm(0, r);
+    e.setEnabled(0, true);
+    e.setGate(0, 120); // 100 + 2*10 = 120 -> 300%
+    CHECK(gatePercentOf(120) == 300 && gatePercentOf(170) == 800 && gatePercentOf(50) == 50);
+    reset();
+    e.start();
+    run(e, 48 * 8);
+    e.stop();
+    uint32_t on = 0, off = 0;
+    for (auto& ev : events)
+        if (ev.channel == 1)
+            (ev.on ? on : off) = ev.tick;
+    CHECK(on == 0 && off == 144);
+
+    // Legato, 2 pulses in 4 steps (x.x.): each note holds through the rest
+    // and the next starts before it ends.
+    Engine g = makeSeqEngine(Key{0, 2}, {60, 64});
+    Rhythm r2 = g.getRhythm(0);
+    r2.pulses = 2;
+    g.setRhythm(0, r2);
+    g.setGate(0, kGateLegato);
+    reset();
+    g.start();
+    run(g, 48 * 3);
+    // 60 on at 0, still on through tick 48 (a rest); at 96: 64 on, then 60 off.
+    std::vector<Event> seen = events;
+    CHECK(seen.size() == 3);
+    if (seen.size() == 3)
+    {
+        CHECK(seen[0].on && seen[0].note == 60 && seen[0].tick == 0);
+        CHECK(seen[1].on && seen[1].note == 64 && seen[1].tick == 96);
+        CHECK(!seen[2].on && seen[2].note == 60 && seen[2].tick == 96);
+    }
+    g.stop();
+    CHECK(sounding().empty());
+
+    // The same note again, legato: released, then struck (no double note-on).
+    Engine h = makeSeqEngine(Key{0, 2}, {60});
+    h.setGate(0, kGateLegato);
+    reset();
+    h.start();
+    run(h, 48 * 2);
+    h.stop();
+    CHECK(events.size() >= 3 && events[0].on && !events[1].on && events[2].on && events[1].tick == 48 &&
+          events[2].tick == 48);
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1438,6 +1494,7 @@ int main()
     testStepsByHand();
     testFreezeGlide();
     testFreezeChord();
+    testLongGatesAndLegato();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

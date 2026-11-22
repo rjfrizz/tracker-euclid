@@ -604,7 +604,12 @@ void cEuclidParams::refreshParam(uint8_t param)
         case paramOctave: snprintf(t, n, "%d", x.octave); break;
         case paramRange: snprintf(t, n, "%d oct", x.range); break;
         case paramVelocity: snprintf(t, n, "%d", x.velocity); break;
-        case paramGate: snprintf(t, n, "%d%%", x.gate); break;
+        case paramGate:
+            if (x.gate >= euclid::kGateLegato)
+                snprintf(t, n, "Legato");
+            else
+                snprintf(t, n, "%d%%", euclid::gatePercentOf(x.gate));
+            break;
         case paramChance: snprintf(t, n, "%d%%", x.probability); break;
         case paramMidiChannel:
             if (x.output == euclid::ChannelOutput::sampler)

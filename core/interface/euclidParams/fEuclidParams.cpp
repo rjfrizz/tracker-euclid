@@ -483,7 +483,8 @@ void cEuclidParams::changeParam(int16_t delta)
             euclidEngine.setVelocity(ch, static_cast<uint8_t>(clampInt(x.velocity + delta, 1, 127)));
             break;
         case paramGate:
-            euclidEngine.setGate(ch, static_cast<uint8_t>(clampInt(x.gate + delta, 1, 100)));
+            // 1-100%, then 110-800% in tens, then Legato.
+            euclidEngine.setGate(ch, static_cast<uint8_t>(clampInt(x.gate + delta, 1, euclid::kGateLegato)));
             break;
         case paramChance:
             euclidEngine.setProbability(ch, static_cast<uint8_t>(clampInt(x.probability + delta, 0, 100)));

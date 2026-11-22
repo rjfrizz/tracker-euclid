@@ -84,7 +84,7 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         case paramRange: return { PadMap::list, 4, 1, 0 };
         case paramTranspose: return { PadMap::list, kPads, -euclid::kMaxTranspose, 0 }; // -24 ... +23
         case paramVelocity: return { PadMap::level, kPads, 1, 127 };
-        case paramGate: return { PadMap::level, kPads, 1, 100 };
+        case paramGate: return { PadMap::level, kPads, 1, euclid::kGateLegato };
         case paramChance: return { PadMap::level, kPads, 0, 100 };
         case paramMidiChannel: return { PadMap::list, 16, 1, 0 };
 

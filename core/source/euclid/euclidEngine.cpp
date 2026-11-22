@@ -16,6 +16,9 @@ template <typename T> T clampValue(T v, T lo, T hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// A legato note's gate: held until the next pulse, not counted down.
+constexpr uint16_t kGateHold = 0xFFFF;
+
 bool validChannel(int ch)
 {
     return ch >= 0 && ch < kChannels;
@@ -416,7 +419,7 @@ Expression Engine::clampExpression(const Expression& e) const
     Expression x = e;
     x.midiChannel = clampValue<uint8_t>(x.midiChannel, 1, 16);
     x.velocity = clampValue<uint8_t>(x.velocity, 1, 127);
-    x.gate = clampValue<uint8_t>(x.gate, 1, 100);
+    x.gate = clampValue<uint8_t>(x.gate, 1, kGateLegato);
     x.probability = clampValue<uint8_t>(x.probability, 0, 100);
     if (x.keyMode >= KeyMode::count)
         x.keyMode = KeyMode::follow;
@@ -1328,7 +1331,8 @@ void Engine::triggerStep(Channel& c)
     // Modulators add to velocity, gate, chance and pitch (their values are
     // worked out once per micro-step in updateMods).
     int velocity = c.expr.velocity;
-    int gatePercent = c.expr.gate;
+    const bool legato = c.expr.gate >= kGateLegato;
+    int gatePercent = legato ? 100 : gatePercentOf(c.expr.gate);
     int chance = c.expr.probability;
     int pitch = 0;
     for (int k = 0; k < kModsPerChannel; k++)
@@ -1350,7 +1354,7 @@ void Engine::triggerStep(Channel& c)
         }
     }
     velocity = clampValue<int>(velocity, 1, 127);
-    gatePercent = clampValue<int>(gatePercent, 1, 100);
+    gatePercent = clampValue<int>(gatePercent, 1, 800);
     chance = clampValue<int>(chance, 0, 100);
     if (shiftAmount != 0)
         for (uint8_t i = 0; i < count; i++)
@@ -1366,10 +1370,37 @@ void Engine::triggerStep(Channel& c)
             return;
     }
 
-    closeNote(c);
+    // Legato: the notes still sounding end after the new ones start (MIDI;
+    // a sampler track has one voice, so it's simply re-struck).
+    uint8_t held[kMaxVoices];
+    uint8_t heldCount = 0;
+    uint8_t heldChannel = c.openMidiChannel;
+    if (legato && !c.openSampler && c.expr.output != ChannelOutput::sampler)
+    {
+        // A note struck again is released first (two note-ons in a row
+        // would leave one hanging); the others overlap the new ones.
+        for (uint8_t i = 0; i < c.openCount; i++)
+        {
+            bool again = false;
+            for (uint8_t k = 0; k < count; k++)
+                again |= notes[k] == c.openNotes[i];
+            if (again)
+            {
+                if (out.noteOff)
+                    out.noteOff(c.openNotes[i], heldChannel);
+            }
+            else
+                held[heldCount++] = c.openNotes[i];
+        }
+        c.openCount = 0;
+        c.gateRemaining = 0;
+    }
+    else
+        closeNote(c);
 
     uint16_t stepLength = divisionToMicroSteps(c.stepDivision);
-    uint16_t gate = static_cast<uint16_t>((static_cast<uint32_t>(stepLength) * gatePercent) / 100);
+    uint32_t gateLong = (static_cast<uint32_t>(stepLength) * gatePercent) / 100;
+    uint16_t gate = legato ? kGateHold : static_cast<uint16_t>(gateLong < kGateHold ? gateLong : kGateHold - 1);
     if (gate < 1)
         gate = 1;
 
@@ -1419,6 +1450,15 @@ void Engine::triggerStep(Channel& c)
             e.midiChannel = c.expr.midiChannel;
             captureCount = captureCount + 1;
         }
+    }
+    // The legato notes the new ones didn't strike again end now.
+    for (uint8_t i = 0; i < heldCount; i++)
+    {
+        bool again = false;
+        for (uint8_t j = 0; j < c.openCount; j++)
+            again |= c.openNotes[j] == held[i];
+        if (!again && out.noteOff)
+            out.noteOff(held[i], heldChannel);
     }
     c.gateRemaining = gate;
 }
@@ -1779,7 +1819,7 @@ void Engine::onMicroStep()
         // next one starts is released before the new note-on.
         if (c.openCount > 0)
         {
-            if (c.gateRemaining > 0)
+            if (c.gateRemaining > 0 && c.gateRemaining != kGateHold)
                 c.gateRemaining--;
             if (c.gateRemaining == 0 || !c.expr.enabled || c.expr.muted)
                 closeNote(c);

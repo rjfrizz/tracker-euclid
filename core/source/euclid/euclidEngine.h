@@ -335,7 +335,7 @@ struct Expression
     bool muted = false;
     uint8_t midiChannel = 1; // 1-16
     uint8_t velocity = 100;  // 1-127
-    uint8_t gate = 50;       // percent of the channel's step length, 1-100
+    uint8_t gate = 50;       // 1-100: percent of a step; 101-170: 110-800%; 171: legato (see gatePercentOf)
     uint8_t probability = 100; // percent, 0-100
 
     // Key. Generated modes and SEQ each have their own key mode, so
@@ -412,6 +412,15 @@ enum class FreezeLength : uint8_t
     count
 };
 uint8_t freezeLengthBars(FreezeLength f);
+
+// Gate values: 1-100 are percent of a step, 101-170 are 110% to 800% (in
+// 10% steps: a note can last up to 8 steps), and kGateLegato holds each
+// note until the next pulse plays (overlapping it, for legato and slides).
+constexpr uint8_t kGateLegato = 171;
+constexpr int gatePercentOf(uint8_t v)
+{
+    return v <= 100 ? v : (v >= kGateLegato ? 0 : 100 + (v - 100) * 10);
+}
 
 struct Output
 {
