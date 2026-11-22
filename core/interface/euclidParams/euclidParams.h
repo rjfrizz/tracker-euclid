@@ -49,6 +49,7 @@ class cEuclidParams : public ModuleBase
         synth,
         chain,
         lines, // all channels as lines of steps (Pattern)
+        perform, // freeze and morph (the Performance key)
     };
 
     // The Shift page's settings rows (Fx 2 again switches to them).
@@ -104,7 +105,7 @@ class cEuclidParams : public ModuleBase
     bool isListView() const
     {
         return view == View::params || view == View::global || view == View::mod || view == View::synth ||
-               view == View::chain || isShiftSettings() || isNoteSettings();
+               view == View::chain || view == View::perform || isShiftSettings() || isNoteSettings();
     }
     uint8_t focusedRow() const
     {
@@ -114,6 +115,8 @@ class cEuclidParams : public ModuleBase
             return selectedSynthRow;
         if (view == View::chain)
             return selectedChainRow;
+        if (view == View::perform)
+            return selectedPerformRow;
         if (isNoteSettings())
             return noteRowOf(selectedParam);
         return view == View::global ? selectedGlobal : (view == View::mod ? selectedModRow : selectedParam);
@@ -130,6 +133,8 @@ class cEuclidParams : public ModuleBase
             return synthRowCount();
         if (view == View::chain)
             return chainRowCount();
+        if (view == View::perform)
+            return performRowCount();
         if (isNoteSettings())
             return kNoteParamCount;
         return view == View::params ? static_cast<uint8_t>(paramCount) : 0;
@@ -299,6 +304,17 @@ class cEuclidParams : public ModuleBase
 
     // Chain view (chainEuclidParams.cpp).
     void refreshChain();
+    // The Perform page (performEuclidParams.cpp).
+    uint8_t performRowCount() const;
+    void togglePerformFreeze();
+    void changePerform(int16_t delta);
+    void movePerformRow(int delta);
+    void refreshPerform();
+    uint8_t selectedPerformRow = 1;
+    bool lastPerformFrozen = false;
+    int lastPerformMorph = 0;
+    char performText[11][40];
+    char performNames[8][16];
     uint8_t chainRowCount() const;
     void changeChain(int16_t delta);
     void moveChainRow(int delta);

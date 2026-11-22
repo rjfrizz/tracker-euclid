@@ -91,6 +91,7 @@ void receiveContinue();
 void receiveStop();
 
 void sendCC(uint8_t index, uint8_t value, uint8_t channel, bool toSynth);
+void sendPitchbend(int16_t value, int8_t channel, bool toSynth);
 void sendProgramChange(uint8_t value, uint8_t channel, bool toSynth);
 void sendAfterTouch(uint8_t value, uint8_t channel, bool toSynth);
 void sendPolyPressure(uint8_t note, uint8_t value, uint8_t channel, bool toSynth);

@@ -44,6 +44,7 @@ static void functModView();
 static void functShiftView();
 static void functSynthView();
 static void functChainView();
+static void functPerformView();
 static void functLinesView();
 static void functDelete();
 static void functInsert();
@@ -157,6 +158,14 @@ void cEuclidParams::update()
             refreshMiniLines();
     }
 
+    // The Perform page follows freeze (Stop unfreezes too).
+    if (view == View::perform &&
+        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph))
+    {
+        refreshPerform();
+        refreshTitle();
+    }
+
     // The chain page follows the step and bar being played.
     if (view == View::chain)
     {
@@ -224,7 +233,8 @@ void cEuclidParams::start([[maybe_unused]] uint32_t options)
     for (uint8_t i = 0; i < 48; i++)
         heldPadNote[i] = -1;
 
-    ip->setButtonObj(interfaceButtonPerformance, buttonPress, functSwitchModule);
+    // Performance opens the Perform page; Shift + Performance the stock one.
+    ip->setButtonObj(interfaceButtonPerformance, buttonPress, functPerformView);
     ip->setButtonObj(interfaceButtonConfig, buttonPress, functSwitchModule);
     // The four Sample keys are Scenes A-D here (Rec + key saves one); with
     // Shift they open the stock sample screens.
@@ -970,6 +980,11 @@ static void functEncoder(int16_t value)
         EP->changeChain(value);
         return;
     }
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->changePerform(value);
+        return;
+    }
     if (EP->view == cEuclidParams::View::synth)
     {
         EP->changeSynth(value);
@@ -1027,6 +1042,11 @@ static void functUp()
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainRow(-1);
+        return;
+    }
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->movePerformRow(-1);
         return;
     }
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
@@ -1103,6 +1123,11 @@ static void functDown()
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainRow(1);
+        return;
+    }
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->movePerformRow(1);
         return;
     }
     if (EP->view == cEuclidParams::View::synth && EP->synthPatches)
@@ -1368,6 +1393,19 @@ static void functLinesView()
     EP->setDefaultScreenFunct();
 }
 
+static void functPerformView()
+{
+    if (EP->buttons->isButtonPressed(interfaceButtonShift))
+    {
+        functSwitchModule(interfaceButtonPerformance);
+        return;
+    }
+    if (EP->view == cEuclidParams::View::perform)
+        return;
+    EP->setView(cEuclidParams::View::perform);
+    EP->setDefaultScreenFunct();
+}
+
 static void functChainView()
 {
     if (EP->view == cEuclidParams::View::chain)
@@ -1474,6 +1512,13 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     if (state == buttonPress)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
+
+        // On the Perform page, a pad switches freeze.
+        if (EP->view == cEuclidParams::View::perform)
+        {
+            EP->togglePerformFreeze();
+            return;
+        }
 
         // On the Pattern page a pad is a step of the selected channel: a
         // pulse is muted, a rest added, a changed step put back (staged; with

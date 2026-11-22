@@ -13,6 +13,9 @@ void euclidRoutePlay();
 // True while the EUCLID screen is showing (fEuclidParams.cpp).
 bool euclidScreenActive();
 
+// Freeze (the Perform page): hold everything, then morph (euclidEngine).
+void euclidFreeze();
+
 // Main-loop housekeeping: autosaves the working state to the SD card a short
 // while after the last change.
 void euclidPlatformUpdate();

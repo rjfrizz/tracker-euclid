@@ -138,8 +138,8 @@ void cEuclidParams::setView(View v)
                                          : 0;
     // The lines and the chain take the whole width; everywhere else the ring
     // is on the left.
-    const bool wide = v == View::lines || v == View::chain;
-    const bool wasWide = view == View::lines || view == View::chain;
+    const bool wide = v == View::lines || v == View::chain || v == View::perform;
+    const bool wasWide = view == View::lines || view == View::chain || view == View::perform;
     // The ring shows on every page but the wide ones and Master (Global),
     // which has the small line view in its place. A control's last picture
     // stays until it's redrawn, so both are redrawn after a change.
@@ -187,7 +187,7 @@ void cEuclidParams::setView(View v)
         display.synchronizeRefresh();
         return;
     }
-    if (view == View::synth || view == View::chain)
+    if (view == View::synth || view == View::chain || view == View::perform)
     {
         panelData.rows = 0;
         panelData.meterCount = 0;
@@ -197,6 +197,8 @@ void cEuclidParams::setView(View v)
         refreshTitle();
         if (view == View::chain)
             refreshChain();
+        else if (view == View::perform)
+            refreshPerform();
         else
             refreshSynth();
         refreshChannels();
@@ -248,6 +250,8 @@ void cEuclidParams::setView(View v)
         refreshSynth();
     else if (view == View::chain)
         refreshChain();
+    else if (view == View::perform)
+        refreshPerform();
     else if (view == View::lines)
         refreshLines();
     else
@@ -296,6 +300,8 @@ void cEuclidParams::refreshTitle()
         snprintf(titleText, sizeof(titleText), "%s%s %.9s%s", scene, euclid::rootName(k.root), euclid::scaleName(k.scale),
                  guessText);
     }
+    else if (view == View::perform)
+        snprintf(titleText, sizeof(titleText), "Perform%s", euclidEngine.isFrozen() ? "  -  frozen" : "");
     else if (view == View::chain)
         snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on
                                                               ? "  -  playing"
@@ -962,7 +968,7 @@ void cEuclidParams::refreshChannels()
 
 void cEuclidParams::refreshRing()
 {
-    if (view == View::lines || view == View::chain || view == View::global)
+    if (view == View::lines || view == View::chain || view == View::perform || view == View::global)
     {
         if (view == View::global)
             refreshMiniLines();

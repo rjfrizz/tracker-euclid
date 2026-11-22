@@ -421,6 +421,8 @@ struct Output
     void (*sampleOn)(uint8_t ch, uint8_t instrument, uint8_t note, uint8_t velocity) = nullptr;
     void (*sampleOff)(uint8_t ch) = nullptr;
     void (*controlChange)(uint8_t cc, uint8_t value, uint8_t channel) = nullptr;
+    // -8192..8191, 0 = none.
+    void (*pitchBend)(int16_t value, uint8_t channel) = nullptr;
     // Returns a value in [0, 100).
     uint8_t (*randomPercent)() = nullptr;
     // Returns a value in [0, n).
@@ -433,6 +435,26 @@ class Engine
 {
   public:
     void init(const Output& out);
+
+    // Freeze (the Perform page): everything holds where it is, the notes
+    // sounding stay on and nothing moves on (the sequencer stops calling
+    // onMicroStep, so the clock pauses too). Each channel's next notes are
+    // worked out on scratch (a copy of the engine run on). setMorph slides
+    // each channel from the notes it held towards those: a single MIDI note
+    // glides with pitch bend (in steps of bendRange semitones, re-striking
+    // past it), chords and sampler channels move a voice at a time, the
+    // nearest first. unfreeze lands on whichever is nearer and carries on
+    // from there: with the next notes, as if their pulse had just played.
+    void freeze(Engine& scratch);
+    void setMorph(int amount); // 0 (as held) .. 1000 (the next notes)
+    int getMorph() const { return morphAmount; }
+    void unfreeze();
+    bool isFrozen() const { return frozen; }
+    void setBendRange(uint8_t semitones) { bendRange = semitones < 1 ? 1 : (semitones > 48 ? 48 : semitones); }
+    uint8_t getBendRange() const { return bendRange; }
+    // The notes a channel held and its next ones (0 if none), for the screen.
+    uint8_t getHeldNotes(int ch, uint8_t* notes) const;
+    uint8_t getNextNotesFor(int ch, uint8_t* notes) const;
 
     // Transport, called from the sequencer.
     void start();
@@ -637,6 +659,8 @@ class Engine
     bool rollChord(const Channel& c);
     int shiftNote(const Channel& c, int note, int8_t amount) const;
     uint8_t modRotationAt(const Mod& m, uint32_t t) const;
+    void morphChannel(int ch, int amount);
+    void setSounding(Channel& c, const uint8_t* notes, uint8_t count);
     void updateMods(Channel& c);
     void resetMods(Channel& c);
     int randomLevel(); // -1000..1000
@@ -673,6 +697,27 @@ class Engine
     Key globalPending;
     Key globalActive;
     bool globalDirty = false;
+
+    // Freeze and morph.
+    struct Morph
+    {
+        uint8_t from[kMaxVoices] = {};
+        uint8_t fromCount = 0;
+        uint8_t to[kMaxVoices] = {};
+        uint8_t toCount = 0;
+        bool hasNext = false;
+        bool glide = false;      // one MIDI note to one: pitch bend
+        int16_t bend = 0;        // last bend sent
+        // The channel's note choosing just after the next notes' pulse.
+        uint8_t noteIndex = 0;
+        int8_t pingPongDir = 1;
+        int16_t degree = 0;
+        int8_t degreeDir = 1;
+    };
+    Morph morph[kChannels];
+    bool frozen = false;
+    int morphAmount = 0;
+    uint8_t bendRange = 2;
 };
 
 void loadDemoDefaults(Engine& e);

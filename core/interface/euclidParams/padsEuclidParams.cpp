@@ -48,7 +48,7 @@ cEuclidParams::PadMap cEuclidParams::padMapFor(uint8_t row) const
         return shiftPadMap(row);
     if (view == View::synth)
         return synthPadMap(row);
-    if (view == View::chain)
+    if (view == View::chain || view == View::perform)
         return { PadMap::none, 0, 0, 0 };
     if (view == View::global)
     {
@@ -103,7 +103,7 @@ int cEuclidParams::rowValue(uint8_t row, bool live) const
         return shiftSettings ? shiftRowValue(row, live) : kNoValue;
     if (view == View::synth)
         return synthRowValue(row); // not staged: live and staged are the same
-    if (view == View::chain)
+    if (view == View::chain || view == View::perform)
         return kNoValue;
     if (view == View::global)
     {

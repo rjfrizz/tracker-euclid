@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <string>
+#include <set>
 #include <vector>
 
 using namespace euclid;
@@ -1292,6 +1293,111 @@ static void testStepsByHand()
     e.stop();
 }
 
+// Freeze and morph: holding, gliding a single note, a chord a voice at a
+// time, and carrying on from whichever notes it's left on.
+static std::vector<std::pair<int16_t, uint8_t>> bends;
+static void onBend(int16_t v, uint8_t ch) { bends.push_back({v, ch}); }
+
+static std::set<uint8_t> sounding()
+{
+    std::set<uint8_t> s;
+    for (auto& ev : events)
+        if (ev.on)
+            s.insert(ev.note);
+        else
+            s.erase(ev.note);
+    return s;
+}
+
+static void testFreezeGlide()
+{
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine g;
+    g.init(o);
+    g.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    g.setRhythm(0, r);
+    const uint8_t notes[] = { 60, 64, 67 };
+    g.setNotes(0, notes, 3);
+    g.setEnabled(0, true);
+    g.setBendRange(2);
+    reset();
+    bends.clear();
+    g.start();
+    run(g, 10);
+    static Engine scratch;
+    CHECK(sounding() == std::set<uint8_t>({ 60 }));
+    g.freeze(scratch);
+    CHECK(g.isFrozen());
+    uint8_t next[8];
+    CHECK(g.getNextNotesFor(0, next) == 1 && next[0] == 64);
+    const size_t before = events.size();
+    run(g, 200); // frozen: nothing happens, the note holds
+    CHECK(events.size() == before && sounding() == std::set<uint8_t>({ 60 }));
+    g.setMorph(500); // 62: a whole-tone bend, the range
+    CHECK(!bends.empty() && bends.back().first == 8191 && events.size() == before);
+    g.setMorph(1000); // 64: past the range, struck afresh
+    CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.back().first == 0);
+    g.unfreeze();
+    CHECK(!g.isFrozen());
+    // Carries on after the next notes: 67 comes next, not 64 again.
+    reset();
+    run(g, 48);
+    bool got67 = false, got64 = false;
+    for (auto& ev : events)
+        if (ev.on)
+        {
+            got67 |= ev.note == 67;
+            got64 |= ev.note == 64;
+        }
+    CHECK(got67 && !got64);
+    g.stop();
+}
+
+static void testFreezeChord()
+{
+    // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
+    Engine e = makeEngine();
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    const uint8_t notes[] = { 60, 64, 67, 62, 65, 69 };
+    e.setNotes(0, notes, 6, 0x36);
+    e.setEnabled(0, true);
+    reset();
+    e.start();
+    run(e, 10);
+    CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
+    static Engine scratch;
+    e.freeze(scratch);
+    uint8_t next[8];
+    CHECK(e.getNextNotesFor(0, next) == 3);
+    e.setMorph(500); // two of three voices: 64->65 (a semitone) first, then 60->62
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 67 }));
+    e.setMorph(1000);
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }));
+    e.setMorph(300); // back towards the held chord: one voice moved
+    CHECK(sounding() == std::set<uint8_t>({ 60, 65, 67 }));
+    e.unfreeze(); // nearer the held chord: back to it, and on as before
+    CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
+    reset();
+    run(e, 48);
+    bool got62 = false;
+    for (auto& ev : events)
+        got62 |= ev.on && ev.note == 62;
+    CHECK(got62);
+    e.stop();
+}
+
 static void testShiftInScaleSteps()
 {
     Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major
@@ -1330,6 +1436,8 @@ int main()
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();
+    testFreezeGlide();
+    testFreezeChord();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
     testMuteAtLaunch();

@@ -657,11 +657,294 @@ void Engine::start()
 
 void Engine::stop()
 {
+    if (frozen)
+        unfreeze();
     running = false;
     for (Channel& c : channels)
     {
         closeNote(c);
     }
+}
+
+//------------------------------------------------------------------------------
+// Freeze and morph
+
+void Engine::freeze(Engine& scratch)
+{
+    if (!running || frozen)
+        return;
+    lock();
+    frozen = true;
+    morphAmount = 0;
+    scratch = *this;
+    unlock();
+
+    // Run the copy on, silently, until each channel plays its next pulse.
+    scratch.out.noteOn = nullptr;
+    scratch.out.noteOff = nullptr;
+    scratch.out.sampleOn = nullptr;
+    scratch.out.sampleOff = nullptr;
+    scratch.out.controlChange = nullptr;
+    scratch.out.pitchBend = nullptr;
+    scratch.out.lock = nullptr;
+    scratch.out.unlock = nullptr;
+    scratch.captureBuffer = nullptr;
+    scratch.frozen = false;
+    uint32_t played[kChannels];
+    bool found[kChannels];
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        Morph& m = morph[ch];
+        const Channel& c = channels[ch];
+        m = Morph();
+        m.fromCount = c.openCount;
+        for (uint8_t i = 0; i < c.openCount; i++)
+            m.from[i] = c.openNotes[i];
+        played[ch] = scratch.channels[ch].notesPlayed;
+        found[ch] = !c.expr.enabled || c.expr.muted;
+    }
+    for (int t = 0; t < kMicroStepsPerBar * 4; t++)
+    {
+        scratch.onMicroStep();
+        bool all = true;
+        for (int ch = 0; ch < kChannels; ch++)
+        {
+            if (found[ch])
+                continue;
+            const Channel& s = scratch.channels[ch];
+            if (s.notesPlayed != played[ch])
+            {
+                Morph& m = morph[ch];
+                m.hasNext = true;
+                m.toCount = s.lastCount;
+                for (uint8_t i = 0; i < s.lastCount && i < kMaxVoices; i++)
+                    m.to[i] = s.lastNotes[i];
+                m.noteIndex = s.noteIndex;
+                m.pingPongDir = s.pingPongDir;
+                m.degree = s.degree;
+                m.degreeDir = s.degreeDir;
+                found[ch] = true;
+            }
+            all = all && found[ch];
+        }
+        if (all)
+            break;
+    }
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        Morph& m = morph[ch];
+        m.glide = m.hasNext && m.fromCount == 1 && m.toCount == 1 && !channels[ch].openSampler;
+    }
+}
+
+// The channel's sounding notes become these: what's gone is released, what's
+// new is struck (new ones first, so a voice moving is legato).
+void Engine::setSounding(Channel& c, const uint8_t* notes, uint8_t count)
+{
+    const uint8_t ch = static_cast<uint8_t>(&c - channels);
+    if (c.openSampler || (c.openCount == 0 && c.expr.output == ChannelOutput::sampler))
+    {
+        // One voice a track: the first note.
+        const bool same = count > 0 && c.openCount > 0 && c.openNotes[0] == notes[0];
+        if (same)
+            return;
+        if (c.openCount > 0 && out.sampleOff)
+            out.sampleOff(ch);
+        c.openCount = 0;
+        c.openSampler = c.expr.output == ChannelOutput::sampler;
+        if (count > 0)
+        {
+            if (out.sampleOn)
+                out.sampleOn(ch, c.expr.instrument, notes[0], c.expr.velocity);
+            c.openNotes[c.openCount++] = notes[0];
+        }
+        return;
+    }
+    if (c.openCount == 0)
+        c.openMidiChannel = c.expr.midiChannel;
+    for (uint8_t i = 0; i < count; i++)
+    {
+        bool have = false;
+        for (uint8_t j = 0; j < c.openCount; j++)
+            have |= c.openNotes[j] == notes[i];
+        if (have || c.openCount >= kMaxVoices)
+            continue;
+        if (out.noteOn)
+            out.noteOn(notes[i], c.expr.velocity, c.openMidiChannel);
+        c.openNotes[c.openCount++] = notes[i];
+    }
+    for (uint8_t j = 0; j < c.openCount;)
+    {
+        bool keep = false;
+        for (uint8_t i = 0; i < count; i++)
+            keep |= notes[i] == c.openNotes[j];
+        if (keep)
+        {
+            j++;
+            continue;
+        }
+        if (out.noteOff)
+            out.noteOff(c.openNotes[j], c.openMidiChannel);
+        c.openNotes[j] = c.openNotes[--c.openCount];
+    }
+    if (c.gateRemaining == 0 && c.openCount > 0)
+        c.gateRemaining = static_cast<uint16_t>(divisionToMicroSteps(c.stepDivision));
+}
+
+void Engine::morphChannel(int ch, int amount)
+{
+    Morph& m = morph[ch];
+    Channel& c = channels[ch];
+    if (!m.hasNext)
+        return;
+    if (m.glide)
+    {
+        // Pitch from the held note to the next; the sounding note is moved
+        // (re-struck) only when the bend would pass the range.
+        const int from = m.from[0];
+        const int to = m.to[0];
+        const int target100 = from * 100 + (to - from) * amount / 10; // in 1/100 semitone
+        int base = c.openCount > 0 ? c.openNotes[0] : from;
+        const int range100 = bendRange * 100;
+        if (target100 - base * 100 > range100 || base * 100 - target100 > range100)
+        {
+            base = (target100 + (target100 >= 0 ? 50 : -50)) / 100;
+            if (base < 0)
+                base = 0;
+            if (base > 127)
+                base = 127;
+            const uint8_t n = static_cast<uint8_t>(base);
+            setSounding(c, &n, 1);
+        }
+        int bend = (target100 - base * 100) * 8191 / range100;
+        if (bend > 8191)
+            bend = 8191;
+        if (bend < -8192)
+            bend = -8192;
+        if (bend != m.bend && out.pitchBend)
+            out.pitchBend(static_cast<int16_t>(bend), c.openMidiChannel);
+        m.bend = static_cast<int16_t>(bend);
+        return;
+    }
+    // A voice at a time: pair the held and next notes in pitch order, then
+    // move the pairs with the smallest steps first.
+    uint8_t a[kMaxVoices], b[kMaxVoices];
+    uint8_t na = m.fromCount, nb = m.toCount;
+    for (uint8_t i = 0; i < na; i++)
+        a[i] = m.from[i];
+    for (uint8_t i = 0; i < nb; i++)
+        b[i] = m.to[i];
+    auto sortNotes = [](uint8_t* v, uint8_t n) {
+        for (uint8_t i = 1; i < n; i++)
+            for (uint8_t j = i; j > 0 && v[j - 1] > v[j]; j--)
+            {
+                const uint8_t t = v[j];
+                v[j] = v[j - 1];
+                v[j - 1] = t;
+            }
+    };
+    sortNotes(a, na);
+    sortNotes(b, nb);
+    const uint8_t pairs = na > nb ? na : nb;
+    if (pairs == 0)
+        return;
+    int distance[kMaxVoices];
+    uint8_t order[kMaxVoices];
+    for (uint8_t i = 0; i < pairs; i++)
+    {
+        // Voices that appear or vanish move last.
+        distance[i] = i < na && i < nb ? (a[i] > b[i] ? a[i] - b[i] : b[i] - a[i]) : 200;
+        order[i] = i;
+    }
+    for (uint8_t i = 1; i < pairs; i++)
+        for (uint8_t j = i; j > 0 && distance[order[j - 1]] > distance[order[j]]; j--)
+        {
+            const uint8_t t = order[j];
+            order[j] = order[j - 1];
+            order[j - 1] = t;
+        }
+    const int moved = (amount * pairs + 500) / 1000;
+    uint8_t notes[kMaxVoices];
+    uint8_t count = 0;
+    for (uint8_t k = 0; k < pairs; k++)
+    {
+        const uint8_t i = order[k];
+        const bool moves = k < moved;
+        if (moves && i < nb)
+            notes[count++] = b[i];
+        else if (!moves && i < na)
+            notes[count++] = a[i];
+    }
+    setSounding(c, notes, count);
+}
+
+void Engine::setMorph(int amount)
+{
+    if (!frozen)
+        return;
+    amount = amount < 0 ? 0 : (amount > 1000 ? 1000 : amount);
+    if (amount == morphAmount)
+        return;
+    lock();
+    morphAmount = amount;
+    for (int ch = 0; ch < kChannels; ch++)
+        morphChannel(ch, amount);
+    unlock();
+}
+
+void Engine::unfreeze()
+{
+    if (!frozen)
+        return;
+    lock();
+    const bool toNext = morphAmount >= 500;
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        Morph& m = morph[ch];
+        Channel& c = channels[ch];
+        if (!m.hasNext)
+            continue;
+        // Land on the nearer: the held notes, or the next ones (and carry on
+        // after them).
+        if (toNext)
+        {
+            setSounding(c, m.to, m.toCount);
+            c.noteIndex = m.noteIndex;
+            c.pingPongDir = m.pingPongDir;
+            c.degree = m.degree;
+            c.degreeDir = m.degreeDir;
+            c.lastCount = m.toCount;
+            for (uint8_t i = 0; i < m.toCount; i++)
+                c.lastNotes[i] = m.to[i];
+            c.notesPlayed++;
+        }
+        else
+            setSounding(c, m.from, m.fromCount);
+        if (m.bend != 0 && out.pitchBend)
+            out.pitchBend(0, c.openMidiChannel);
+        m.bend = 0;
+    }
+    frozen = false;
+    morphAmount = 0;
+    unlock();
+}
+
+uint8_t Engine::getHeldNotes(int ch, uint8_t* notes) const
+{
+    if (!validChannel(ch) || !frozen)
+        return 0;
+    for (uint8_t i = 0; i < morph[ch].fromCount; i++)
+        notes[i] = morph[ch].from[i];
+    return morph[ch].fromCount;
+}
+
+uint8_t Engine::getNextNotesFor(int ch, uint8_t* notes) const
+{
+    if (!validChannel(ch) || !frozen || !morph[ch].hasNext)
+        return 0;
+    for (uint8_t i = 0; i < morph[ch].toCount; i++)
+        notes[i] = morph[ch].to[i];
+    return morph[ch].toCount;
 }
 
 Key Engine::keyFor(const Expression& x, const Key& global) const
@@ -1479,7 +1762,7 @@ int8_t Engine::getLaneStep(int ch, LaneKind k) const
 
 void Engine::onMicroStep()
 {
-    if (!running)
+    if (!running || frozen)
         return;
 
     const bool launchPoint = launchCounter % launchToMicroSteps(launch) == 0;

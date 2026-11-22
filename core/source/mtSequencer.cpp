@@ -252,7 +252,8 @@ AUDIO_CORE_RAM void Sequencer::tick_uStep(void)
         player.extRecMetronomeStep = 0;
     }
 
-    if (player.isPlay)
+    // EUCLID's freeze holds time itself: no ticks, no MIDI clock.
+    if (player.isPlay && !euclidEngine.isFrozen())
     {
         timerTicks++;
 
