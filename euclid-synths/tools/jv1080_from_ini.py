@@ -107,9 +107,17 @@ def main():
         return parts[0], lo, hi
 
     # The performance part: which patch it plays, on which channel, how.
-    # Offsets 04-05 aren't in the .ini: by the gap and Roland's layout (as
-    # the tone's wave number) they're the patch number, two nibbles 0-254.
+    # Offsets 04-05 aren't in the .ini: they're the patch number, two
+    # nibbles 0-254 (as the JV-2080's performance part tables have it).
     part = sec["Roland JV1080 Temp Perf. Part1:Sysex"]
+    # Where a part's patch comes from: the group type (as the JV-2080's
+    # tables name it: user and presets, PCM card, expansion board), then
+    # within type 0 the group ID picks the bank (1 user, 2 card, 3-6 presets
+    # A-D, from Roland's docs; boards use their own IDs).
+    w('list jvgrouptype "User/Preset" "PCM card" "Expansion"')
+    ids = ["-", "User", "PCM card", "Preset A", "Preset B", "Preset C", "Preset D"]
+    ids += [str(i) for i in range(len(ids), 128)]
+    w("list jvgroupid " + " ".join('"%s"' % i for i in ids))
     w('group "Part"')
     for o, p in part:
         name, lo, hi = rng(p)
@@ -117,6 +125,10 @@ def main():
         extra = "stride=128"
         if name == "MIDI channel":
             extra += " show=1"
+        if name == "Patch group":
+            extra += " list=jvgrouptype"
+        if name == "Patch group ID":
+            extra += " list=jvgroupid init=1"
         param("dt1", 0x01001000 + off, name, lo, hi, extra)
         if off == 3:
             param("dt1n", 0x01001004, "Patch number", 0, 254, "stride=128 nibbles=2 show=1")
