@@ -22,6 +22,7 @@ request addr=0x02001400 stride=16384 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 01 01 
 request addr=0x02001600 stride=16384 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 01 01 ] F7
 parts 16 0 channel=1
 request addr=0x01001000 stride=128 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 00 13 ] F7
+request F0 41 d+10 6A 11 [ 01 00 00 00 00 00 00 40 ] F7
 dump dt1+dt1n+dt1pt F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7
 name dt1 0x02000000 12 stride=16384
 list jvgrouptype "User/Preset" "PCM card" "Expansion"
@@ -45,6 +46,66 @@ param dt1 0x0100100F "Receive volume" 0 1 stride=128
 param dt1 0x01001010 "Receive hold-1" 0 1 stride=128
 param dt1 0x01001011 "Key range lower" 0 127 stride=128
 param dt1 0x01001012 "Key range upper" 0 127 init=127 stride=128
+list jvefxsrc "Perform" "Part 1" "Part 2" "Part 3" "Part 4" "Part 5" "Part 6" "Part 7" "Part 8" "Part 9" "Part 11" "Part 12" "Part 13" "Part 14" "Part 15" "Part 16"
+list jvefxout "Mix" "Output 1" "Output 2"
+list jvchoout "Mix" "Reverb" "Mix+Reverb"
+list jvrevtype "Room 1" "Room 2" "Stage 1" "Stage 2" "Hall 1" "Hall 2" "Delay" "Pan delay"
+list jvhfdamp "200" "250" "315" "400" "500" "630" "800" "1000" "1250" "1600" "2000" "2500" "3150" "4000" "5000" "6300" "8000" "Bypass"
+list jvctlsrc "Off" "Sys ctrl 1" "Sys ctrl 2" "Modulation" "Breath" "Foot" "Volume" "Pan" "Expression" "Bender" "Aftertouch"
+group "Performance"
+param dt1 0x0100000C "EFX source" 0 15 list=jvefxsrc
+param dt1 0x01000022 "Chorus level" 0 127
+param dt1 0x01000023 "Chorus rate" 0 127
+param dt1 0x01000024 "Chorus depth" 0 127
+param dt1 0x01000025 "Chorus pre delay" 0 127
+param dt1 0x01000026 "Chorus feedback" 0 127
+param dt1 0x01000027 "Chorus output" 0 2 list=jvchoout
+param dt1 0x01000028 "Reverb type" 0 7 list=jvrevtype
+param dt1 0x01000029 "Reverb level" 0 127
+param dt1 0x0100002A "Reverb time" 0 127
+param dt1 0x0100002B "Reverb HF damp" 0 17 list=jvhfdamp
+param dt1 0x0100002C "Reverb feedback" 0 127
+param dt1n 0x0100002D "Tempo" 20 250 nibbles=2 init=120
+param dt1 0x0100002F "Key range switch" 0 1
+group "Perf EFX"
+param dt1 0x0100000D "EFX type" 0 39 show=1
+param dt1 0x0100000E "EFX param 1" 0 127
+param dt1 0x0100000F "EFX param 2" 0 127
+param dt1 0x01000010 "EFX param 3" 0 127
+param dt1 0x01000011 "EFX param 4" 0 127
+param dt1 0x01000012 "EFX param 5" 0 127
+param dt1 0x01000013 "EFX param 6" 0 127
+param dt1 0x01000014 "EFX param 7" 0 127
+param dt1 0x01000015 "EFX param 8" 0 127
+param dt1 0x01000016 "EFX param 9" 0 127
+param dt1 0x01000017 "EFX param 10" 0 127
+param dt1 0x01000018 "EFX param 11" 0 127
+param dt1 0x01000019 "EFX param 12" 0 127
+param dt1 0x0100001A "EFX output" 0 2 list=jvefxout
+param dt1 0x0100001B "EFX output level" 0 127 init=127
+param dt1 0x0100001C "EFX chorus send" 0 127
+param dt1 0x0100001D "EFX reverb send" 0 127
+param dt1 0x0100001E "EFX ctl source 1" 0 10 list=jvctlsrc
+param dt1 0x0100001F "EFX ctl depth 1" 0 126 show=-63 init=63
+param dt1 0x01000020 "EFX ctl source 2" 0 10 list=jvctlsrc
+param dt1 0x01000021 "EFX ctl depth 2" 0 126 show=-63 init=63
+group "Voice reserve"
+param dt1 0x01000030 "Part 1 reserve" 0 64
+param dt1 0x01000031 "Part 2 reserve" 0 64
+param dt1 0x01000032 "Part 3 reserve" 0 64
+param dt1 0x01000033 "Part 4 reserve" 0 64
+param dt1 0x01000034 "Part 5 reserve" 0 64
+param dt1 0x01000035 "Part 6 reserve" 0 64
+param dt1 0x01000036 "Part 7 reserve" 0 64
+param dt1 0x01000037 "Part 8 reserve" 0 64
+param dt1 0x01000038 "Part 9 reserve" 0 64
+param dt1 0x01000039 "Part 10 reserve" 0 64
+param dt1 0x0100003A "Part 11 reserve" 0 64
+param dt1 0x0100003B "Part 12 reserve" 0 64
+param dt1 0x0100003C "Part 13 reserve" 0 64
+param dt1 0x0100003D "Part 14 reserve" 0 64
+param dt1 0x0100003E "Part 15 reserve" 0 64
+param dt1 0x0100003F "Part 16 reserve" 0 64
 group "Common"
 param dt1 0x0200002E "Patch level" 0 127 init=127 stride=16384
 param dt1 0x0200002F "Patch pan" 0 127 init=64 stride=16384

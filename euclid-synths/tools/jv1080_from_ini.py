@@ -112,6 +112,8 @@ def main():
     # channel n by default.
     w("parts 16 0 channel=1")
     w("request addr=0x01001000 stride=128 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 00 13 ] F7")
+    if perform:  # the performance's common settings (64 bytes)
+        w("request F0 41 d+10 6A 11 [ 01 00 00 00 00 00 00 40 ] F7")
     w("dump dt1+dt1n+dt1pt F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7")
     w("name dt1 0x%08X 12%s" % (pbase, pstride))
 
@@ -175,6 +177,52 @@ def main():
         if off == 3:
             param("dt1n", 0x01001004, "Patch number", 0, 254,
                   "stride=128 nibbles=2 show=1 then=-2" + (" reload=1" if perform else ""))
+
+    # Performance mode: the performance's own effects and settings (Table
+    # 1-2-1, Performance common, from the JV-1080 owner's manual's MIDI
+    # implementation: not in the .ini). Its layout is one byte on from the
+    # patch's, after the EFX source at 0C. All parts share them.
+    if perform:
+        w('list jvefxsrc "Perform" "Part 1" "Part 2" "Part 3" "Part 4" "Part 5" "Part 6" "Part 7" "Part 8" '
+          '"Part 9" "Part 11" "Part 12" "Part 13" "Part 14" "Part 15" "Part 16"')
+        w('list jvefxout "Mix" "Output 1" "Output 2"')
+        w('list jvchoout "Mix" "Reverb" "Mix+Reverb"')
+        w('list jvrevtype "Room 1" "Room 2" "Stage 1" "Stage 2" "Hall 1" "Hall 2" "Delay" "Pan delay"')
+        w('list jvhfdamp "200" "250" "315" "400" "500" "630" "800" "1000" "1250" "1600" "2000" "2500" "3150" '
+          '"4000" "5000" "6300" "8000" "Bypass"')
+        w('list jvctlsrc "Off" "Sys ctrl 1" "Sys ctrl 2" "Modulation" "Breath" "Foot" "Volume" "Pan" '
+          '"Expression" "Bender" "Aftertouch"')
+        pc = 0x01000000
+        w('group "Performance"')
+        w('param dt1 0x%08X "EFX source" 0 15 list=jvefxsrc' % (pc + 0x0C))
+        w('param dt1 0x%08X "Chorus level" 0 127' % (pc + 0x22))
+        w('param dt1 0x%08X "Chorus rate" 0 127' % (pc + 0x23))
+        w('param dt1 0x%08X "Chorus depth" 0 127' % (pc + 0x24))
+        w('param dt1 0x%08X "Chorus pre delay" 0 127' % (pc + 0x25))
+        w('param dt1 0x%08X "Chorus feedback" 0 127' % (pc + 0x26))
+        w('param dt1 0x%08X "Chorus output" 0 2 list=jvchoout' % (pc + 0x27))
+        w('param dt1 0x%08X "Reverb type" 0 7 list=jvrevtype' % (pc + 0x28))
+        w('param dt1 0x%08X "Reverb level" 0 127' % (pc + 0x29))
+        w('param dt1 0x%08X "Reverb time" 0 127' % (pc + 0x2A))
+        w('param dt1 0x%08X "Reverb HF damp" 0 17 list=jvhfdamp' % (pc + 0x2B))
+        w('param dt1 0x%08X "Reverb feedback" 0 127' % (pc + 0x2C))
+        w('param dt1n 0x%08X "Tempo" 20 250 nibbles=2 init=120' % (pc + 0x2D))
+        w('param dt1 0x%08X "Key range switch" 0 1' % (pc + 0x2F))
+        w('group "Perf EFX"')
+        w('param dt1 0x%08X "EFX type" 0 39 show=1' % (pc + 0x0D))
+        for i in range(12):
+            w('param dt1 0x%08X "EFX param %d" 0 127' % (pc + 0x0E + i, i + 1))
+        w('param dt1 0x%08X "EFX output" 0 2 list=jvefxout' % (pc + 0x1A))
+        w('param dt1 0x%08X "EFX output level" 0 127 init=127' % (pc + 0x1B))
+        w('param dt1 0x%08X "EFX chorus send" 0 127' % (pc + 0x1C))
+        w('param dt1 0x%08X "EFX reverb send" 0 127' % (pc + 0x1D))
+        w('param dt1 0x%08X "EFX ctl source 1" 0 10 list=jvctlsrc' % (pc + 0x1E))
+        w('param dt1 0x%08X "EFX ctl depth 1" 0 126 show=-63 init=63' % (pc + 0x1F))
+        w('param dt1 0x%08X "EFX ctl source 2" 0 10 list=jvctlsrc' % (pc + 0x20))
+        w('param dt1 0x%08X "EFX ctl depth 2" 0 126 show=-63 init=63' % (pc + 0x21))
+        w('group "Voice reserve"')
+        for i in range(16):
+            w('param dt1 0x%08X "Part %d reserve" 0 64' % (pc + 0x30 + i, i + 1))
 
     # Patch common: offsets in hex; groups of at most 24 rows.
     def common_param(off, parts, nibbles=False):
