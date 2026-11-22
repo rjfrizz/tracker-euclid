@@ -934,6 +934,23 @@ void cEuclidParams::refreshChannels()
         return;
     }
 
+    // On the Perform page the keys are effects: key 1 Freeze (lit while
+    // held), the rest for more to come.
+    if (view == View::perform)
+    {
+        static const char* const kPerformKeys[8] = { "Freeze", "", "", "", "", "", "", "" };
+        const bool frozen = euclidEngine.isFrozen();
+        for (uint8_t i = 0; i < 8; i++)
+        {
+            display.setControlColors(channelLabel[i], i == 0 && frozen ? theme.performMutedTrackLabelsColors
+                                                                       : theme.activeLabelsColors);
+            display.setControlText(channelLabel[i], kPerformKeys[i]);
+            display.setControlText2(channelLabel[i], i == 0 ? (frozen ? "held" : "hold") : "");
+            display.refreshControl(channelLabel[i]);
+        }
+        return;
+    }
+
     for (uint8_t i = 0; i < 8; i++)
     {
         euclid::Rhythm r = euclidEngine.getRhythm(i);

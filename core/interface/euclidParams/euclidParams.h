@@ -306,11 +306,11 @@ class cEuclidParams : public ModuleBase
     void refreshChain();
     // The Perform page (performEuclidParams.cpp).
     uint8_t performRowCount() const;
-    void togglePerformFreeze();
+    void performKey(uint8_t key, bool pressed);
     void changePerform(int16_t delta);
     void movePerformRow(int delta);
     void refreshPerform();
-    uint8_t selectedPerformRow = 1;
+    uint8_t selectedPerformRow = 0;
     bool lastPerformFrozen = false;
     int lastPerformMorph = 0;
     char performText[11][40];

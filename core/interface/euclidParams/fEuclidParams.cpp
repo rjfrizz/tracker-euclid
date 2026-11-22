@@ -163,6 +163,7 @@ void cEuclidParams::update()
         (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph))
     {
         refreshPerform();
+        refreshChannels();
         refreshTitle();
     }
 
@@ -1513,13 +1514,6 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
-        // On the Perform page, a pad switches freeze.
-        if (EP->view == cEuclidParams::View::perform)
-        {
-            EP->togglePerformFreeze();
-            return;
-        }
-
         // On the Pattern page a pad is a step of the selected channel: a
         // pulse is muted, a rest added, a changed step put back (staged; with
         // Shift straight away).
@@ -1577,6 +1571,20 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
 
 static void functChannelButton(uint8_t button, uint8_t state)
 {
+    // On the Perform page the keys are the effects, held or tapped. (Letting
+    // go of Freeze unfreezes on any page, in case the page changed meanwhile.)
+    if (state == buttonRelease && button == interfaceButton0 && euclidEngine.isFrozen())
+    {
+        euclidEngine.unfreeze();
+        EP->refreshChannels();
+        return;
+    }
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        if (state == buttonPress || state == buttonRelease)
+            EP->performKey(static_cast<uint8_t>(button - interfaceButton0), state == buttonPress);
+        return;
+    }
     if (state != buttonPress)
         return;
 
