@@ -293,7 +293,7 @@ void queueParam(uint8_t ch, uint16_t param)
     const uint8_t part = euclidSynth::part(ch);
     if (part == 0)
         return; // the notes' MIDI channel isn't one of the synth's parts
-    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, part, msg, sizeof(msg));
+    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, part, msg, sizeof(msg), values[ch]);
     // One entry a message, each with its pause (a template can send several).
     size_t at = 0;
     for (uint32_t piece = 0; at < n; piece++)

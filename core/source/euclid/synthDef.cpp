@@ -147,6 +147,7 @@ int findList(const Definition& d, const char* name)
 bool parseToken(const char* w, TemplateToken& t)
 {
     t.value = 0;
+    t.offset = 0;
     if (strcmp(w, "p") == 0)
         t.type = Token::paramLow7;
     else if (strcmp(w, "ph") == 0)
@@ -171,6 +172,22 @@ bool parseToken(const char* w, TemplateToken& t)
         t.type = Token::nibbleHigh;
     else if (strcmp(w, "n0") == 0)
         t.type = Token::nibbleLow;
+    else if ((w[0] == 'v' || (w[0] == 'n' && (w[1] == '1' || w[1] == '0'))) &&
+             (w[w[0] == 'v' ? 1 : 2] == '+' || w[w[0] == 'v' ? 1 : 2] == '-'))
+    {
+        const char* k = w + (w[0] == 'v' ? 1 : 2);
+        int n = 0;
+        for (const char* c = k + 1; *c; c++)
+        {
+            if (*c < '0' || *c > '9')
+                return false;
+            n = n * 10 + (*c - '0');
+        }
+        if (n < 1 || n > 32 || k[1] == 0)
+            return false;
+        t.type = w[0] == 'v' ? Token::otherValue : (w[1] == '1' ? Token::otherNibbleHigh : Token::otherNibbleLow);
+        t.offset = static_cast<int8_t>(*k == '-' ? -n : n);
+    }
     else if (strcmp(w, "[") == 0)
         t.type = Token::sumStart;
     else if (strcmp(w, "]") == 0)
@@ -278,7 +295,24 @@ uint32_t forPart(const Definition& d, uint32_t n, bool address, uint8_t part, ui
     return address ? printedAddress(linearAddress(n) + offset) : n + offset;
 }
 
-size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* out, size_t maxLength)
+// Another param's value as sent, for v+k and the like (0 past the params).
+struct Others
+{
+    const Definition* d = nullptr;
+    int param = 0;
+    const int16_t* values = nullptr;
+    unsigned at(int k) const
+    {
+        const int i = param + k;
+        if (d == nullptr || i < 0 || i >= d->paramCount)
+            return 0;
+        const Param& o = d->params[i];
+        return static_cast<unsigned>((values != nullptr ? values[i] : o.init) + o.send) & 0x3FFF;
+    }
+};
+
+size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* out, size_t maxLength,
+            const Others& others = Others())
 {
     size_t len = 0;
     size_t sumFrom = 0;
@@ -297,6 +331,9 @@ size_t emit(const Template& t, uint32_t n, unsigned v, uint8_t device, uint8_t* 
             case Token::address2: b = static_cast<uint8_t>((n >> 16) & 0x7F); break;
             case Token::nibbleHigh: b = static_cast<uint8_t>((v >> 4) & 0x0F); break;
             case Token::nibbleLow: b = static_cast<uint8_t>(v & 0x0F); break;
+            case Token::otherValue: b = static_cast<uint8_t>(others.at(tok.offset) & 0x7F); break;
+            case Token::otherNibbleHigh: b = static_cast<uint8_t>((others.at(tok.offset) >> 4) & 0x0F); break;
+            case Token::otherNibbleLow: b = static_cast<uint8_t>(others.at(tok.offset) & 0x0F); break;
             case Token::address1: b = static_cast<uint8_t>((n >> 8) & 0x7F); break;
             case Token::address0: b = static_cast<uint8_t>(n & 0x7F); break;
             case Token::value7: b = static_cast<uint8_t>(v & 0x7F); break;
@@ -661,7 +698,7 @@ bool parse(const char* text, size_t length, Definition& d)
 }
 
 size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t part, uint8_t* out,
-                    size_t maxLength)
+                    size_t maxLength, const int16_t* values)
 {
     if (param >= d.paramCount)
         return 0;
@@ -677,7 +714,11 @@ size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t devi
         const int i = value - p.min;
         v = i >= 0 && i < d.mapLength[p.map] ? d.mapPool[d.mapFirst[p.map] + i] : 0;
     }
-    return emit(t, forPart(d, p.number, hasAddress(t), part, p.stride), v, device, out, maxLength);
+    Others others;
+    others.d = &d;
+    others.param = param;
+    others.values = values;
+    return emit(t, forPart(d, p.number, hasAddress(t), part, p.stride), v, device, out, maxLength, others);
 }
 
 size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,

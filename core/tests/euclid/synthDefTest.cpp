@@ -497,6 +497,34 @@ static void testThen()
     CHECK(!parse(b, std::strlen(b), bad));
 }
 
+// v+k, n1+k, n0+k: one message carrying three params (a JV-1080 part's
+// patch group, ID and number).
+static void testOtherValues()
+{
+    auto d = load("synth \"J\"\n"
+                  "template t F0 41 10 6A 12 [ a3 a2 a1 a0 v ] F7\n"
+                  "template tp F0 41 10 6A 12 [ a3 a2 a1 a0 v v+1 n1+2 n0+2 ] F7\n"
+                  "template tn F0 41 10 6A 12 [ a3 a2 a1 a0 n1 n0 ] F7\n"
+                  "group \"G\"\n"
+                  "param tp 0x01001002 \"Group\" 0 2\n"
+                  "param t 0x01001003 \"ID\" 0 127 init=1 then=-1\n"
+                  "param tn 0x01001004 \"Number\" 0 254 nibbles=2 then=-2\n");
+    const int16_t values[3] = { 0, 4, 0x1C };
+    uint8_t m[kMaxMessage];
+    const size_t n = buildMessage(*d, 0, 0, 1, 1, m, sizeof(m), values);
+    CHECK(n == 15 && m[5] == 0x01 && m[8] == 0x02 && m[9] == 0 && m[10] == 4 && m[11] == 0x01 && m[12] == 0x0C);
+    // The checksum covers all of it.
+    unsigned sum = 0;
+    for (int i = 5; i <= 12; i++)
+        sum += m[i];
+    CHECK(m[13] == ((128 - sum % 128) & 0x7F));
+    // Without values, the others' init= values.
+    CHECK(buildMessage(*d, 0, 0, 1, 1, m, sizeof(m)) == 15 && m[10] == 1 && m[11] == 0 && m[12] == 0);
+    Definition bad;
+    const char* b = "template t F0 v+0 F7\ngroup \"G\"\nparam t 0 \"A\" 0 1\n";
+    CHECK(!parse(b, std::strlen(b), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -514,6 +542,7 @@ int main()
     testValueMap();
     testJv1080Shapes();
     testThen();
+    testOtherValues();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

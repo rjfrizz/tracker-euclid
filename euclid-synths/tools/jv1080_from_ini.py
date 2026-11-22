@@ -76,6 +76,9 @@ def main():
     w("port din")
     w("template dt1 F0 41 d+10 6A 12 [ a3 a2 a1 a0 v ] F7")
     w("template dt1n F0 41 d+10 6A 12 [ a3 a2 a1 a0 n1 n0 ] F7")
+    # A part's patch (group, group ID, number) in one message: the JV
+    # ignores them one at a time.
+    w("template dt1pt F0 41 d+10 6A 12 [ a3 a2 a1 a0 v v+1 n1+2 n0+2 ] F7")
     w("request F0 41 d+10 6A 11 [ 03 00 00 00 00 00 00 48 ] F7")
     for t in range(4):
         w("request F0 41 d+10 6A 11 [ 03 00 %02X 00 00 00 01 01 ] F7" % (0x10 + 2 * t))
@@ -84,7 +87,7 @@ def main():
     # channel n by default.
     w("parts 16 0 channel=1")
     w("request addr=0x01001000 stride=128 F0 41 d+10 6A 11 [ a3 a2 a1 a0 00 00 00 13 ] F7")
-    w("dump dt1+dt1n F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7")
+    w("dump dt1+dt1n+dt1pt F0 41 d+10 6A 12 [ a3 a2 a1 a0 data ] F7")
     w("name dt1 0x03000000 12")
 
     inits = {"Patch level": 127, "Patch pan": 64, "Bender range up": 2, "Bender range down": 2,
@@ -113,8 +116,9 @@ def main():
     # Where a part's patch comes from: the group type (as the JV-2080's
     # tables name it: user and presets, PCM card, expansion board), then
     # within type 0 the group ID picks the bank (1 user, 2 card, 3-6 presets
-    # A-D, from Roland's docs; boards use their own IDs). The JV takes them
-    # with the patch number, so changing either sends that again (then=).
+    # A-D, from Roland's docs; boards use their own IDs). The JV takes the
+    # three only together, so Patch group sends all three (dt1pt) and the
+    # other two send it again when they change (then=).
     w('list jvgrouptype "User/Preset" "PCM card" "Expansion"')
     ids = ["-", "User", "PCM card", "Preset A", "Preset B", "Preset C", "Preset D"]
     ids += [str(i) for i in range(len(ids), 128)]
@@ -127,12 +131,12 @@ def main():
         if name == "MIDI channel":
             extra += " show=1"
         if name == "Patch group":
-            extra += " list=jvgrouptype then=2"
+            extra += " list=jvgrouptype"
         if name == "Patch group ID":
-            extra += " list=jvgroupid init=1 then=1"
-        param("dt1", 0x01001000 + off, name, lo, hi, extra)
+            extra += " list=jvgroupid init=1 then=-1"
+        param("dt1pt" if name == "Patch group" else "dt1", 0x01001000 + off, name, lo, hi, extra)
         if off == 3:
-            param("dt1n", 0x01001004, "Patch number", 0, 254, "stride=128 nibbles=2 show=1")
+            param("dt1n", 0x01001004, "Patch number", 0, 254, "stride=128 nibbles=2 show=1 then=-2")
 
     # Patch common: offsets in hex; groups of at most 24 rows.
     def common_param(off, parts, nibbles=False):

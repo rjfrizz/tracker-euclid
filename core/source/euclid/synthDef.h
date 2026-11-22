@@ -51,6 +51,9 @@
 // bytes 2, 1 and 0: Roland addresses as the manuals print them, so 0x040010
 // is 04 00 10); v, vh, vl (the value: low 7 bits, bits 7-13, bits 0-6); and
 // [ ... ], which emits a Roland checksum of the bytes inside after them.
+// v+1, n1+2, n0+2 (or with -): those of the param that many lines on (or
+// back), so one message can carry several settings the synth wants
+// together (a JV-1080 part's patch group, group ID and patch number).
 //
 // With parts (a multitimbral synth's parts, each with its own copy of the
 // params), each channel picks one, and numbers and addresses move by
@@ -98,6 +101,9 @@ enum class Token : uint8_t
     valueLow,
     nibbleHigh, // n1: the value's bits 4-7, for values sent as two nibbles
     nibbleLow,  // n0: bits 0-3
+    otherValue,      // v+k: another param's value (k in the token's offset)
+    otherNibbleHigh, // n1+k
+    otherNibbleLow,  // n0+k
     sumStart, // [
     checksum, // ]
     data,     // dumps: the values
@@ -108,6 +114,7 @@ struct TemplateToken
 {
     Token type;
     uint8_t value; // literal byte, or the base for `device`
+    int8_t offset; // v+k, n1+k, n0+k: k
 };
 
 struct Template
@@ -209,8 +216,10 @@ bool parse(const char* text, size_t length, Definition& out);
 // The SysEx message that sets a param to value, for a device number 1-16.
 // Returns its length, or 0 if it doesn't fit.
 // part is 1 .. partCount (anything for a definition without parts).
+// values: every param's value (for v+k and the like; without them, their
+// init= values go).
 size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t part, uint8_t* out,
-                    size_t maxLength);
+                    size_t maxLength, const int16_t* values = nullptr);
 
 // Request message i (0 .. requestCount-1). Returns its length, or 0.
 size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,
