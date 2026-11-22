@@ -17,6 +17,7 @@ constexpr int16_t kHeaderH = 44;
 constexpr int16_t kCellH = 54;
 constexpr int16_t kHelpLineH = 24;
 constexpr int16_t kMeterAreaH = 40; // above the list, so A-D don't look like channel keys
+constexpr int16_t kTabH = 32;       // the tab strip, above lists and grids
 // The lines' colours for what moves the notes: modulators (like the Fx 1
 // key) and Shift lanes. Pending edits stay orange.
 constexpr uint32_t kModColor = 0xC8A8F8;   // light purple
@@ -105,8 +106,10 @@ void cEuclidPanel::drawList()
     const uint8_t rows = data->rows < strEuclidPanelData::kMaxRows ? data->rows
                                                                    : strEuclidPanelData::kMaxRows;
     const int16_t meterH = data->meterCount > 0 ? kMeterAreaH : 0;
-    const int16_t listHeight = height - meterH;
-    const int16_t listY = posY + meterH;
+    const int16_t tabH = data->tabCount > 0 ? kTabH : 0;
+    drawTabs(posY);
+    const int16_t listHeight = height - meterH - tabH;
+    const int16_t listY = posY + meterH + tabH;
     const uint8_t visible = static_cast<uint8_t>(listHeight / kRowH);
 
     // Scroll just far enough to keep the focused row on screen.
@@ -142,7 +145,7 @@ void cEuclidPanel::drawList()
                          data->values[i]);
     }
 
-    drawMeters(posY);
+    drawMeters(posY + tabH);
 
     // Small marks at the right edge when there are more rows above or below.
     if (rows > visible)
@@ -155,6 +158,37 @@ void cEuclidPanel::drawList()
         if (data->firstRow + visible < rows)
             API_VERTEX2F(posX + width + 4, listY + visible * kRowH - 6);
         API_END();
+    }
+}
+
+// The tabs: one cell each across the top, the shown one outlined in the
+// page's colour, the ones that are on bright.
+void cEuclidPanel::drawTabs(int16_t y)
+{
+    if (data->tabCount == 0)
+        return;
+    const Theme& theme = display.getTheme();
+    const uint8_t n = data->tabCount < strEuclidPanelData::kMaxTabs ? data->tabCount : strEuclidPanelData::kMaxTabs;
+    const int16_t cellW = width / n;
+    for (uint8_t i = 0; i < n; i++)
+    {
+        const int16_t x = posX + i * cellW;
+        const bool selected = i == data->tabSelected;
+        const bool on = (data->tabOn >> i) & 1u;
+        if (selected)
+        {
+            fillRect(x + 2, y + 3, cellW - 4, kTabH - 8, theme.frameColors[1]);
+            drawOutline(x + 2, y + 3, cellW - 4, kTabH - 8, data->accent != 0 ? data->accent : theme.frameColors[0]);
+        }
+        API_COLOR(on || selected ? theme.activeLabelsColors[0] : theme.inactiveLabelsColors[0]);
+        if (data->tabs[i] != nullptr)
+            API_CMD_TEXT(x + cellW / 2, y + (kTabH - 2) / 2, fonts[kFontBold].handle, OPT_CENTER, data->tabs[i]);
+        if (on)
+        {
+            // A small dot: this lane is playing.
+            fillRect(x + 6, y + (kTabH - 2) / 2 - 2, 4, 4,
+                     data->accent != 0 ? data->accent : theme.activeLabelsColors[0]);
+        }
     }
 }
 
@@ -223,14 +257,16 @@ void cEuclidPanel::drawGrid()
                                                                       : strEuclidPanelData::kMaxCells;
     const int16_t cellW = width / columns;
 
+    const int16_t tabH = data->tabCount > 0 ? kTabH : 0;
+    drawTabs(posY);
     if (data->header != nullptr)
     {
         API_COLOR(theme.activeLabelsColors[0]);
-        API_CMD_TEXT(posX + kPad, posY + kHeaderH / 2, fonts[kFontLarge].handle, OPT_CENTERY,
+        API_CMD_TEXT(posX + kPad, posY + tabH + kHeaderH / 2, fonts[kFontLarge].handle, OPT_CENTERY,
                      data->header);
     }
 
-    const int16_t gridY = posY + kHeaderH;
+    const int16_t gridY = posY + tabH + kHeaderH;
 
     for (uint8_t i = 0; i < cells; i++)
     {

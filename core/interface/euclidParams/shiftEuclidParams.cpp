@@ -17,11 +17,13 @@ const char* const kShiftRowNames[cEuclidParams::shiftRowCount] = { "Lane", "Shif
 const char* const kLaneNames[kLanes] = { "Pitch", "Mode", "Division", "Order", "Chord" };
 
 const char* const kShiftHelp[] = {
-    "Encoder: change the step",
+    "Encoder: change the step, pads pick one",
     "Delete: clear, Shift + Delete: all",
-    "Pads pick a step",
     "Fx 2: next lane, +Shift: settings",
+    nullptr,
 };
+// The tabs across the top: a lane each (short, to fit five).
+const char* const kLaneTabs[] = { "Pitch", "Mode", "Div", "Order", "Chord" };
 
 int clampInt(int v, int lo, int hi)
 {
@@ -247,6 +249,17 @@ void cEuclidParams::refreshShift()
         return;
 
     const euclid::Expression x = euclidEngine.getExpression(selectedChannel);
+    // The lanes as tabs: which one is shown, and which are on.
+    panelData.tabCount = kLanes;
+    panelData.tabSelected = static_cast<int8_t>(shiftLane);
+    panelData.tabOn = 0;
+    for (uint8_t i = 0; i < kLanes; i++)
+    {
+        panelData.tabs[i] = kLaneTabs[i];
+        const bool laneOn = i == 0 ? x.shift.on : x.lanes[i - 1].on;
+        if (laneOn)
+            panelData.tabOn = static_cast<uint8_t>(panelData.tabOn | (1u << i));
+    }
     const euclid::Shift& s = x.shift;
     const euclid::Lane* l = shiftLane != 0 ? &x.lanes[shiftLane - 1] : nullptr;
     const bool on = l != nullptr ? l->on : s.on;

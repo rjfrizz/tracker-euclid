@@ -166,6 +166,7 @@ void cEuclidParams::setView(View v)
     display.refreshControl(miniLines);
     view = v;
     armedAction = SetAction::none;
+    panelData.tabCount = 0; // only the Shift page has tabs (refreshShift)
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
     panelData.mode = isListView() ? strEuclidPanelData::Mode::list : strEuclidPanelData::Mode::grid;
     panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;

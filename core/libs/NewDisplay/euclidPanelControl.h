@@ -80,6 +80,14 @@ struct strEuclidPanelData
     // top visible row and is kept up to date by the control.
     uint8_t firstRow = 0;
 
+    // Tabs across the top (the Shift page's lanes): the one shown outlined in
+    // the page's colour, lanes that are on bright, the rest dim.
+    static constexpr uint8_t kMaxTabs = 6;
+    uint8_t tabCount = 0;
+    int8_t tabSelected = -1;
+    const char* tabs[kMaxTabs] = {};
+    uint8_t tabOn = 0; // bit per tab
+
     // Meters along the bottom of a list (the Mod page): one per modulator,
     // -1000..1000 (centred bar) or 0..1000 (from the left).
     static constexpr uint8_t kMaxMeters = 4;
@@ -120,6 +128,7 @@ class cEuclidPanel : public cDisplayControl
     void drawList();
     void drawGrid();
     void drawMeters(int16_t y);
+    void drawTabs(int16_t y);
     void drawLanes();
     void drawBlocks();
     void drawOutline(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t color);
