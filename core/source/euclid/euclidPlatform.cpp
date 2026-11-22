@@ -557,6 +557,24 @@ void euclidDir(const char* projectDir, char* out, size_t len)
 }
 } // namespace
 
+namespace euclidSession
+{
+void clear()
+{
+    clearScenes();
+    scenesDirty = true;
+    activeScene = -1;
+    homeLength = 0;
+    chainData = euclid::Chain();
+    chainDirty = true;
+    chainChangedMs = nowMs();
+    chainIssued = -1;
+    chainPlaying = -1;
+    slotOfState = 0;
+    lastChangeMs = nowMs();
+}
+} // namespace euclidSession
+
 namespace euclidProject
 {
 void saved(const char* projectDir)

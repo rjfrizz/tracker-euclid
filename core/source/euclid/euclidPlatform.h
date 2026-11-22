@@ -53,6 +53,14 @@ bool keepAsHome(); // what's playing (a scene, edits and all) becomes home
 int8_t active();   // the scene playing, or -1 for home
 } // namespace euclidScenes
 
+// A fresh start (the Pattern page's clear all): the scenes and the chain
+// go, and the working state no longer counts as a set slot's. The slots on
+// the card stay. The channels are cleared by the caller.
+namespace euclidSession
+{
+void clear();
+}
+
 // Projects: a stock project keeps the EUCLID side in its Euclid/ folder
 // (the working state, its scenes, the 8 set slots and theirs, the chain,
 // the synth assignments and each channel's synth page). Saving the project
