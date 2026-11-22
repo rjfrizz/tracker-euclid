@@ -136,8 +136,10 @@ def main():
     # Patch mode: the patch playing, chosen in the system settings (00 00
     # 00 02-05: group, group ID, number, which go together), then got.
     w('list jvgrouptype "User/Preset" "PCM card" "Expansion"')
-    ids = ["-", "User", "PCM card", "Preset A", "Preset B", "Preset C", "Preset D"]
-    ids += [str(i) for i in range(len(ids), 128)]
+    # The same numbers mean the bank with User/Preset and the board (its
+    # SR-JV80 number) with Expansion, so each shows both.
+    ids = ["0", "1 User", "2 Card/Exp 2", "3 PrA/Exp 3", "4 PrB/Exp 4", "5 PrC/Exp 5", "6 PrD/Exp 6"]
+    ids += ["%d Exp %d" % (i, i) for i in range(len(ids), 128)]
     w("list jvgroupid " + " ".join('"%s"' % i for i in ids))
     if not perform:
         w('group "Patch"')
