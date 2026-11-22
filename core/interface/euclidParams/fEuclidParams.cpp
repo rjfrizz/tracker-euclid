@@ -773,23 +773,20 @@ void cEuclidParams::requestClear(bool all)
         armedClear = target;
         armedClearUntil = nowMs() + 3000;
         if (all)
-            snprintf(text, sizeof(text), "Shift + Delete again: clear everything, scenes and chain too");
+            snprintf(text, sizeof(text), "Shift + Delete again: clear all channels");
         else
             snprintf(text, sizeof(text), "Shift + Delete again: clear channel %d", selectedChannel + 1);
         showMessage(text);
         return;
     }
     armedClear = -1;
-    // All: a fresh start, so the scenes and the chain go too (the set
-    // slots on the card stay).
-    if (all)
-        euclidSession::clear();
+    // Scenes, sets and the chain stay (New project is the clean slate).
     for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
         if (all || ch == selectedChannel)
             clearChannel(ch);
     const bool staged = euclidEngine.isRunning();
     if (all)
-        snprintf(text, sizeof(text), "Everything cleared%s", staged ? ": Rec to apply" : "");
+        snprintf(text, sizeof(text), "All channels cleared%s", staged ? ": Rec to apply" : "");
     else
         snprintf(text, sizeof(text), "Channel %d cleared%s", selectedChannel + 1, staged ? ": Rec to apply" : "");
     showMessage(text);
