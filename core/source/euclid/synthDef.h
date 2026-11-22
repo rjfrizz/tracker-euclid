@@ -26,12 +26,19 @@
 //   request F0 43 d+20 03 F7        asks the synth for its patch (up to 8)
 //   request addr=0x040000 F0 41 d+10 16 11 [ a2 a1 a0 00 01 76 ] F7
 //                                   a request with an address (and stride=)
+//   request each F0 18 04 d+00 02 pl ph F7
+//                                   asked once for each param (its number in
+//                                   p, pl, ph): for synths that answer one
+//                                   setting at a time (an E-mu Proteus)
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
 //                                   (dump a+b ...: those of templates a and b;
 //                                   dump vced packed ...: data in DSI's
 //                                   packing, 7 bytes in 8 with their top bits
-//                                   first, unpacked to whole bytes)
+//                                   first, unpacked to whole bytes; a dump
+//                                   with p, pl, ph holds that one param, its
+//                                   data a 14-bit signed value, low 7 bits
+//                                   first)
 //   name vced 77 10 [stride=128]    the patch name: 10 bytes at vced 77
 //                                   (stride=: its distance between parts)
 //   hint "Memory picks a voice"     a reminder the Synth page shows of how
@@ -158,6 +165,7 @@ struct Dump
     uint16_t templMask; // bit per template: all whose params it holds
     bool hasAddress;
     bool packed; // DSI's 7-in-8 packing
+    bool byNumber; // holds one param, named by p/pl/ph, with a 14-bit value
     Template pattern;
 };
 
@@ -195,6 +203,8 @@ struct Definition
     uint8_t partCount; // 0: no parts
     uint16_t partStride;
     uint8_t partChannel; // the MIDI channel part 1 listens on, 0 if none
+    bool hasEach; // a request sent once for each param
+    Template eachRequest;
     uint8_t requestCount;
     Template requests[kMaxRequests];
     uint32_t requestAddress[kMaxRequests];
@@ -232,6 +242,10 @@ bool parse(const char* text, size_t length, Definition& out);
 // init= values go).
 size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t device, uint8_t part, uint8_t* out,
                     size_t maxLength, const int16_t* values = nullptr);
+
+// The each request (hasEach) for one param. Returns its length, or 0.
+size_t buildEachRequest(const Definition& d, uint16_t param, uint8_t device, uint8_t part, uint8_t* out,
+                        size_t maxLength);
 
 // Request message i (0 .. requestCount-1). Returns its length, or 0.
 size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,

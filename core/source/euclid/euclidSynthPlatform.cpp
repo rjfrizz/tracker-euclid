@@ -111,6 +111,9 @@ uint8_t patchCount = 0;
 // A patch request waiting for its reply.
 int8_t requestChannel = -1;
 uint32_t requestDeadline = 0;
+// A request each (one per param), fed to the queue as it empties.
+int8_t eachChannel = -1;
+uint16_t eachNext = 0;
 uint8_t dumpsReceived = 0;
 int valuesReceived = 0;
 char patchName[24] = "";
@@ -259,6 +262,8 @@ void keepImage(uint8_t ch, const uint8_t* msg, size_t len, uint8_t device, uint8
     static euclid::synth::DumpData mine, other; // main loop only; big (unpacking room)
     if (!euclid::synth::moveDump(*d, temp, len, device, part, 1, 1) || !euclid::synth::matchDump(*d, temp, len, 1, mine))
         return;
+    if (d->dumps[mine.dump].byNumber)
+        return; // one setting's reply: not a patch to keep
     uint8_t slot = imageCount[ch];
     for (uint8_t i = 0; i < imageCount[ch]; i++)
         if (euclid::synth::matchDump(*d, images[ch][i], imageLength[ch][i], 1, other) && other.dump == mine.dump &&
@@ -374,6 +379,7 @@ void finishRequest()
     else
         snprintf(eventText, sizeof(eventText), "Got the patch");
     requestChannel = -1;
+    eachChannel = -1;
     events++;
 }
 
@@ -442,12 +448,31 @@ void update()
         reloadChannel = -1;
         requestPatch(ch);
     }
-    if (requestChannel >= 0)
+    // A request each: the next params' requests, as the queue has room.
+    if (eachChannel >= 0)
+    {
+        const Channel& c = channels[eachChannel];
+        const Definition* d = c.slot >= 0 ? &definitions[c.slot] : nullptr;
+        const uint8_t part = euclidSynth::part(static_cast<uint8_t>(eachChannel));
+        while (d != nullptr && eachNext < d->paramCount && queue.waiting() < euclid::SysexQueue::kCapacity - 4)
+        {
+            uint8_t msg[euclid::synth::kMaxMessage];
+            const uint16_t p = eachNext++;
+            const size_t n = euclid::synth::buildEachRequest(*d, p, c.device, part, msg, sizeof(msg));
+            if (n > 0)
+                queue.push(0x80000000u | (static_cast<uint32_t>(eachChannel) << 16) | p, msg, n, c.ports, d->pauseMs);
+        }
+        if (d == nullptr || eachNext >= d->paramCount)
+            eachChannel = -1;
+    }
+    if (requestChannel >= 0 && eachChannel < 0)
     {
         // The wait starts once the request has gone out.
         if (requestDeadline == 0 && queue.waiting() == 0)
             requestDeadline = nowMs() + kReplyWaitMs;
-        if (requestDeadline != 0 && static_cast<int32_t>(nowMs() - requestDeadline) >= 0)
+        // (Not while requests are still waiting to go: replies to the
+        // first can come before the last are sent.)
+        if (requestDeadline != 0 && queue.waiting() == 0 && static_cast<int32_t>(nowMs() - requestDeadline) >= 0)
             finishRequest();
     }
 
@@ -667,7 +692,7 @@ bool requestPatch(uint8_t ch)
     const Definition* d = definition(ch);
     if (d == nullptr)
         return false;
-    if (d->requestCount == 0)
+    if (d->requestCount == 0 && !d->hasEach)
     {
         if (d->listen)
             snprintf(lastError, sizeof(lastError), "Pick a patch on the %s: it sends it", d->name);
@@ -693,6 +718,8 @@ bool requestPatch(uint8_t ch)
             queue.push((static_cast<uint32_t>(ch) << 16) | (0xFF00u + i), msg, n, c.ports, d->pauseMs);
     }
     requestChannel = static_cast<int8_t>(ch);
+    eachChannel = d->hasEach ? static_cast<int8_t>(ch) : -1;
+    eachNext = 0;
     imageCount[ch] = 0; // the reply is the patch now
     requestDeadline = 0;
     dumpsReceived = 0;

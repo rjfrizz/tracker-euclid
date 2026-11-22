@@ -252,6 +252,12 @@ const char* readTokens(Line& line, Template& t, Use use)
             case Token::address2:
             case Token::address1:
             case Token::address0: break;
+            case Token::paramLow7:
+            case Token::paramHigh:
+            case Token::paramLow:
+                if (use == useRequest)
+                    return "no p in a request (but request each)";
+                break;
             default:
                 if (use != useTemplate)
                     return "no p or v in a request or dump";
@@ -455,6 +461,18 @@ bool parse(const char* text, size_t length, Definition& d)
         }
         else if (strcmp(key, "request") == 0)
         {
+            {
+                Line peek = line;
+                if (peek.word(w, sizeof(w)) && strcmp(w, "each") == 0)
+                {
+                    if (d.hasEach)
+                        return fail(d, lineNumber, "request each: only one");
+                    if (const char* e = readTokens(peek, d.eachRequest, useTemplate))
+                        return fail(d, lineNumber, e);
+                    d.hasEach = true;
+                    continue;
+                }
+            }
             if (d.requestCount >= kMaxRequests)
                 return fail(d, lineNumber, "too many requests");
             Template& t = d.requests[d.requestCount];
@@ -524,6 +542,14 @@ bool parse(const char* text, size_t length, Definition& d)
             if (const char* e = readTokens(line, dump.pattern, useDump))
                 return fail(d, lineNumber, e);
             dump.hasAddress = hasAddress(dump.pattern);
+            dump.byNumber = false;
+            for (uint8_t i = 0; i < dump.pattern.count; i++)
+            {
+                const Token k = dump.pattern.tokens[i].type;
+                dump.byNumber = dump.byNumber || k == Token::paramLow7 || k == Token::paramHigh || k == Token::paramLow;
+            }
+            if (dump.byNumber && (dump.hasAddress || dump.packed))
+                return fail(d, lineNumber, "dump: p with an address or packed");
             if (dump.packed && dump.hasAddress)
                 return fail(d, lineNumber, "dump: packed ones have no address");
             d.dumpCount++;
@@ -749,6 +775,16 @@ size_t buildMessage(const Definition& d, uint16_t param, int value, uint8_t devi
     return emit(t, forPart(d, p.number, hasAddress(t), part, p.stride), v, device, out, maxLength, others);
 }
 
+size_t buildEachRequest(const Definition& d, uint16_t param, uint8_t device, uint8_t part, uint8_t* out,
+                        size_t maxLength)
+{
+    if (!d.hasEach || param >= d.paramCount)
+        return 0;
+    const Param& p = d.params[param];
+    return emit(d.eachRequest, forPart(d, p.number, hasAddress(d.eachRequest), part, p.stride), 0, device, out,
+                maxLength);
+}
+
 size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_t part, uint8_t* out,
                     size_t maxLength)
 {
@@ -788,6 +824,9 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
                 case Token::address2: address |= static_cast<uint32_t>(msg[pos++]) << 16; break;
                 case Token::address1: address |= static_cast<uint32_t>(msg[pos++]) << 8; break;
                 case Token::address0: address |= msg[pos++]; break;
+                case Token::paramLow7:
+                case Token::paramLow: address |= msg[pos++] & 0x7Fu; break;
+                case Token::paramHigh: address |= static_cast<uint32_t>(msg[pos++] & 0x7F) << 7; break;
                 case Token::sumStart: sumFrom = pos; break;
                 case Token::checksum:
                     ok = rolandChecksum(msg + sumFrom, pos - sumFrom) == msg[pos];
@@ -853,6 +892,33 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
         return 0;
     const uint16_t mask = d.dumps[dump.dump].templMask;
     int count = 0;
+    if (d.dumps[dump.dump].byNumber)
+    {
+        // One param's 14-bit signed value, low 7 bits first.
+        if (dump.length < 2)
+            return 0;
+        int raw = (dump.data[0] & 0x7F) | ((dump.data[1] & 0x7F) << 7);
+        const int unsignedRaw = raw;
+        if (raw & 0x2000)
+            raw -= 0x4000;
+        for (uint16_t i = 0; i < d.paramCount; i++)
+        {
+            const Param& p = d.params[i];
+            if (!((mask >> p.templ) & 1u) || forPart(d, p.number, false, part, p.stride) != dump.address)
+                continue;
+            int v = raw - p.send;
+            if (p.map != 0xFF)
+            {
+                v = p.min;
+                for (int k = 0; k < d.mapLength[p.map]; k++)
+                    if (d.mapPool[d.mapFirst[p.map] + k] == unsignedRaw)
+                        v = p.min + k;
+            }
+            values[i] = static_cast<int16_t>(v < p.min ? p.min : (v > p.max ? p.max : v));
+            count++;
+        }
+        return count;
+    }
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
         const Param& p = d.params[i];
@@ -915,7 +981,7 @@ void rewrite(const Template& t, uint8_t* msg, size_t length, uint8_t device, uin
 bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t device, uint8_t* msg, size_t length)
 {
     DumpData dump;
-    if (!matchDump(d, msg, length, device, dump))
+    if (!matchDump(d, msg, length, device, dump) || d.dumps[dump.dump].byNumber)
         return false;
     const bool packed = dump.packedData != nullptr;
     uint8_t* data = packed ? dump.unpacked : msg + (dump.data - msg);
@@ -992,7 +1058,7 @@ bool moveDump(const Definition& d, uint8_t* msg, size_t length, uint8_t fromDevi
 
 bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part)
 {
-    if (dump.dump >= d.dumpCount)
+    if (dump.dump >= d.dumpCount || d.dumps[dump.dump].byNumber)
         return false;
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
@@ -1006,7 +1072,8 @@ bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part)
 
 bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out, size_t length)
 {
-    if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl)
+    if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl ||
+        d.dumps[dump.dump].byNumber)
         return false;
     long first = dumpIndex(d, dump, d.nameNumber, part, d.nameStride);
     long last = first < 0 ? -1 : first + d.nameLength - 1;

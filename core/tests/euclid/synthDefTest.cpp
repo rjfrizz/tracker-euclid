@@ -605,6 +605,33 @@ static void testPackedDump()
     delete again;
 }
 
+// request each and a dump by number: one setting a reply (an E-mu Proteus).
+static void testEachRequest()
+{
+    auto d = load("synth \"P\"\n"
+                  "template p F0 18 04 d+00 03 pl ph vl vh F7\n"
+                  "request each F0 18 04 d+00 02 pl ph F7\n"
+                  "dump p F0 18 04 d+00 03 pl ph data F7\n"
+                  "group \"G\"\n"
+                  "param p 28 \"Pan\" -7 7\n"
+                  "param p 200 \"Far\" 0 255\n");
+    CHECK(d->hasEach && d->requestCount == 0);
+    uint8_t m[kMaxMessage];
+    CHECK(buildEachRequest(*d, 1, 2, 1, m, sizeof(m)) == 8 && m[3] == 0x01 && m[5] == 0x48 && m[6] == 0x01);
+    const uint8_t pan[] = { 0xF0, 0x18, 0x04, 0x00, 0x03, 28, 0, 0x7D, 0x7F, 0xF7 }; // -3
+    auto* dump = new DumpData();
+    int16_t values[2] = { 0, 0 };
+    CHECK(matchDump(*d, pan, sizeof(pan), 1, *dump) && applyDump(*d, *dump, 1, values) == 1 && values[0] == -3);
+    const uint8_t far[] = { 0xF0, 0x18, 0x04, 0x00, 0x03, 0x48, 0x01, 0x7F, 0x01, 0xF7 }; // 255
+    CHECK(matchDump(*d, far, sizeof(far), 1, *dump) && applyDump(*d, *dump, 1, values) == 1 && values[1] == 255);
+    char name[8];
+    CHECK(!dumpName(*d, *dump, 1, name, sizeof(name)));
+    delete dump;
+    Definition bad;
+    const char* b = "template p F0 v F7\nrequest F0 02 p F7\ngroup \"G\"\nparam p 0 \"A\" 0 1\n";
+    CHECK(!parse(b, std::strlen(b), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -625,6 +652,7 @@ int main()
     testOtherValues();
     testHintAndPartName();
     testPackedDump();
+    testEachRequest();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;
