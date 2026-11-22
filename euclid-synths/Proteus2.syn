@@ -5,6 +5,7 @@
 # current preset, so there's no getting it (Shift + Insert).
 # Device 1 is the Proteus's MIDI ID 0 (its usual), Device 2 is ID 1...
 synth "E-mu Proteus/2"
+hint "Pick presets on the Proteus (it can't send them)"
 pause 20
 device 1
 port din

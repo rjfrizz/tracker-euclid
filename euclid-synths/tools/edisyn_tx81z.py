@@ -99,6 +99,7 @@ def main():
     w("# (https://github.com/eclab/edisyn, Apache License 2.0, Copyright Sean Luke).")
     w("# Edits the TX81Z's voice edit buffer with VCED and ACED parameter changes.")
     w('synth "Yamaha TX81Z"')
+    w('hint "Memory row picks the voice"')
     w("pause 30")
     w("device 1")
     w("port din")

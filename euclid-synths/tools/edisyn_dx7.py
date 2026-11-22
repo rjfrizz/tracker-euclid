@@ -61,6 +61,7 @@ def main():
     w("# Edits the voice edit buffer with DX7 parameter changes; the TX802's own")
     w("# extra voice settings and performances aren't covered.")
     w('synth "Yamaha TX802"')
+    w('hint "Pick voices on the TX802; Shift+Insert gets it"')
     w("pause 50")
     w("device 1")
     w("port din")

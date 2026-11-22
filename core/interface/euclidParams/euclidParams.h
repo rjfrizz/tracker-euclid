@@ -262,6 +262,7 @@ class cEuclidParams : public ModuleBase
     uint32_t modDimMask() const;
     // Synth view (synthEuclidParams.cpp).
     void refreshSynth();
+    void showSynthHint();
     uint8_t synthRowCount() const;
     int synthParamAt(uint8_t row) const;
     PadMap synthPadMap(uint8_t row) const;

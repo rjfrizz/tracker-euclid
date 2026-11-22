@@ -39,6 +39,7 @@ def main():
     w("# chosen on it, and this listens for that: there's no asking for it.")
     w("# Device is the JX-8P's MIDI channel.")
     w('synth "Roland JX-8P"')
+    w('hint "Pick a tone on the JX-8P: it fills this page"')
     w("pause 20")
     w("device 1")
     w("port din")

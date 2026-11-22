@@ -525,6 +525,41 @@ static void testOtherValues()
     CHECK(!parse(b, std::strlen(b), bad));
 }
 
+// hint, and a name that moves with the part (name ... stride=).
+static void testHintAndPartName()
+{
+    auto d = load("synth \"J\"\n"
+                  "hint \"Part group: pick each part's patch\"\n"
+                  "template t F0 41 10 6A 12 [ a3 a2 a1 a0 v ] F7\n"
+                  "parts 16 0\n"
+                  "dump t F0 41 10 6A 12 [ a3 a2 a1 a0 data ] F7\n"
+                  "name t 0x02000000 4 stride=16384\n"
+                  "group \"G\"\n"
+                  "param t 0x02000010 \"Level\" 0 127 stride=16384\n");
+    CHECK(std::strcmp(d->hint, "Part group: pick each part's patch") == 0);
+    // Part 3's patch, from 02 02 00 00: its name and level.
+    uint8_t m[40] = { 0xF0, 0x41, 0x10, 0x6A, 0x12, 0x02, 0x02, 0x00, 0x00 };
+    size_t n = 9;
+    const char* nm = "Bass";
+    for (int i = 0; i < 0x11; i++)
+        m[n++] = i < 4 ? static_cast<uint8_t>(nm[i]) : (i == 0x10 ? 99 : 0);
+    unsigned sum = 0;
+    for (size_t i = 5; i < n; i++)
+        sum += m[i];
+    m[n++] = static_cast<uint8_t>((128 - sum % 128) & 0x7F);
+    m[n++] = 0xF7;
+    DumpData dump;
+    CHECK(matchDump(*d, m, n, 1, dump));
+    char name[16] = "";
+    CHECK(dumpName(*d, dump, 3, name, sizeof(name)) && std::strcmp(name, "Bass") == 0);
+    CHECK(!dumpName(*d, dump, 1, name, sizeof(name)));
+    int16_t values[1] = { -1 };
+    CHECK(applyDump(*d, dump, 3, values) == 1 && values[0] == 99);
+    Definition bad;
+    const char* b = "template t F0 v F7\nname t 0 4 stride=x\ngroup \"G\"\nparam t 0 \"A\" 0 1\n";
+    CHECK(!parse(b, std::strlen(b), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -543,6 +578,7 @@ int main()
     testJv1080Shapes();
     testThen();
     testOtherValues();
+    testHintAndPartName();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

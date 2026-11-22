@@ -55,6 +55,7 @@ def main():
     w("# current preset, so there's no getting it (Shift + Insert).")
     w("# Device 1 is the Proteus's MIDI ID 0 (its usual), Device 2 is ID 1...")
     w('synth "E-mu Proteus/2"')
+    w('hint "Pick presets on the Proteus (it can\'t send them)"')
     w("pause 20")
     w("device 1")
     w("port din")

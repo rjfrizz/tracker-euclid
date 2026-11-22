@@ -408,6 +408,11 @@ bool parse(const char* text, size_t length, Definition& d)
             if (!line.word(d.name, sizeof(d.name)))
                 return fail(d, lineNumber, "synth: name missing");
         }
+        else if (strcmp(key, "hint") == 0)
+        {
+            if (!line.word(d.hint, sizeof(d.hint)))
+                return fail(d, lineNumber, "hint: text missing");
+        }
         else if (strcmp(key, "pause") == 0 || strcmp(key, "device") == 0)
         {
             long v;
@@ -562,6 +567,14 @@ bool parse(const char* text, size_t length, Definition& d)
             d.nameTempl = static_cast<uint8_t>(t);
             d.nameNumber = static_cast<uint32_t>(number);
             d.nameLength = static_cast<uint8_t>(len);
+            d.nameStride = 0;
+            if (line.word(w, sizeof(w)))
+            {
+                long s = 0;
+                if (strncmp(w, "stride=", 7) != 0 || !parseInt(w + 7, s) || s < 1 || s > 65535)
+                    return fail(d, lineNumber, "name: stride= expected");
+                d.nameStride = static_cast<uint16_t>(s);
+            }
         }
         else if (strcmp(key, "list") == 0)
         {
@@ -940,7 +953,7 @@ bool dumpName(const Definition& d, const DumpData& dump, uint8_t part, char* out
 {
     if (length == 0 || dump.dump >= d.dumpCount || d.dumps[dump.dump].templ != d.nameTempl)
         return false;
-    long first = dumpIndex(d, dump, d.nameNumber, part, 0);
+    long first = dumpIndex(d, dump, d.nameNumber, part, d.nameStride);
     long last = first < 0 ? -1 : first + d.nameLength - 1;
     if (last >= static_cast<long>(dump.length))
         last = -1;

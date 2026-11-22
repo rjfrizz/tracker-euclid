@@ -5,6 +5,7 @@
 # chosen on it, and this listens for that: there's no asking for it.
 # Device is the JX-8P's MIDI channel.
 synth "Roland JX-8P"
+hint "Pick a tone on the JX-8P: it fills this page"
 pause 20
 device 1
 port din

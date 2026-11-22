@@ -3,6 +3,7 @@
 # (https://github.com/eclab/edisyn, Apache License 2.0, Copyright Sean Luke).
 # Edits the TX81Z's voice edit buffer with VCED and ACED parameter changes.
 synth "Yamaha TX81Z"
+hint "Memory row picks the voice"
 pause 30
 device 1
 port din

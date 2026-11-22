@@ -4,6 +4,7 @@
 # Edits the temporary tone of the channel's Part (1-8) with DT1 messages.
 # Device 1 is the D-110's unit number 17 (the usual one), Device 2 is 18...
 synth "Roland D-110"
+hint "Part group: tone group and number"
 pause 30
 device 1
 port din

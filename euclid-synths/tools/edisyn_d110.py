@@ -85,10 +85,12 @@ def main():
     w("# Edits the temporary tone of the channel's Part (1-8) with DT1 messages.")
     w("# Device 1 is the D-110's unit number 17 (the usual one), Device 2 is 18...")
     w('synth "Roland D-110"')
+    w('hint "Part group: tone group and number"')
     w("pause 30")
     w("device 1")
     w("port din")
     # Part 1 listens on MIDI channel 2 by default, part 2 on 3 and so on.
+    w("# Part 1 listens on MIDI channel 2 by default, part 2 on 3 and so on.")
     w("parts 8 %d channel=2" % TONE_LENGTH)
     w("template dt1 F0 41 d+10 16 12 [ a2 a1 a0 v ] F7")
     # The whole temporary tone (246 bytes, 01 76 in 7-bit steps), as Edisyn asks.

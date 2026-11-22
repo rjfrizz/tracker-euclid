@@ -1354,6 +1354,7 @@ static void functSynthView()
     euclidSynth::scan(); // pick up definition files added to the card
     EP->setView(cEuclidParams::View::synth);
     EP->setDefaultScreenFunct();
+    EP->showSynthHint();
 }
 
 // Like Fx 1 on the Mod page, pressing Fx 2 again moves on to the next lane

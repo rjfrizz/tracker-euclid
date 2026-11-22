@@ -115,6 +115,7 @@ def main():
     w("# Edits the program playing on the Device's MIDI channel with NRPN; set the")
     w("# Tetra's MParamRec to NRPN or All. Getting the program isn't supported yet.")
     w('synth "DSI Tetra"')
+    w('hint "Pick programs on the Tetra; edits go to it"')
     w("pause 1")
     w("device 1")
     w("port din")

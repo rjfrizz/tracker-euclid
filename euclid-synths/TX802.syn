@@ -4,6 +4,7 @@
 # Edits the voice edit buffer with DX7 parameter changes; the TX802's own
 # extra voice settings and performances aren't covered.
 synth "Yamaha TX802"
+hint "Pick voices on the TX802; Shift+Insert gets it"
 pause 50
 device 1
 port din

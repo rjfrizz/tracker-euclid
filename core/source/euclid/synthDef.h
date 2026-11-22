@@ -29,7 +29,10 @@
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
 //                                   (dump a+b ...: those of templates a and b)
-//   name vced 77 10                 the patch name: 10 bytes at vced 77
+//   name vced 77 10 [stride=128]    the patch name: 10 bytes at vced 77
+//                                   (stride=: its distance between parts)
+//   hint "Memory picks a voice"     a reminder the Synth page shows of how
+//                                   to change patches on this synth
 //   map p2inst 0x0000 0x0101 ...    the numbers a param's values send
 //                                   (map=p2inst: value n sends the n-th)
 //
@@ -167,6 +170,7 @@ struct List
 struct Definition
 {
     char name[32];
+    char hint[64]; // empty for none
     uint16_t pauseMs;
     uint8_t device; // default, 1-16
     uint8_t ports;  // default: 1 DIN, 2 USB, 3 both, 0 wherever notes go
@@ -198,6 +202,7 @@ struct Definition
     uint16_t mapPool[kMapPool];
     uint8_t nameTempl; // 0xFF for none
     uint32_t nameNumber;
+    uint16_t nameStride; // between parts; 0 for the definition's
     uint8_t nameLength;
 
     uint16_t poolUsed;

@@ -4,6 +4,7 @@
 # Edits the program playing on the Device's MIDI channel with NRPN; set the
 # Tetra's MParamRec to NRPN or All. Getting the program isn't supported yet.
 synth "DSI Tetra"
+hint "Pick programs on the Tetra; edits go to it"
 pause 1
 device 1
 port din

@@ -5,6 +5,7 @@
 # (16 patterns a bank). Turn on "Enable MIDI Program In" in T1 Config >
 # MIDI I/O. These go out on channels 1 and 2 whatever the Device is.
 synth "Torso T-1"
+hint "Banks rows pick the T-1's pattern"
 pause 1
 device 1
 port din

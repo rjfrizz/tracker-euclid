@@ -312,6 +312,8 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
             setChannelSound(ch, euclid::ChannelOutput::midi, -1);
             if (!euclidSynth::assign(ch, v == 0 ? -1 : v - kSynthRowFirstFile))
                 showMessage(euclidSynth::error());
+            else
+                showSynthHint();
         }
         synthGroup[ch] = 0;
         euclidSynth::saveAssignments();
@@ -396,6 +398,14 @@ void cEuclidParams::changeSynth(int16_t delta)
         fine = prm.max - prm.min > 31;
     }
     setSynthRowValue(row, synthRowValue(row) + (fine ? delta : step));
+}
+
+// The synth's reminder of how to change its patches, if it has one.
+void cEuclidParams::showSynthHint()
+{
+    const euclid::synth::Definition* d = euclidSynth::definition(selectedChannel);
+    if (d != nullptr && d->hint[0] != 0 && !isSampler(selectedChannel))
+        showMessage(d->hint);
 }
 
 void cEuclidParams::refreshSynth()
