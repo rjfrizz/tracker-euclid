@@ -56,7 +56,7 @@ euclid::SysexQueue queue;
 
 // Sending a whole patch, a few messages at a time as the queue empties.
 int8_t sendAllChannel = -1;
-uint16_t sendAllNext = 0;
+uint32_t sendAllNext = 0; // over two passes of the params
 
 // Incoming SysEx. MIDI input is read in the audio callback, which puts whole
 // messages in the inbox; the main loop takes them out.
@@ -486,15 +486,19 @@ void update()
         return;
     }
     const Definition& d = definitions[c.slot];
-    // Selections (reload= params, such as which stored voice plays) aren't
-    // part of the patch: sending one would load that voice instead.
-    while (sendAllNext < d.paramCount && queue.waiting() < euclid::SysexQueue::kCapacity - 4)
+    // Two passes: first the selections (reload= params: which stored voice
+    // or patch plays), which load a patch, then everything else on top, so
+    // the synth ends up as the page is (as a project saved it).
+    const uint32_t total = 2u * d.paramCount;
+    while (sendAllNext < total && queue.waiting() < euclid::SysexQueue::kCapacity - 4)
     {
-        const uint16_t p = sendAllNext++;
-        if (!d.params[p].reload)
+        const uint32_t i = sendAllNext++;
+        const bool selections = i < d.paramCount;
+        const uint16_t p = static_cast<uint16_t>(selections ? i : i - d.paramCount);
+        if (d.params[p].reload == selections)
             queueParam(static_cast<uint8_t>(sendAllChannel), p);
     }
-    if (sendAllNext >= d.paramCount)
+    if (sendAllNext >= total)
         sendAllChannel = -1;
 }
 

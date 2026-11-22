@@ -35,7 +35,10 @@
 //                                   (dump a+b ...: those of templates a and b;
 //                                   dump vced packed ...: data in DSI's
 //                                   packing, 7 bytes in 8 with their top bits
-//                                   first, unpacked to whole bytes; a dump
+//                                   first, unpacked to whole bytes; dump vced
+//                                   hex ...: each byte as two ASCII hex
+//                                   digits, high first, as Yamaha's TX802
+//                                   performances come; a dump
 //                                   with p, pl, ph holds that one param, its
 //                                   data a 14-bit signed value, low 7 bits
 //                                   first)
@@ -165,6 +168,7 @@ struct Dump
     uint16_t templMask; // bit per template: all whose params it holds
     bool hasAddress;
     bool packed; // DSI's 7-in-8 packing
+    bool hex;    // each byte as two ASCII hex digits
     bool byNumber; // holds one param, named by p/pl/ph, with a 14-bit value
     Template pattern;
 };

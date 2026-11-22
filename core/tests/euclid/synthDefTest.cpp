@@ -632,6 +632,36 @@ static void testEachRequest()
     CHECK(!parse(b, std::strlen(b), bad));
 }
 
+// hex dumps: each byte as two ASCII hex digits (a TX802 performance).
+static void testHexDump()
+{
+    auto d = load("synth \"Y\"\n"
+                  "template p F0 43 d+10 1A p v F7\n"
+                  "parts 8 0\n"
+                  "dump p hex F0 43 d+00 7E 01 68 [ 4C 4D data ] F7\n"
+                  "group \"G\"\n"
+                  "param p 2 \"Volume\" 0 255 stride=1\n");
+    // Bytes 0-3: 00 00 F1 00 as "0000F100", after "LM".
+    uint8_t m[24] = { 0xF0, 0x43, 0x00, 0x7E, 0x01, 0x68, 'L', 'M', '0', '0', '0', '0', 'F', '1', '0', '0' };
+    size_t n = 16;
+    unsigned sum = 0;
+    for (size_t i = 6; i < n; i++)
+        sum += m[i];
+    m[n++] = static_cast<uint8_t>((128 - sum % 128) & 0x7F);
+    m[n++] = 0xF7;
+    auto* dump = new DumpData();
+    CHECK(matchDump(*d, m, n, 1, *dump) && dump->length == 4);
+    int16_t v[1] = { -1 };
+    CHECK(applyDump(*d, *dump, 1, v) == 1 && v[0] == 241); // part 1: byte 2
+    v[0] = -1;
+    CHECK(applyDump(*d, *dump, 2, v) == 1 && v[0] == 0); // part 2: byte 3
+    // Written back as hex digits, and still a good dump.
+    v[0] = 0x3C;
+    CHECK(fillDump(*d, v, 2, 1, m, n) && m[14] == '3' && m[15] == 'C' && m[12] == 'F' && m[13] == '1');
+    CHECK(matchDump(*d, m, n, 1, *dump));
+    delete dump;
+}
+
 int main()
 {
     testYamaha();
@@ -653,6 +683,7 @@ int main()
     testHintAndPartName();
     testPackedDump();
     testEachRequest();
+    testHexDump();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

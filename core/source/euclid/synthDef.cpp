@@ -529,13 +529,15 @@ bool parse(const char* text, size_t length, Definition& d)
                 dump.templMask = static_cast<uint16_t>(dump.templMask | (1u << t));
                 name = plus != nullptr ? plus + 1 : nullptr;
             }
-            // "packed" before the pattern: DSI's 7-in-8 data.
+            // "packed" (DSI's 7-in-8 data) or "hex" (ASCII hex digits)
+            // before the pattern.
             dump.packed = false;
+            dump.hex = false;
             {
                 Line peek = line;
-                if (peek.word(w, sizeof(w)) && strcmp(w, "packed") == 0)
+                if (peek.word(w, sizeof(w)) && (strcmp(w, "packed") == 0 || strcmp(w, "hex") == 0))
                 {
-                    dump.packed = true;
+                    (w[0] == 'p' ? dump.packed : dump.hex) = true;
                     line = peek;
                 }
             }
@@ -548,9 +550,9 @@ bool parse(const char* text, size_t length, Definition& d)
                 const Token k = dump.pattern.tokens[i].type;
                 dump.byNumber = dump.byNumber || k == Token::paramLow7 || k == Token::paramHigh || k == Token::paramLow;
             }
-            if (dump.byNumber && (dump.hasAddress || dump.packed))
+            if (dump.byNumber && (dump.hasAddress || dump.packed || dump.hex))
                 return fail(d, lineNumber, "dump: p with an address or packed");
-            if (dump.packed && dump.hasAddress)
+            if ((dump.packed || dump.hex) && dump.hasAddress)
                 return fail(d, lineNumber, "dump: packed ones have no address");
             d.dumpCount++;
         }
@@ -861,6 +863,20 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
                 out.data = out.unpacked;
                 out.length = n;
             }
+            else if (d.dumps[k].hex)
+            {
+                // Two ASCII hex digits a byte, high first.
+                auto digit = [](uint8_t c) -> int {
+                    return c >= '0' && c <= '9' ? c - '0' : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : 0));
+                };
+                size_t n = 0;
+                for (size_t at = 0; at + 1 < dataLength && n < kMaxUnpacked; at += 2)
+                    out.unpacked[n++] = static_cast<uint8_t>((digit(data[at]) << 4) | digit(data[at + 1]));
+                out.packedData = data;
+                out.packedLength = dataLength;
+                out.data = out.unpacked;
+                out.length = n;
+            }
             return true;
         }
     }
@@ -1006,7 +1022,18 @@ bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t 
         else
             data[at] = static_cast<uint8_t>(raw & (packed ? 0xFF : 0x7F));
     }
-    if (packed)
+    if (packed && d.dumps[dump.dump].hex)
+    {
+        // Back into hex digits, in place in the message.
+        static const char kDigits[] = "0123456789ABCDEF";
+        uint8_t* out = msg + (dump.packedData - msg);
+        for (size_t n = 0; n < dump.length && 2 * n + 1 < dump.packedLength; n++)
+        {
+            out[2 * n] = static_cast<uint8_t>(kDigits[dump.unpacked[n] >> 4]);
+            out[2 * n + 1] = static_cast<uint8_t>(kDigits[dump.unpacked[n] & 0x0F]);
+        }
+    }
+    else if (packed)
     {
         // Back into 7-in-8 packets, in place in the message.
         uint8_t* out = msg + (dump.packedData - msg);
