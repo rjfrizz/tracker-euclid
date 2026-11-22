@@ -28,7 +28,10 @@
 //                                   a request with an address (and stride=)
 //   dump vced F0 43 d+00 03 00 5D [ data ] F7
 //                                   a reply holding vced params' values
-//                                   (dump a+b ...: those of templates a and b)
+//                                   (dump a+b ...: those of templates a and b;
+//                                   dump vced packed ...: data in DSI's
+//                                   packing, 7 bytes in 8 with their top bits
+//                                   first, unpacked to whole bytes)
 //   name vced 77 10 [stride=128]    the patch name: 10 bytes at vced 77
 //                                   (stride=: its distance between parts)
 //   hint "Memory picks a voice"     a reminder the Synth page shows of how
@@ -42,6 +45,8 @@
 // and init= is the value before anything is known about the patch.
 // stride= gives the param its own distance between parts (see parts), and
 // reload=1 asks for the patch again after it changes (a tone selection).
+// at=n is the param's byte in dumps when that isn't its number (a DSI
+// Tetra's NRPN numbers and dump order differ).
 // then=n also sends the param n lines further on (or back, if negative)
 // after this one: for synths that act on a setting only when another
 // arrives (a JV-1080 part takes its patch group with the patch number).
@@ -144,6 +149,7 @@ struct Param
     uint8_t map; // 0xFF for none: the value is sent as it is
     uint8_t nibbles; // 0: a byte in dumps; 2: two bytes of 4 bits, high first
     int8_t then;     // also send the param this many further on (0: none)
+    uint16_t at;     // its place in dumps, if not its number (0xFFFF: none)
 };
 
 struct Dump
@@ -151,6 +157,7 @@ struct Dump
     uint8_t templ;      // whose params it holds (the first, for the name)
     uint16_t templMask; // bit per template: all whose params it holds
     bool hasAddress;
+    bool packed; // DSI's 7-in-8 packing
     Template pattern;
 };
 
@@ -231,12 +238,17 @@ size_t buildRequest(const Definition& d, uint8_t request, uint8_t device, uint8_
                     size_t maxLength);
 
 // An incoming message recognised as one of the definition's dumps.
+constexpr size_t kMaxUnpacked = 512;
+
 struct DumpData
 {
     uint8_t dump;
-    const uint8_t* data; // points into the message
+    const uint8_t* data; // points into the message (or, packed, at unpacked)
     size_t length;
     uint32_t address; // of data[0], for dumps with a2 a1 a0
+    const uint8_t* packedData; // a packed dump's data in the message
+    size_t packedLength;
+    uint8_t unpacked[kMaxUnpacked]; // don't copy a DumpData: data may point here
 };
 
 // Whether message (F0 ... F7) is one of d's dumps from that device.

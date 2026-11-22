@@ -511,9 +511,21 @@ bool parse(const char* text, size_t length, Definition& d)
                 dump.templMask = static_cast<uint16_t>(dump.templMask | (1u << t));
                 name = plus != nullptr ? plus + 1 : nullptr;
             }
+            // "packed" before the pattern: DSI's 7-in-8 data.
+            dump.packed = false;
+            {
+                Line peek = line;
+                if (peek.word(w, sizeof(w)) && strcmp(w, "packed") == 0)
+                {
+                    dump.packed = true;
+                    line = peek;
+                }
+            }
             if (const char* e = readTokens(line, dump.pattern, useDump))
                 return fail(d, lineNumber, e);
             dump.hasAddress = hasAddress(dump.pattern);
+            if (dump.packed && dump.hasAddress)
+                return fail(d, lineNumber, "dump: packed ones have no address");
             d.dumpCount++;
         }
         else if (strcmp(key, "map") == 0)
@@ -621,6 +633,7 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.map = 0xFF;
             prm.nibbles = 0;
             prm.then = 0;
+            prm.at = 0xFFFF;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -685,6 +698,8 @@ bool parse(const char* text, size_t length, Definition& d)
                     prm.nibbles = static_cast<uint8_t>(v);
                 else if (strcmp(w, "then") == 0 && v != 0 && v >= -64 && v <= 64)
                     prm.then = static_cast<int8_t>(v);
+                else if (strcmp(w, "at") == 0 && v >= 0 && v < static_cast<long>(kMaxUnpacked))
+                    prm.at = static_cast<uint16_t>(v);
                 else
                     return fail(d, lineNumber, "param: unknown option");
             }
@@ -791,6 +806,22 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
             out.data = data;
             out.length = dataLength;
             out.address = address;
+            out.packedData = nullptr;
+            out.packedLength = 0;
+            if (d.dumps[k].packed)
+            {
+                // Each 8 bytes: the next 7 bytes' top bits (byte i's in bit
+                // i), then the 7 bytes' low 7 bits.
+                size_t n = 0;
+                for (size_t at = 0; at < dataLength && n < kMaxUnpacked; at += 8)
+                    for (size_t i = 1; i < 8 && at + i < dataLength && n < kMaxUnpacked; i++)
+                        out.unpacked[n++] =
+                          static_cast<uint8_t>((data[at + i] & 0x7F) | (((data[at] >> (i - 1)) & 1) << 7));
+                out.packedData = data;
+                out.packedLength = dataLength;
+                out.data = out.unpacked;
+                out.length = n;
+            }
             return true;
         }
     }
@@ -799,6 +830,12 @@ bool matchDump(const Definition& d, const uint8_t* msg, size_t length, uint8_t d
 
 namespace
 {
+// A param's number in dumps: its at=, or else its number.
+uint32_t dumpNumber(const Param& p)
+{
+    return p.at != 0xFFFF ? p.at : p.number;
+}
+
 // Where a template's number falls in a dump's data, or -1.
 long dumpIndex(const Definition& d, const DumpData& dump, uint32_t number, uint8_t part, uint16_t stride)
 {
@@ -821,7 +858,7 @@ int applyDump(const Definition& d, const DumpData& dump, uint8_t part, int16_t* 
         const Param& p = d.params[i];
         if (!((mask >> p.templ) & 1u))
             continue;
-        long at = dumpIndex(d, dump, p.number, part, p.stride);
+        long at = dumpIndex(d, dump, dumpNumber(p), part, p.stride);
         if (at < 0 || (p.nibbles == 2 && static_cast<size_t>(at + 1) >= dump.length))
             continue;
         const int raw = p.nibbles == 2 ? ((dump.data[at] & 0x0F) << 4) | (dump.data[at + 1] & 0x0F) : dump.data[at];
@@ -880,14 +917,15 @@ bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t 
     DumpData dump;
     if (!matchDump(d, msg, length, device, dump))
         return false;
-    uint8_t* data = msg + (dump.data - msg);
+    const bool packed = dump.packedData != nullptr;
+    uint8_t* data = packed ? dump.unpacked : msg + (dump.data - msg);
     const uint16_t mask = d.dumps[dump.dump].templMask;
     for (uint16_t i = 0; i < d.paramCount; i++)
     {
         const Param& p = d.params[i];
         if (!((mask >> p.templ) & 1u))
             continue;
-        long at = dumpIndex(d, dump, p.number, part, p.stride);
+        long at = dumpIndex(d, dump, dumpNumber(p), part, p.stride);
         if (at < 0 || (p.nibbles == 2 && static_cast<size_t>(at + 1) >= dump.length))
             continue;
         int v = values[i] < p.min ? p.min : (values[i] > p.max ? p.max : values[i]);
@@ -900,7 +938,24 @@ bool fillDump(const Definition& d, const int16_t* values, uint8_t part, uint8_t 
             data[at + 1] = static_cast<uint8_t>(raw & 0x0F);
         }
         else
-            data[at] = static_cast<uint8_t>(raw & 0x7F);
+            data[at] = static_cast<uint8_t>(raw & (packed ? 0xFF : 0x7F));
+    }
+    if (packed)
+    {
+        // Back into 7-in-8 packets, in place in the message.
+        uint8_t* out = msg + (dump.packedData - msg);
+        size_t n = 0;
+        for (size_t at = 0; at < dump.packedLength; at += 8)
+        {
+            uint8_t top = 0;
+            for (size_t i = 1; i < 8 && at + i < dump.packedLength; i++, n++)
+            {
+                const uint8_t b = n < dump.length ? dump.unpacked[n] : 0;
+                out[at + i] = static_cast<uint8_t>(b & 0x7F);
+                top = static_cast<uint8_t>(top | ((b >> 7) << (i - 1)));
+            }
+            out[at] = top;
+        }
     }
     rewrite(d.dumps[dump.dump].pattern, msg, length, device, dump.address);
     return true;
@@ -920,7 +975,7 @@ bool moveDump(const Definition& d, uint8_t* msg, size_t length, uint8_t fromDevi
         uint16_t stride = d.partStride;
         for (uint16_t i = 0; i < d.paramCount; i++)
             if (((pattern.templMask >> d.params[i].templ) & 1u) &&
-                dumpIndex(d, dump, d.params[i].number, fromPart, d.params[i].stride) >= 0)
+                dumpIndex(d, dump, dumpNumber(d.params[i]), fromPart, d.params[i].stride) >= 0)
             {
                 stride = d.params[i].stride != 0 ? d.params[i].stride : d.partStride;
                 break;
@@ -943,7 +998,7 @@ bool dumpHasSelection(const Definition& d, const DumpData& dump, uint8_t part)
     {
         const Param& p = d.params[i];
         if (p.reload && ((d.dumps[dump.dump].templMask >> p.templ) & 1u) &&
-            dumpIndex(d, dump, p.number, part, p.stride) >= 0)
+            dumpIndex(d, dump, dumpNumber(p), part, p.stride) >= 0)
             return true;
     }
     return false;

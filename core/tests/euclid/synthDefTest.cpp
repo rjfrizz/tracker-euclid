@@ -560,6 +560,51 @@ static void testHintAndPartName()
     CHECK(!parse(b, std::strlen(b), bad));
 }
 
+// Packed (DSI) dumps and at=: bytes in 7-in-8 packets, params placed by at=.
+static void testPackedDump()
+{
+    auto d = load("synth \"T\"\n"
+                  "template n d+B0 63 ph | d+B0 62 pl | d+B0 06 vh | d+B0 26 vl\n"
+                  "dump n packed F0 01 26 03 data F7\n"
+                  "name n 8 4\n"
+                  "group \"G\"\n"
+                  "param n 15 \"Cutoff\" 0 254 at=1\n"
+                  "param n 0 \"Freq\" 0 120 at=0\n");
+    // Bytes 0..11: 60, 200, 0.., "Name" at 8. Packed: 8 then 5 (4 bytes + top).
+    const uint8_t plain[12] = { 60, 200, 0, 0, 0, 0, 0, 0, 'N', 'a', 'm', 'e' };
+    uint8_t m[32] = { 0xF0, 0x01, 0x26, 0x03 };
+    size_t n = 4;
+    for (size_t at = 0; at < 12; at += 7)
+    {
+        uint8_t top = 0;
+        for (size_t i = 0; i < 7 && at + i < 12; i++)
+            top = static_cast<uint8_t>(top | ((plain[at + i] >> 7) << i));
+        m[n++] = top;
+        for (size_t i = 0; i < 7 && at + i < 12; i++)
+            m[n++] = plain[at + i] & 0x7F;
+    }
+    m[n++] = 0xF7;
+    auto* dump = new DumpData();
+    CHECK(matchDump(*d, m, n, 1, *dump) && dump->length == 12);
+    int16_t values[2] = { -1, -1 };
+    CHECK(applyDump(*d, *dump, 1, values) == 2 && values[0] == 200 && values[1] == 60);
+    char name[8] = "";
+    CHECK(dumpName(*d, *dump, 1, name, sizeof(name)) && std::strcmp(name, "Name") == 0);
+    // Written back: packed again, every byte 7-bit.
+    values[0] = 130;
+    CHECK(fillDump(*d, values, 1, 1, m, n));
+    bool sevenBit = true;
+    for (size_t i = 1; i + 1 < n; i++)
+        sevenBit = sevenBit && (m[i] & 0x80) == 0;
+    CHECK(sevenBit);
+    auto* again = new DumpData();
+    CHECK(matchDump(*d, m, n, 1, *again));
+    int16_t back[2] = { -1, -1 };
+    CHECK(applyDump(*d, *again, 1, back) == 2 && back[0] == 130 && back[1] == 60);
+    delete dump;
+    delete again;
+}
+
 int main()
 {
     testYamaha();
@@ -579,6 +624,7 @@ int main()
     testThen();
     testOtherValues();
     testHintAndPartName();
+    testPackedDump();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;

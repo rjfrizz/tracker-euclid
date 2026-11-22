@@ -256,7 +256,7 @@ void keepImage(uint8_t ch, const uint8_t* msg, size_t len, uint8_t device, uint8
         return;
     uint8_t temp[kImageMax];
     memcpy(temp, msg, len);
-    euclid::synth::DumpData mine, other;
+    static euclid::synth::DumpData mine, other; // main loop only; big (unpacking room)
     if (!euclid::synth::moveDump(*d, temp, len, device, part, 1, 1) || !euclid::synth::matchDump(*d, temp, len, 1, mine))
         return;
     uint8_t slot = imageCount[ch];
