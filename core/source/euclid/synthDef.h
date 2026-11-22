@@ -16,7 +16,7 @@
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
-//                              [stride=16] [reload=1] [nibbles=2]
+//                              [stride=16] [reload=1] [nibbles=2] [then=2]
 //   listen                          take its dumps whenever they come (a synth
 //                                   that sends its patch itself, unasked)
 //   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
@@ -39,6 +39,9 @@
 // and init= is the value before anything is known about the patch.
 // stride= gives the param its own distance between parts (see parts), and
 // reload=1 asks for the patch again after it changes (a tone selection).
+// then=n also sends the param n lines further on (or back, if negative)
+// after this one: for synths that act on a setting only when another
+// arrives (a JV-1080 part takes its patch group with the patch number).
 //
 // A template can send several messages, split by | (each F0 ... F7, or a
 // channel message such as d+C0 7F, a program change on the device's
@@ -130,6 +133,7 @@ struct Param
     bool reload;
     uint8_t map; // 0xFF for none: the value is sent as it is
     uint8_t nibbles; // 0: a byte in dumps; 2: two bytes of 4 bits, high first
+    int8_t then;     // also send the param this many further on (0: none)
 };
 
 struct Dump

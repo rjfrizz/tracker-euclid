@@ -24,8 +24,8 @@ list jvgroupid "-" "User" "PCM card" "Preset A" "Preset B" "Preset C" "Preset D"
 group "Part"
 param dt1 0x01001000 "MIDI receive sw" 0 1 stride=128
 param dt1 0x01001001 "MIDI channel" 0 15 stride=128 show=1
-param dt1 0x01001002 "Patch group" 0 2 stride=128 list=jvgrouptype
-param dt1 0x01001003 "Patch group ID" 0 127 stride=128 list=jvgroupid init=1
+param dt1 0x01001002 "Patch group" 0 2 stride=128 list=jvgrouptype then=2
+param dt1 0x01001003 "Patch group ID" 0 127 stride=128 list=jvgroupid init=1 then=1
 param dt1n 0x01001004 "Patch number" 0 254 stride=128 nibbles=2 show=1
 param dt1 0x01001006 "Part level" 0 127 stride=128
 param dt1 0x01001007 "Part pan" 0 127 stride=128

@@ -639,6 +639,8 @@ void setValue(uint8_t ch, uint16_t param, int v)
         v = p.max;
     values[ch][param] = static_cast<int16_t>(v);
     queueParam(ch, param);
+    if (p.then != 0)
+        queueParam(ch, static_cast<uint16_t>(param + p.then));
     if (p.reload && d->requestCount > 0)
     {
         reloadChannel = static_cast<int8_t>(ch);

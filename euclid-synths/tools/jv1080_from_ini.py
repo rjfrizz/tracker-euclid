@@ -113,7 +113,8 @@ def main():
     # Where a part's patch comes from: the group type (as the JV-2080's
     # tables name it: user and presets, PCM card, expansion board), then
     # within type 0 the group ID picks the bank (1 user, 2 card, 3-6 presets
-    # A-D, from Roland's docs; boards use their own IDs).
+    # A-D, from Roland's docs; boards use their own IDs). The JV takes them
+    # with the patch number, so changing either sends that again (then=).
     w('list jvgrouptype "User/Preset" "PCM card" "Expansion"')
     ids = ["-", "User", "PCM card", "Preset A", "Preset B", "Preset C", "Preset D"]
     ids += [str(i) for i in range(len(ids), 128)]
@@ -126,9 +127,9 @@ def main():
         if name == "MIDI channel":
             extra += " show=1"
         if name == "Patch group":
-            extra += " list=jvgrouptype"
+            extra += " list=jvgrouptype then=2"
         if name == "Patch group ID":
-            extra += " list=jvgroupid init=1"
+            extra += " list=jvgroupid init=1 then=1"
         param("dt1", 0x01001000 + off, name, lo, hi, extra)
         if off == 3:
             param("dt1n", 0x01001004, "Patch number", 0, 254, "stride=128 nibbles=2 show=1")

@@ -570,6 +570,7 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.reload = false;
             prm.map = 0xFF;
             prm.nibbles = 0;
+            prm.then = 0;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -632,6 +633,8 @@ bool parse(const char* text, size_t length, Definition& d)
                     prm.reload = v != 0;
                 else if (strcmp(w, "nibbles") == 0 && (v == 0 || v == 2))
                     prm.nibbles = static_cast<uint8_t>(v);
+                else if (strcmp(w, "then") == 0 && v != 0 && v >= -64 && v <= 64)
+                    prm.then = static_cast<int8_t>(v);
                 else
                     return fail(d, lineNumber, "param: unknown option");
             }
@@ -648,6 +651,12 @@ bool parse(const char* text, size_t length, Definition& d)
 
     if (d.paramCount == 0)
         return fail(d, lineNumber, "no params");
+    for (int i = 0; i < d.paramCount; i++)
+    {
+        const int t = i + d.params[i].then;
+        if (d.params[i].then != 0 && (t < 0 || t >= d.paramCount))
+            return fail(d, lineNumber, "param: then= past the params");
+    }
     return true;
 }
 

@@ -482,6 +482,21 @@ static void testJv1080Shapes()
     CHECK(matchDump(*d, msg.data(), msg.size(), 1, dd) && dd.data[3] == 1 && dd.data[4] == 1);
 }
 
+// then=: a param that also sends another (in range only).
+static void testThen()
+{
+    auto d = load("synth \"J\"\n"
+                  "template t F0 v F7\n"
+                  "group \"G\"\n"
+                  "param t 2 \"Group\" 0 2 then=2\n"
+                  "param t 3 \"ID\" 0 127 then=1\n"
+                  "param t 4 \"Number\" 0 127\n");
+    CHECK(d->params[0].then == 2 && d->params[1].then == 1 && d->params[2].then == 0);
+    Definition bad;
+    const char* b = "template t F0 v F7\ngroup \"G\"\nparam t 0 \"A\" 0 1 then=1\n";
+    CHECK(!parse(b, std::strlen(b), bad));
+}
+
 int main()
 {
     testYamaha();
@@ -498,6 +513,7 @@ int main()
     testPatchRewrite();
     testValueMap();
     testJv1080Shapes();
+    testThen();
     if (failures == 0)
         std::printf("all synth definition tests passed\n");
     return failures == 0 ? 0 : 1;
