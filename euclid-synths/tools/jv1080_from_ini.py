@@ -88,7 +88,8 @@ def main():
         w("# the Patch group picks the patch.")
     w("# Device 1 is the JV-1080's device ID 17 (the usual), Device 2 is 18...")
     w('synth "%s"' % ("Roland JV-1080 Perform" if perform else "Roland JV-1080"))
-    w('hint "%s"' % ("Part group: pick each part's patch" if perform else "Patch group: pick the patch"))
+    w('hint "%s"' % ("Performance mode: Part group picks each part's patch" if perform
+                     else "Patch mode: Patch group picks it (parts: JV-1080 Perform)"))
     w("pause 30")
     w("device 1")
     w("port din")

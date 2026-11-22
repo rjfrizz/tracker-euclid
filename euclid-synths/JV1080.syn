@@ -6,7 +6,7 @@
 # the Patch group picks the patch.
 # Device 1 is the JV-1080's device ID 17 (the usual), Device 2 is 18...
 synth "Roland JV-1080"
-hint "Patch group: pick the patch"
+hint "Patch mode: Patch group picks it (parts: JV-1080 Perform)"
 pause 30
 device 1
 port din

@@ -8,7 +8,7 @@
 # the rhythm part: only its Part group settings apply.
 # Device 1 is the JV-1080's device ID 17 (the usual), Device 2 is 18...
 synth "Roland JV-1080 Perform"
-hint "Part group: pick each part's patch"
+hint "Performance mode: Part group picks each part's patch"
 pause 30
 device 1
 port din
