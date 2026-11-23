@@ -1580,6 +1580,13 @@ static void functChannelButton(uint8_t button, uint8_t state)
         EP->refreshChannels();
         return;
     }
+    // The same for Walk, Arp and Scale (keys 2-4).
+    if (state == buttonRelease && button >= interfaceButton1 && button <= interfaceButton3 &&
+        (EP->performModeHeld & (1u << (button - interfaceButton1))))
+    {
+        EP->performKey(static_cast<uint8_t>(button - interfaceButton0), false);
+        return;
+    }
     if (EP->view == cEuclidParams::View::perform)
     {
         if (state == buttonPress || state == buttonRelease)

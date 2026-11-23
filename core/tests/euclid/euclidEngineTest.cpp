@@ -1282,6 +1282,35 @@ static void testPulsesLane()
     CHECK(std::string(laneValueName(LaneKind::pulses, 12)) == "12");
 }
 
+// The Perform page's Walk, Arp and Scale: every channel in that mode for
+// now, starting near its last note (a SEQ channel in its own octave), then
+// back to its own.
+static void testModeOverride()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {72, 74}); // C major, around C5
+    reset();
+    e.start();
+    run(e, 48 * 2); // 72 74
+    e.setModeOverride(static_cast<int8_t>(NoteMode::arpUp));
+    run(e, 48 * 4); // the triad from near 74 in that octave (C5, a tie with E5), up
+    e.setModeOverride(-1);
+    run(e, 48 * 2); // the sequence where it was: 72 74
+    e.stop();
+    CHECK((playedNotes() == std::vector<uint8_t>{ 72, 74, 72, 76, 79, 84, 72, 74 }));
+    CHECK(e.getRhythm(0).mode == NoteMode::seq);
+    // Scale up from near the last note.
+    Engine s = makeSeqEngine(Key{0, 2}, {64});
+    reset();
+    s.start();
+    run(s, 48);
+    s.setModeOverride(static_cast<int8_t>(NoteMode::scaleUp));
+    run(s, 48 * 3);
+    s.stop();
+    CHECK((playedNotes() == std::vector<uint8_t>{ 64, 64, 65, 67 }));
+    s.setModeOverride(99);
+    CHECK(s.getModeOverride() == -1);
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1768,6 +1797,7 @@ int main()
     testSamplerOutput();
     testSampleLane();
     testPulsesLane();
+    testModeOverride();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

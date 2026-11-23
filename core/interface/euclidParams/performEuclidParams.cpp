@@ -5,7 +5,10 @@
 // through its next ones, as many as Notes ahead (a single MIDI note glides
 // with pitch bend, chords move a voice at a time), and letting go carries on
 // from the notes it's left nearest.
-// The channel rows
+// Walk, Arp and Scale (keys 2-4), held, put every channel into that mode
+// from its next note (Arp and Scale up, or up and down, as their rows say),
+// each starting near the note it played last; letting go puts each back. The
+// channel rows
 // pick which channels it holds (all, to start with): the others play on.
 
 #include "euclidParams/euclidParams.h"
@@ -19,8 +22,8 @@
 
 namespace
 {
-constexpr uint8_t kPerformHeader = 3; // Morph, Notes ahead, Bend range
-const char* const kPerformNames[kPerformHeader] = { "Morph", "Notes ahead", "Bend range" };
+constexpr uint8_t kPerformHeader = 5; // Morph, Notes ahead, Bend range, Arp, Scale
+const char* const kPerformNames[kPerformHeader] = { "Morph", "Notes ahead", "Bend range", "Arp", "Scale" };
 
 void noteList(char* out, size_t length, const uint8_t* notes, uint8_t count)
 {
@@ -38,9 +41,55 @@ uint8_t cEuclidParams::performRowCount() const
     return static_cast<uint8_t>(kPerformHeader + euclid::kChannels);
 }
 
-// The keys under the screen: key 1 is Freeze, held.
+// The mode the held Walk, Arp or Scale key puts every channel in (the last
+// pressed of those held), or none.
+void cEuclidParams::applyPerformMode()
+{
+    int8_t mode = -1;
+    switch (performModeLast)
+    {
+        case 0: mode = static_cast<int8_t>(euclid::NoteMode::walk); break;
+        case 1:
+            mode = static_cast<int8_t>(performArpUpDown ? euclid::NoteMode::arpUpDown : euclid::NoteMode::arpUp);
+            break;
+        case 2:
+            mode = static_cast<int8_t>(performScaleUpDown ? euclid::NoteMode::scaleUpDown : euclid::NoteMode::scaleUp);
+            break;
+        default: break;
+    }
+    euclidEngine.setModeOverride(mode);
+}
+
+// The keys under the screen: key 1 is Freeze, keys 2-4 Walk, Arp and Scale,
+// all held.
 void cEuclidParams::performKey(uint8_t key, bool pressed)
 {
+    if (key >= 1 && key <= 3)
+    {
+        const uint8_t i = static_cast<uint8_t>(key - 1);
+        if (pressed)
+        {
+            performModeHeld = static_cast<uint8_t>(performModeHeld | (1u << i));
+            performModeLast = static_cast<int8_t>(i);
+            showMessage(i == 0 ? "All channels walk" : (i == 1 ? "All channels arp" : "All channels run the scale"));
+        }
+        else
+        {
+            performModeHeld = static_cast<uint8_t>(performModeHeld & ~(1u << i));
+            if (performModeLast == static_cast<int8_t>(i))
+            {
+                // Another still held takes over.
+                performModeLast = -1;
+                for (int8_t k = 0; k < 3; k++)
+                    if (performModeHeld & (1u << k))
+                        performModeLast = k;
+            }
+        }
+        applyPerformMode();
+        refreshPerform();
+        refreshChannels();
+        return;
+    }
     if (key != 0)
         return; // more to come
     if (pressed)
@@ -79,6 +128,13 @@ void cEuclidParams::changePerform(int16_t delta)
     {
         const int r = euclidEngine.getBendRange() + (delta > 0 ? 1 : -1);
         euclidEngine.setBendRange(static_cast<uint8_t>(r < 1 ? 1 : (r > 24 ? 24 : r)));
+    }
+    else if (selectedPerformRow == 3 || selectedPerformRow == 4)
+    {
+        // Up, or up and down (heard straight away if the key's held).
+        bool& upDown = selectedPerformRow == 3 ? performArpUpDown : performScaleUpDown;
+        upDown = delta > 0;
+        applyPerformMode();
     }
     else if (selectedPerformRow >= kPerformHeader)
     {
@@ -119,6 +175,8 @@ void cEuclidParams::refreshPerform()
     snprintf(performText[0], sizeof(performText[0]), "%d.%d notes", morph / 1000, (morph % 1000) / 100);
     snprintf(performText[1], sizeof(performText[1]), "%d", euclidEngine.getMorphReach());
     snprintf(performText[2], sizeof(performText[2]), "+/-%d", euclidEngine.getBendRange());
+    snprintf(performText[3], sizeof(performText[3]), "%s", performArpUpDown ? "Up-down" : "Up");
+    snprintf(performText[4], sizeof(performText[4]), "%s", performScaleUpDown ? "Up-down" : "Up");
     for (uint8_t i = 0; i < kPerformHeader; i++)
     {
         panelData.names[i] = kPerformNames[i];

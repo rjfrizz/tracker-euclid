@@ -486,6 +486,11 @@ class Engine
     void freeze(Engine& scratch);
     void setMorph(int amount); // 0 (as held) .. 1000 a note ahead
     int getMorph() const { return morphAmount; }
+    // A mode every channel plays in for now (the Perform page's Walk, Arp
+    // and Scale keys, held), from its next pulse; -1 for each its own. A
+    // channel coming into it starts from the note nearest its last one.
+    void setModeOverride(int8_t mode) { modeOverride = mode < -1 || mode >= static_cast<int8_t>(NoteMode::count) ? -1 : mode; }
+    int8_t getModeOverride() const { return modeOverride; }
     void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
     uint8_t getMorphReach() const { return morphReach; }
     void unfreeze();
@@ -675,6 +680,9 @@ class Engine
         uint8_t laneIndex[kLaneKinds] = {};
         int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1, -1 };
         int8_t cyclePulses = -1; // this cycle's pulses (a pulses lane), -1 = the rhythm's
+        int8_t overrideSeen = -1; // the mode override it last played in
+        int16_t seedNote = -1;    // a generated mode starts nearest this, once
+        int8_t overrideOctave = -1; // a SEQ channel's octave while overridden
         Division stepDivision = Division::d1_16; // this cycle's (a division lane)
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;
@@ -784,6 +792,7 @@ class Engine
     bool clockHeld = false;
     int morphAmount = 0;
     uint8_t morphReach = 3; // notes ahead Freeze goes to
+    volatile int8_t modeOverride = -1;
     uint8_t bendRange = 2;
 };
 

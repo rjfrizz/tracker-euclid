@@ -315,7 +315,13 @@ class cEuclidParams : public ModuleBase
     uint8_t selectedPerformRow = 0;
     bool lastPerformFrozen = false;
     int lastPerformMorph = 0;
-    char performText[11][40];
+    char performText[13][40];
+    // Walk, Arp and Scale (keys 2-4), held: which are, and the last pressed.
+    uint8_t performModeHeld = 0; // bit per key, from key 2
+    int8_t performModeLast = -1;
+    bool performArpUpDown = false;
+    bool performScaleUpDown = false;
+    void applyPerformMode();
     char performNames[8][16];
     uint8_t chainRowCount() const;
     void changeChain(int16_t delta);

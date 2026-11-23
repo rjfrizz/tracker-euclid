@@ -1136,6 +1136,23 @@ uint8_t Engine::nextGeneratedNotes(Channel& c, uint8_t* notes)
         const uint8_t perOctave = chordSteps(t, steps);
         const int16_t tones = static_cast<int16_t>(perOctave * c.expr.range);
         int16_t& i = c.degree;
+        if (c.seedNote >= 0)
+        {
+            // Coming in: from the chord tone nearest the last note.
+            int best = 0, bestDistance = 1000;
+            for (int16_t k = 0; k < tones; k++)
+            {
+                const int n = noteFor(steps[k % perOctave] + len * (k / perOctave));
+                const int dist = n > c.seedNote ? n - c.seedNote : c.seedNote - n;
+                if (dist < bestDistance)
+                {
+                    bestDistance = dist;
+                    best = k;
+                }
+            }
+            i = static_cast<int16_t>(best);
+            c.seedNote = -1;
+        }
         if (i < 0 || i >= tones)
             i = 0;
 
@@ -1155,6 +1172,23 @@ uint8_t Engine::nextGeneratedNotes(Channel& c, uint8_t* notes)
     }
 
     int16_t& d = c.degree;
+    if (c.seedNote >= 0)
+    {
+        // Coming in: from the scale note nearest the last note.
+        int best = 0, bestDistance = 1000;
+        for (int16_t k = 0; k < range; k++)
+        {
+            const int n = noteFor(k);
+            const int dist = n > c.seedNote ? n - c.seedNote : c.seedNote - n;
+            if (dist < bestDistance)
+            {
+                bestDistance = dist;
+                best = k;
+            }
+        }
+        d = static_cast<int16_t>(best);
+        c.seedNote = -1;
+    }
     switch (c.active.mode)
     {
         case NoteMode::random: d = out.randomBelow ? out.randomBelow(static_cast<uint8_t>(range)) : 0; break;
@@ -1453,9 +1487,10 @@ void Engine::triggerStep(Channel& c)
         NoteDirection direction;
         ChordType chord;
         uint8_t instrument;
+        uint8_t octave;
         explicit LaneOverride(Channel& ch)
           : c(ch), mode(ch.active.mode), direction(ch.active.direction), chord(ch.expr.chord),
-            instrument(ch.expr.instrument)
+            instrument(ch.expr.instrument), octave(ch.expr.octave)
         {
         }
         ~LaneOverride()
@@ -1464,6 +1499,7 @@ void Engine::triggerStep(Channel& c)
             c.active.direction = direction;
             c.expr.chord = chord;
             c.expr.instrument = instrument;
+            c.expr.octave = octave;
         }
     } restore(c);
     if (laneValue[static_cast<int>(LaneKind::mode)] >= 0)
@@ -1474,6 +1510,29 @@ void Engine::triggerStep(Channel& c)
         c.expr.chord = static_cast<ChordType>(laneValue[static_cast<int>(LaneKind::chord)]);
     if (laneValue[static_cast<int>(LaneKind::sample)] >= 0)
         c.expr.instrument = static_cast<uint8_t>(laneValue[static_cast<int>(LaneKind::sample)]);
+    // The Perform page's mode, over everything (restored after, as above).
+    const int8_t forced = modeOverride;
+    if (forced >= 0)
+    {
+        if (c.overrideSeen != forced && c.lastCount > 0)
+        {
+            c.seedNote = c.lastNotes[0];
+            // A SEQ channel plays it in the octave it was in (its own
+            // octave setting is for the generated modes it doesn't use).
+            const int root = keyFor(c.expr, globalActive).root;
+            int oct = (c.lastNotes[0] - c.expr.transpose - root) / 12;
+            c.overrideOctave = static_cast<int8_t>(oct < 0 ? 0 : (oct > 8 ? 8 : oct));
+        }
+        c.overrideSeen = forced;
+        if (restore.mode == NoteMode::seq && c.overrideOctave >= 0)
+            c.expr.octave = static_cast<uint8_t>(c.overrideOctave);
+        c.active.mode = static_cast<NoteMode>(forced);
+    }
+    else
+    {
+        c.overrideSeen = -1;
+        c.overrideOctave = -1;
+    }
 
     // The note sequence advances on every pulse, even muted or skipped ones,
     // so muting a channel doesn't shift where its melody lands.

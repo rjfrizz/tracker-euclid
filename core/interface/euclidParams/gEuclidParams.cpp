@@ -958,14 +958,15 @@ void cEuclidParams::refreshChannels()
     // held), the rest for more to come.
     if (view == View::perform)
     {
-        static const char* const kPerformKeys[8] = { "Freeze", "", "", "", "", "", "", "" };
+        static const char* const kPerformKeys[8] = { "Freeze", "Walk", "Arp", "Scale", "", "", "", "" };
         const bool frozen = euclidEngine.isFrozen();
         for (uint8_t i = 0; i < 8; i++)
         {
-            display.setControlColors(channelLabel[i], i == 0 && frozen ? theme.performMutedTrackLabelsColors
-                                                                       : theme.activeLabelsColors);
+            const bool held = i == 0 ? frozen : (i <= 3 && (performModeHeld & (1u << (i - 1))));
+            display.setControlColors(channelLabel[i], held ? theme.performMutedTrackLabelsColors
+                                                           : theme.activeLabelsColors);
             display.setControlText(channelLabel[i], kPerformKeys[i]);
-            display.setControlText2(channelLabel[i], i == 0 ? (frozen ? "held" : "hold") : "");
+            display.setControlText2(channelLabel[i], i <= 3 ? (held ? "held" : "hold") : "");
             display.refreshControl(channelLabel[i]);
         }
         return;
