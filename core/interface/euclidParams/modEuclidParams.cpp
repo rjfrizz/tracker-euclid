@@ -15,7 +15,7 @@ constexpr uint8_t kPads = 48;
 
 const char* const kModRowNames[cEuclidParams::modRowCount] = {
     "Destination", "Shape",    "Amount",   "Rate",        "Phase",  "Target",    "Steps",
-    "Pulses",      "Rotation", "Division", "Auto rotate", "Decay",  "CC number",
+    "Pulses",      "Rotation", "Division", "Auto rotate", "Decay",  "CC number", "Delay", "Fade in",
 };
 
 // Shapes in the order shown: smooth ones first.
@@ -88,6 +88,12 @@ void cEuclidParams::buildModRows()
         }
         if (m.dest == euclid::ModDest::cc)
             modVisible[n++] = modRowCc;
+        // Continuous destinations can come in after each note.
+        if (m.dest == euclid::ModDest::finePitch || m.dest == euclid::ModDest::cc)
+        {
+            modVisible[n++] = modRowDelay;
+            modVisible[n++] = modRowFade;
+        }
     }
     modVisibleCount = n;
     if (selectedModRow >= modVisibleCount)
@@ -112,6 +118,8 @@ cEuclidParams::PadMap cEuclidParams::modPadMap(uint8_t index) const
         case modRowAutoRotate: return { PadMap::list, kAutoRotateCount, 0, 0 };
         case modRowLength: return { PadMap::list, euclid::kMaxSteps, 1, 0 };
         case modRowCc: return { PadMap::level, kPads, 0, 127 };
+        case modRowDelay:
+        case modRowFade: return { PadMap::list, euclid::kModTimeCount, 0, 0 };
         default: return { PadMap::none, 0, 0, 0 };
     }
 }
@@ -136,6 +144,8 @@ int cEuclidParams::modRowValue(uint8_t index, bool live) const
         case modRowAutoRotate: return autoRotateIndex(m.autoRotate);
         case modRowLength: return m.length;
         case modRowCc: return m.cc;
+        case modRowDelay: return m.delay;
+        case modRowFade: return m.fade;
         default: return kNoValue;
     }
 }
@@ -173,6 +183,8 @@ void cEuclidParams::setModRowValue(uint8_t index, int v)
             m.division = static_cast<euclid::Division>(clampInt(v, 0, static_cast<int>(euclid::Division::count) - 1));
             break;
         case modRowAutoRotate: m.autoRotate = kAutoRotate[clampInt(v, 0, kAutoRotateCount - 1)]; break;
+        case modRowDelay: m.delay = static_cast<uint8_t>(clampInt(v, 0, euclid::kModTimeCount - 1)); break;
+        case modRowFade: m.fade = static_cast<uint8_t>(clampInt(v, 0, euclid::kModTimeCount - 1)); break;
         case modRowLength: m.length = static_cast<uint8_t>(clampInt(v, 1, euclid::kMaxSteps)); break;
         case modRowCc: m.cc = static_cast<uint8_t>(clampInt(v, 0, 127)); break;
         default: return;
@@ -251,6 +263,18 @@ void cEuclidParams::refreshMod()
                 break;
             case modRowLength: snprintf(t, n, "%d steps", m.length); break;
             case modRowCc: snprintf(t, n, "CC %d", m.cc); break;
+            case modRowDelay:
+            case modRowFade:
+            {
+                const uint16_t ms = euclid::modTimeMs(row == modRowDelay ? m.delay : m.fade);
+                if (ms == 0)
+                    snprintf(t, n, "Off");
+                else if (ms < 1000)
+                    snprintf(t, n, "%d ms", ms);
+                else
+                    snprintf(t, n, "%d.%02d s", ms / 1000, (ms % 1000) / 10);
+                break;
+            }
             default: t[0] = 0; break;
         }
         panelData.names[i] = kModRowNames[row];

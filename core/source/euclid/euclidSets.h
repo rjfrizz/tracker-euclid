@@ -32,7 +32,8 @@
 //           2 reserved (0s; files before version 9 have 0s here too)
 //        48 4 modulators of 14 bytes: dest, shape, amount + 128, rate,
 //           phase, target, steps, pulses, rotation, division, autoRotate,
-//           length, cc, 1 reserved
+//           length, cc, then delay (bits 0-3) and fade (bits 4-7), 0 in
+//           files from before them
 //        104 Shift: on, length, advance, units, then 32 steps (value + 64)
 //        140 text name (10 characters, 0-padded, then a 0; shown instead of
 //            the list name when it isn't empty)

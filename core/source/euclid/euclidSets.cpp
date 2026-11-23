@@ -114,6 +114,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
             q[10] = m.autoRotate;
             q[11] = m.length;
             q[12] = m.cc;
+            q[13] = static_cast<uint8_t>((m.delay & 15) | (m.fade << 4));
         }
         uint8_t* sh = p + kSetShiftOffset;
         sh[0] = x.shift.on ? 1 : 0;
@@ -314,6 +315,8 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
                 m.autoRotate = q[10];
                 m.length = q[11];
                 m.cc = q[12];
+                m.delay = q[13] & 15; // 0 in files from before delays
+                m.fade = q[13] >> 4;
             }
         }
         if (version >= 7)

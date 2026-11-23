@@ -1516,6 +1516,47 @@ static void testFinePitchFreeRate()
     CHECK(modRateNearest(kMicroStepsPerBar * 64) == ModRate::bar64);
 }
 
+// A delay and fade: after each note, nothing, then up to the full amount.
+static void testFinePitchDelay()
+{
+    Mod m;
+    m.dest = ModDest::finePitch;
+    m.shape = ModShape::square;
+    m.amount = 50;
+    m.rate = ModRate::hz1;
+    m.delay = 4; // 200 ms
+    m.fade = 4;  // then 200 ms up
+    CHECK(modTimeMs(4) == 200);
+    Output o;
+    o.noteOn = onNoteRecord;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.millis = testMillis;
+    Engine e;
+    e.init(o);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 1;
+    r.division = Division::d1_4; // a note a bar: 768 ms here
+    e.setRhythm(0, r);
+    Expression x;
+    x.enabled = true;
+    x.mod[0] = m;
+    e.setExpression(0, x);
+    reset();
+    bends.clear();
+    e.start();
+    run(e, 150);
+    CHECK(bends.empty()); // still in the delay
+    run(e, 150);          // 300 ms: halfway up
+    CHECK(!bends.empty() && bends.back().first > 1900 && bends.back().first < 2200);
+    run(e, 150); // 450: all the way (the square is still up)
+    CHECK(bends.back().first == 4095);
+    run(e, 768 - 450 + 100); // the next note, 100 ms on: in the delay again
+    CHECK(bends.back().first == 0);
+    e.stop();
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
@@ -1649,6 +1690,7 @@ int main()
     testFreezeChord();
     testFreezeSomeChannels();
     testFinePitchFreeRate();
+    testFinePitchDelay();
     testLongGatesAndLegato();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();

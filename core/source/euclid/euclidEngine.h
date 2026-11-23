@@ -254,7 +254,15 @@ struct Mod
     uint8_t autoRotate = 0; // bars between rotations: 0 (off), 1, 2, 4 or 8
     uint8_t length = 4;     // euclidEnvelope: decay, in its steps
     uint8_t cc = 74;        // MIDI CC number for ModDest::cc
+    // Fine pitch and CC: after each new note, nothing for `delay`, then a
+    // fade up to the full amount over `fade` (indexes into modTimeMs; 0 =
+    // none), as a synth's vibrato delay.
+    uint8_t delay = 0;
+    uint8_t fade = 0;
 };
+
+constexpr uint8_t kModTimeCount = 16;
+uint16_t modTimeMs(uint8_t index);
 
 constexpr int kModsPerChannel = 4;
 
@@ -686,6 +694,7 @@ class Engine
             bool timed = false;   // lastMs is set
         } modState[kModsPerChannel];
         int16_t lastBend = 0; // Fine pitch: the bend sent last
+        uint32_t noteMs = 0;  // the clock at its last new note (mod delays)
         bool bendUntilNote = false; // a freeze's bend stays until the next note
         int16_t lastCc[kModsPerChannel] = { -1, -1, -1, -1 }; // last value sent, by first modulator of a CC
         int16_t modEffectiveAmount[kModsPerChannel] = {};     // amount after other modulators' depth
@@ -707,6 +716,7 @@ class Engine
     void setSounding(Channel& c, const uint8_t* notes, uint8_t count);
     void updateMods(Channel& c);
     void resetMods(Channel& c);
+    int onsetLevel(const Channel& c, int k) const;
     int randomLevel(); // -1000..1000
     Key keyFor(const Expression& x, const Key& global) const;
     Key seqKeyFor(const Expression& x, const Rhythm& r, const Key& global) const;

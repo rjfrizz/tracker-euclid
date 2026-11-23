@@ -80,6 +80,8 @@ class cEuclidParams : public ModuleBase
         modRowAutoRotate,
         modRowLength,
         modRowCc,
+        modRowDelay,
+        modRowFade,
         modRowCount
     };
 

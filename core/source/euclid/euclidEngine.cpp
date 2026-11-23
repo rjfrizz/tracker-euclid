@@ -243,6 +243,13 @@ uint32_t modRateToMicroSteps(ModRate r)
     }
 }
 
+uint16_t modTimeMs(uint8_t index)
+{
+    static const uint16_t times[kModTimeCount] = { 0,   50,  100, 150,  200,  300,  400,  500,
+                                                   600, 800, 1000, 1250, 1500, 2000, 2500, 3000 };
+    return times[index < kModTimeCount ? index : 0];
+}
+
 bool isFreeRate(ModRate r)
 {
     return r >= ModRate::hz0_05 && r < ModRate::count;
@@ -509,6 +516,10 @@ Expression Engine::clampExpression(const Expression& e) const
         if (m.rate >= ModRate::count)
             m.rate = ModRate::bar1;
         m.phase = clampValue<uint8_t>(m.phase, 0, 99);
+        if (m.delay >= kModTimeCount)
+            m.delay = 0;
+        if (m.fade >= kModTimeCount)
+            m.fade = 0;
         m.target = static_cast<uint8_t>(m.target % kModsPerChannel);
         m.steps = clampValue<uint8_t>(m.steps, 1, kMaxSteps);
         m.pulses = clampValue<uint8_t>(m.pulses, 0, m.steps);
@@ -1505,6 +1516,7 @@ void Engine::triggerStep(Channel& c)
             if (out.sampleOn)
                 out.sampleOn(static_cast<uint8_t>(&c - channels), c.expr.instrument, notes[0],
                              static_cast<uint8_t>(velocity));
+            c.noteMs = out.millis ? out.millis() : 0;
             c.openNotes[c.openCount++] = notes[0];
             c.lastNotes[0] = notes[0];
             c.lastCount = 1;
@@ -1527,6 +1539,7 @@ void Engine::triggerStep(Channel& c)
         {
             c.lastCount = 0;
             c.notesPlayed++;
+            c.noteMs = out.millis ? out.millis() : 0;
         }
         c.lastNotes[c.lastCount++] = notes[i];
 
@@ -1590,6 +1603,22 @@ void Engine::resetMods(Channel& c)
         c.lastCc[k] = -1;
         c.modEffectiveAmount[k] = c.expr.mod[k].amount;
     }
+}
+
+// How far a modulator's delay and fade have let it in since the channel's
+// last new note: 0 .. 1000.
+int Engine::onsetLevel(const Channel& c, int k) const
+{
+    const Mod& m = c.expr.mod[k];
+    if ((m.delay == 0 && m.fade == 0) || !out.millis)
+        return 1000;
+    const uint32_t since = out.millis() - c.noteMs;
+    const uint32_t delay = modTimeMs(m.delay), fade = modTimeMs(m.fade);
+    if (since < delay)
+        return 0;
+    if (fade == 0 || since - delay >= fade)
+        return 1000;
+    return static_cast<int>((since - delay) * 1000 / fade);
 }
 
 // Once per micro-step: moves every modulator on, works out its value, and
@@ -1752,7 +1781,7 @@ void Engine::updateMods(Channel& c)
         int sum = 0;
         for (int k = 0; k < kModsPerChannel; k++)
             if (c.expr.mod[k].dest == ModDest::finePitch)
-                sum += c.modEffectiveAmount[k] * c.modState[k].value / 100; // -1000..1000 each
+                sum += c.modEffectiveAmount[k] * c.modState[k].value / 100 * onsetLevel(c, k) / 1000;
         if (!c.expr.enabled || c.expr.muted || !outputEnabled)
             sum = 0;
         const int bend = clampValue<int>(sum, -1000, 1000) * 8191 / 1000;
@@ -1789,7 +1818,7 @@ void Engine::updateMods(Channel& c)
             const Mod& o = c.expr.mod[j];
             if (o.dest != ModDest::cc || o.cc != m.cc)
                 continue;
-            const int a = c.modEffectiveAmount[j];
+            const int a = c.modEffectiveAmount[j] * onsetLevel(c, j) / 1000;
             const int v = c.modState[j].value;
             if (isEuclidShape(o.shape))
                 sum += a * 127 * v / 100000;
