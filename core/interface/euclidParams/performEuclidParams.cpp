@@ -1,9 +1,10 @@
 // The Perform page (the Performance key): live moves across all channels,
 // played on the 8 keys under the screen. Freeze (key 1) is held: pressing it
-// holds every note and the clock, the wheel then walks each channel through
-// its coming notes, the whole sequence over the wheel's travel (a single
-// MIDI note glides with pitch bend, chords move a voice at a time), and
-// letting go carries on from the notes it's left nearest. The channel rows
+// holds the notes of the channels picked (and the clock, if that's all of
+// them), the wheel then moves each held note up or down the master key's
+// tonic triad, a chord tone a click, gliding there over the Glide time (a
+// single MIDI note bends, chords move a voice at a time), and letting go
+// leaves the notes ringing until each channel's next one. The channel rows
 // pick which channels it holds (all, to start with): the others play on.
 
 #include "euclidParams/euclidParams.h"
@@ -17,8 +18,8 @@
 
 namespace
 {
-constexpr uint8_t kPerformHeader = 2; // Morph, Bend range
-const char* const kPerformNames[kPerformHeader] = { "Morph", "Bend range" };
+constexpr uint8_t kPerformHeader = 3; // Morph, Glide, Bend range
+const char* const kPerformNames[kPerformHeader] = { "Morph", "Glide", "Bend range" };
 
 void noteList(char* out, size_t length, const uint8_t* notes, uint8_t count)
 {
@@ -65,13 +66,19 @@ void cEuclidParams::performKey(uint8_t key, bool pressed)
 
 void cEuclidParams::changePerform(int16_t delta)
 {
-    // While frozen the wheel morphs; otherwise it sets the selected row.
+    // While frozen the wheel morphs, a chord tone a click; otherwise it
+    // sets the selected row.
     if (euclidEngine.isFrozen())
-    {
-        const bool fine = buttons->isButtonPressed(interfaceButtonShift);
-        euclidEngine.setMorph(euclidEngine.getMorph() + delta * (fine ? 8 : 38));
-    }
+        euclidEngine.setMorph(euclidEngine.getMorph() + (delta > 0 ? 1 : -1));
     else if (selectedPerformRow == 1)
+    {
+        // 10 ms a click up to 200, then 50.
+        const int g = euclidEngine.getGlideTime();
+        const int step = (delta > 0 ? g >= 200 : g > 200) ? 50 : 10;
+        const int v = g + (delta > 0 ? step : -step);
+        euclidEngine.setGlideTime(static_cast<uint16_t>(v < 0 ? 0 : (v > 2000 ? 2000 : v)));
+    }
+    else if (selectedPerformRow == 2)
     {
         const int r = euclidEngine.getBendRange() + (delta > 0 ? 1 : -1);
         euclidEngine.setBendRange(static_cast<uint8_t>(r < 1 ? 1 : (r > 24 ? 24 : r)));
@@ -110,8 +117,13 @@ void cEuclidParams::refreshPerform()
         panelData.names[i] = nullptr;
         panelData.values[i] = nullptr;
     }
-    snprintf(performText[0], sizeof(performText[0]), "%d%%", euclidEngine.getMorph() / 10);
-    snprintf(performText[1], sizeof(performText[1]), "+/-%d", euclidEngine.getBendRange());
+    const int tones = euclidEngine.getMorph();
+    if (tones == 0)
+        snprintf(performText[0], sizeof(performText[0]), "as held");
+    else
+        snprintf(performText[0], sizeof(performText[0]), "%+d chord tone%s", tones, tones == 1 || tones == -1 ? "" : "s");
+    snprintf(performText[1], sizeof(performText[1]), "%d ms", euclidEngine.getGlideTime());
+    snprintf(performText[2], sizeof(performText[2]), "+/-%d", euclidEngine.getBendRange());
     for (uint8_t i = 0; i < kPerformHeader; i++)
     {
         panelData.names[i] = kPerformNames[i];
@@ -129,28 +141,24 @@ void cEuclidParams::refreshPerform()
         panelData.names[row] = performNames[ch];
         char* t = performText[row];
         const size_t n = sizeof(performText[row]);
-        // Frozen: the notes it's nearest, the ones after, and how far along.
-        uint8_t steps = 0;
-        const uint8_t at = euclidEngine.getMorphStep(ch, &steps);
+        // Frozen: the notes it held, and the ones it's moving to.
+        uint8_t held[8], to[8];
+        const uint8_t heldCount = euclidEngine.getHeldNotes(ch, held);
+        const uint8_t toCount = euclidEngine.getMorphNotes(ch, to);
         if (frozen && !euclidEngine.isChannelFrozen(ch))
         {
             snprintf(t, n, "plays on");
             dim |= 1ul << row;
         }
-        else if (frozen && steps > 0)
+        else if (frozen && heldCount > 0)
         {
-            uint8_t now[8], next[8];
-            const uint8_t nowCount = euclidEngine.getMorphNotes(ch, at, now);
             char a[20], b[20];
-            noteList(a, sizeof(a), now, nowCount);
-            if (at < steps)
-            {
-                const uint8_t nextCount = euclidEngine.getMorphNotes(ch, static_cast<uint8_t>(at + 1), next);
-                noteList(b, sizeof(b), next, nextCount);
-                snprintf(t, n, "%s > %s  %d/%d", a, b, at, steps);
-            }
+            noteList(a, sizeof(a), held, heldCount);
+            noteList(b, sizeof(b), to, toCount);
+            if (euclidEngine.getMorph() == 0)
+                snprintf(t, n, "%s", a);
             else
-                snprintf(t, n, "%s  %d/%d", a, at, steps);
+                snprintf(t, n, "%s > %s", a, b);
         }
         else if (frozen)
             snprintf(t, n, "holds");

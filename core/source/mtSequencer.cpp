@@ -252,8 +252,10 @@ AUDIO_CORE_RAM void Sequencer::tick_uStep(void)
         player.extRecMetronomeStep = 0;
     }
 
-    // EUCLID's freeze holds time itself when it holds every channel
-    // playing: no ticks, no MIDI clock.
+    // EUCLID's freeze glides on its own time, and holds time itself when
+    // it holds every channel playing: no ticks, no MIDI clock.
+    if (euclidEngine.isFrozen())
+        euclidEngine.freezeTick();
     if (player.isPlay && !euclidEngine.isClockHeld())
     {
         timerTicks++;
