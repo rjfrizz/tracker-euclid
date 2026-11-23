@@ -785,6 +785,7 @@ void Engine::freeze()
         const Channel& c = channels[ch];
         m.count = (held & (1u << ch)) ? c.openCount : 0;
         m.bend = 0;
+        m.base = 0;
         for (uint8_t i = 0; i < m.count; i++)
         {
             FreezeVoice& v = m.voice[i];
@@ -887,14 +888,27 @@ void Engine::setMorph(int tones)
     lock();
     morphTones = tones;
     // Every voice glides from where it is to its new note, all arriving
-    // together after the glide time.
+    // together after the glide time. On MIDI the voices keep the chord's
+    // shape: the lowest moves through the chord tones, the rest with it.
     for (int ch = 0; ch < kChannels; ch++)
     {
         Morph& m = morph[ch];
+        const Channel& c = channels[ch];
+        const bool block = !c.openSampler && c.expr.output == ChannelOutput::midi;
+        uint8_t lowest = 127;
+        for (uint8_t i = 0; i < m.count; i++)
+            lowest = m.voice[i].held < lowest ? m.voice[i].held : lowest;
+        const int shift = tones == 0 ? 0 : chordToneFrom(lowest, tones) - lowest;
         for (uint8_t i = 0; i < m.count; i++)
         {
             FreezeVoice& v = m.voice[i];
-            v.to = tones == 0 ? v.held : chordToneFrom(v.held, tones);
+            if (block)
+            {
+                const int to = v.held + shift;
+                v.to = static_cast<uint8_t>(to < 0 ? 0 : (to > 127 ? 127 : to));
+            }
+            else
+                v.to = tones == 0 ? v.held : chordToneFrom(v.held, tones);
             const int32_t distance = v.to * 100000 - v.pos;
             const int32_t d = distance < 0 ? -distance : distance;
             v.rate = glideMs == 0 ? d : d / glideMs + 1;
@@ -946,23 +960,31 @@ void Engine::morphChannel(int ch)
     Channel& c = channels[ch];
     if (m.count == 0)
         return;
-    if (m.count == 1 && !c.openSampler && c.expr.output == ChannelOutput::midi)
+    if (!c.openSampler && c.expr.output == ChannelOutput::midi)
     {
-        // One MIDI note bends; it's struck again only when the bend would
-        // pass the range (on the note it's going to, if that's in reach).
+        // MIDI: the notes bend together (they've all moved the same way);
+        // they're struck again only when the bend would pass the range (on
+        // the notes they're going to, if those are in reach).
         const FreezeVoice& v = m.voice[0];
-        const int pos100 = static_cast<int>(v.pos / 1000); // 1/100 semitone
+        const int offset100 = static_cast<int>((v.pos - v.held * 100000) / 1000); // 1/100 semitone
+        const int to100 = (v.to - v.held) * 100;
         const int range100 = bendRange * 100;
-        int base = c.openCount == 1 ? c.openNotes[0] : -1;
-        if (base < 0 || pos100 - base * 100 > range100 || base * 100 - pos100 > range100)
+        int base = m.base;
+        if (offset100 - base * 100 > range100 || base * 100 - offset100 > range100)
         {
-            const int toDistance = pos100 - v.to * 100;
-            base = toDistance <= range100 && toDistance >= -range100 ? v.to : (pos100 + 50) / 100;
-            base = base < 0 ? 0 : (base > 127 ? 127 : base);
-            const uint8_t n = static_cast<uint8_t>(base);
-            setSounding(c, &n, 1);
+            const int toDistance = offset100 - to100;
+            base = toDistance <= range100 && toDistance >= -range100 ? to100 / 100
+                                                                     : (offset100 + (offset100 >= 0 ? 50 : -50)) / 100;
+            m.base = static_cast<int8_t>(base);
+            uint8_t notes[kMaxVoices];
+            for (uint8_t i = 0; i < m.count; i++)
+            {
+                const int n = m.voice[i].held + base;
+                notes[i] = static_cast<uint8_t>(n < 0 ? 0 : (n > 127 ? 127 : n));
+            }
+            setSounding(c, notes, m.count);
         }
-        int bend = (pos100 - base * 100) * 8191 / range100;
+        int bend = (offset100 - base * 100) * 8191 / range100;
         bend = bend > 8191 ? 8191 : (bend < -8192 ? -8192 : bend);
         if (bend != m.bend && out.pitchBend)
             out.pitchBend(static_cast<int16_t>(bend), c.openMidiChannel);
@@ -970,7 +992,7 @@ void Engine::morphChannel(int ch)
         c.lastBend = m.bend;
         return;
     }
-    // Chords and samples: each voice on the chord tone (or its own held
+    // Samples: each voice on the chord tone (or its own held
     // note) nearest where its glide has got to.
     uint8_t notes[kMaxVoices];
     uint8_t count = 0;

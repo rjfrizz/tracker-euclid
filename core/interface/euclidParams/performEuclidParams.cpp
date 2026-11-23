@@ -2,8 +2,9 @@
 // played on the 8 keys under the screen. Freeze (key 1) is held: pressing it
 // holds the notes of the channels picked (and the clock, if that's all of
 // them), the wheel then moves each held note up or down the master key's
-// tonic triad, a chord tone a click, gliding there over the Glide time (a
-// single MIDI note bends, chords move a voice at a time), and letting go
+// tonic triad, a chord tone a click, gliding there over the Glide time (on
+// MIDI a chord keeps its shape around its lowest note and the whole channel
+// bends; a sampler channel steps from chord tone to chord tone), and letting go
 // leaves the notes ringing until each channel's next one. The channel rows
 // pick which channels it holds (all, to start with): the others play on.
 

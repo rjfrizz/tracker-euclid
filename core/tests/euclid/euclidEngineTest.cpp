@@ -1605,7 +1605,14 @@ static void testFinePitchDelay()
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
-    Engine e = makeEngine();
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine e;
+    e.init(o);
     e.setGlobalKey(Key{0, 2});
     Rhythm r;
     r.steps = 4;
@@ -1620,19 +1627,28 @@ static void testFreezeChord()
     run(e, 10);
     CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
     e.freeze();
-    e.setMorph(1); // each voice up a chord tone
-    CHECK(sounding() == std::set<uint8_t>({ 64, 67, 72 }));
-    e.setMorph(-1); // and down one
-    CHECK(sounding() == std::set<uint8_t>({ 55, 60, 64 }));
-    e.setMorph(-Engine::kMorphRange);
+    bends.clear();
+    // The lowest note up a chord tone, the chord's shape kept: C E G to
+    // E G# B (past a 2-semitone bend: struck afresh there).
+    e.setMorph(1);
+    CHECK(sounding() == std::set<uint8_t>({ 64, 68, 71 }));
+    e.setMorph(-1); // G B D
+    CHECK(sounding() == std::set<uint8_t>({ 55, 59, 62 }));
     e.setMorph(0);
     CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
-    e.setMorph(2);
-    CHECK(sounding() == std::set<uint8_t>({ 67, 72, 76 }));
-    e.unfreeze(); // rings on until the next note, then the sequence as it was
-    CHECK(sounding() == std::set<uint8_t>({ 67, 72, 76 }));
+    // Within the bend range the whole chord bends, nothing struck.
+    e.setBendRange(12);
+    const size_t struck = events.size();
+    e.setMorph(2); // G B D up: 7 semitones
+    CHECK(events.size() == struck && sounding() == std::set<uint8_t>({ 60, 64, 67 }));
+    CHECK(!bends.empty() && bends.back().first == 700 * 8191 / 1200);
+    uint8_t to[8];
+    CHECK(e.getMorphNotes(0, to) == 3);
+    CHECK(std::set<uint8_t>(to, to + 3) == std::set<uint8_t>({ 67, 71, 74 }));
+    e.unfreeze(); // rings on, bent, until the next note; then the sequence as it was
+    CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
     run(e, 48);
-    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }));
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }) && bends.back().first == 0);
     e.stop();
 }
 

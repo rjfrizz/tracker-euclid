@@ -476,11 +476,12 @@ class Engine
     // Freeze (the Perform page): everything holds where it is, the notes
     // sounding stay on and nothing moves on (the sequencer stops calling
     // onMicroStep, so the clock pauses too; see setFreezeMask). setMorph
-    // moves every held note that many chord tones up (or down) through the
-    // master key's tonic triad, gliding there over the glide time
-    // (freezeTick moves the glide on): a single MIDI note bends (re-struck
-    // only past bendRange), chords and sampler channels move a voice at a
-    // time as the glide passes each chord tone. unfreeze leaves the notes it
+    // moves each channel's held notes that many chord tones up (or down)
+    // through the master key's tonic triad, gliding there over the glide
+    // time (freezeTick moves the glide on). On MIDI the lowest note moves
+    // through the chord tones and a chord keeps its shape around it, all on
+    // one pitch bend (re-struck only past bendRange); a sampler channel
+    // moves from chord tone to chord tone as its glide passes each. unfreeze leaves the notes it
     // got to ringing until the channel's next note, and the sequence
     // carries on as it was.
     static constexpr int kMorphRange = 12; // chord tones either way
@@ -770,6 +771,7 @@ class Engine
         FreezeVoice voice[kMaxVoices];
         uint8_t count = 0;
         int16_t bend = 0; // last bend sent
+        int8_t base = 0;  // MIDI: semitones the struck notes are from the held ones
     };
     void morphChannel(int ch);
     uint8_t chordToneFrom(uint8_t note, int tones) const;
