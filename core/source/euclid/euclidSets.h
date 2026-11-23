@@ -41,9 +41,11 @@
 //            on, length, advance, then 32 steps (value + 1; 0 = none)
 //        292 steps changed by hand: added, then muted (bit per step, 4
 //            bytes each, little-endian)
-//   2416 CRC-32 (little-endian) of bytes 0-2415
+//        300 the Sample lane, laid out as the other lanes (version 11)
+//   2696 CRC-32 (little-endian) of bytes 0-2695
 //
 // Older files still load, and the fields they don't have get defaults:
+//   version 10 (2420 bytes: 300-byte records, CRC at 2416): no Sample lane.
 //   version 9 (2356 bytes: 292-byte records, CRC at 2352): no hand changes.
 //   version 8 (1236 bytes: 152-byte records, CRC at 1232): no extra lanes.
 //   version 7 (1140 bytes: 140-byte records, CRC at 1136): no text names.
@@ -66,10 +68,11 @@
 namespace euclid
 {
 
-constexpr uint8_t kSetVersion = 10;
+constexpr uint8_t kSetVersion = 11;
 constexpr uint8_t kSetSlots = 8;
 constexpr size_t kSetHeaderSize = 16;
-constexpr size_t kSetChannelSize = 300;
+constexpr size_t kSetChannelSize = 335;
+constexpr size_t kSetSampleLaneOffset = 300;
 constexpr size_t kSetForceOffset = 292;
 constexpr size_t kSetTextNameOffset = 140;
 constexpr size_t kSetLanesOffset = 152;
@@ -77,6 +80,10 @@ constexpr size_t kSetLaneSize = 35;
 constexpr size_t kSetShiftOffset = 104;
 constexpr size_t kSetModSize = 14;
 constexpr size_t kSetFileSize = kSetHeaderSize + kChannels * kSetChannelSize + 4;
+
+// Version 10, read only.
+constexpr size_t kSetV10ChannelSize = 300;
+constexpr size_t kSetV10FileSize = kSetHeaderSize + kChannels * kSetV10ChannelSize + 4;
 
 // Version 9, read only.
 constexpr size_t kSetV9ChannelSize = 292;

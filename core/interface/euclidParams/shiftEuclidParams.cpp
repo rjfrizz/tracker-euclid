@@ -1,8 +1,9 @@
 // The Shift page (Fx 2): the selected channel's hand-drawn lanes, shown as a
 // grid of up to 32 steps; pressing Fx 2 again shows the lane's settings,
 // whose first row picks the lane. The pitch lane transposes (euclid::Shift);
-// the others set the mode, division, note order or chord step by step, or
-// leave a step at "-" for the channel's own (euclid::Lane).
+// the others set the mode, division, note order, chord or sample instrument
+// (sampler channels) step by step, or leave a step at "-" for the channel's
+// own (euclid::Lane).
 
 #include "euclidParams/euclidParams.h"
 
@@ -14,7 +15,7 @@ constexpr uint8_t kPads = 48;
 constexpr uint8_t kLanes = 1 + euclid::kLaneKinds;
 
 const char* const kShiftRowNames[cEuclidParams::shiftRowCount] = { "Lane", "Shift", "Length", "Advance", "Units" };
-const char* const kLaneNames[kLanes] = { "Pitch", "Mode", "Division", "Order", "Chord" };
+const char* const kLaneNames[kLanes] = { "Pitch", "Mode", "Division", "Order", "Chord", "Sample" };
 
 const char* const kShiftHelp[] = {
     "Encoder: change the step, pads pick one",
@@ -22,8 +23,9 @@ const char* const kShiftHelp[] = {
     "Fx 2: next lane, +Shift: settings",
     nullptr,
 };
-// The tabs across the top: a lane each (short, to fit five).
-const char* const kLaneTabs[] = { "Pitch", "Mode", "Div", "Order", "Chord" };
+// The tabs across the top: a lane each (short, to fit six).
+const char* const kLaneTabs[] = { "Pitch", "Mode", "Div", "Order", "Chord", "Smpl" };
+static_assert(sizeof(kLaneTabs) / sizeof(kLaneTabs[0]) == kLanes, "a tab a lane");
 
 int clampInt(int v, int lo, int hi)
 {
@@ -193,6 +195,16 @@ void cEuclidParams::changeShift(int16_t delta)
         euclid::Lane& l = x.lanes[shiftLane - 1];
         if (shiftCursor >= l.length)
             return;
+        // A Sample lane drawn on for the first time moves per pulse, a
+        // sample a note (the others start per cycle).
+        if (kindOf(shiftLane) == euclid::LaneKind::sample && !l.on)
+        {
+            bool fresh = true;
+            for (int i = 0; i < euclid::kShiftSteps; i++)
+                fresh &= l.step[i] == euclid::kLaneNone;
+            if (fresh)
+                l.advance = euclid::ShiftAdvance::perPulse;
+        }
         // "-" (the channel's own), then each value in turn.
         const int count = euclid::laneValueCount(kindOf(shiftLane));
         l.step[shiftCursor] = static_cast<int8_t>(clampInt(l.step[shiftCursor] + step, euclid::kLaneNone, count - 1));

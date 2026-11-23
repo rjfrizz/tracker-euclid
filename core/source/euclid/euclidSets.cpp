@@ -128,7 +128,8 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         for (int k = 0; k < kLaneKinds; k++)
         {
             const Lane& l = x.lanes[k];
-            uint8_t* q = p + kSetLanesOffset + k * kSetLaneSize;
+            uint8_t* q = k == static_cast<int>(LaneKind::sample) ? p + kSetSampleLaneOffset
+                                                                 : p + kSetLanesOffset + k * kSetLaneSize;
             q[0] = l.on ? 1 : 0;
             q[1] = l.length;
             q[2] = static_cast<uint8_t>(l.advance);
@@ -204,6 +205,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         fileSize = kSetV9FileSize;
     }
     else if (version == 10)
+    {
+        headerSize = kSetHeaderSize;
+        channelSize = kSetV10ChannelSize;
+        fileSize = kSetV10FileSize;
+    }
+    else if (version == 11)
     {
         headerSize = kSetHeaderSize;
         channelSize = kSetChannelSize;
@@ -326,9 +333,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         }
         if (version >= 9)
         {
-            for (int k = 0; k < kLaneKinds; k++)
+            // The Sample lane came in version 11, after the hand changes.
+            const int kinds = version >= 11 ? kLaneKinds : static_cast<int>(LaneKind::sample);
+            for (int k = 0; k < kinds; k++)
             {
-                const uint8_t* q = p + kSetLanesOffset + k * kSetLaneSize;
+                const uint8_t* q = k == static_cast<int>(LaneKind::sample) ? p + kSetSampleLaneOffset
+                                                                           : p + kSetLanesOffset + k * kSetLaneSize;
                 Lane& l = x.lanes[k];
                 l.on = q[0] != 0;
                 l.length = q[1];

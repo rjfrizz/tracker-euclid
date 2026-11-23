@@ -301,7 +301,8 @@ struct Shift
 };
 
 // More Shift lanes, beside the pitch one: each step sets the channel's
-// mode, division, note order (SEQ) or chord for the notes it applies to, or
+// mode, division, note order (SEQ), chord or sample instrument (sampler
+// output; 0-based) for the notes it applies to, or
 // is kLaneNone (the channel's own setting). Each lane has its own length and
 // advance; a division lane only changes per cycle, so a cycle keeps one step
 // length. Stored in set files, so only add at the end.
@@ -311,6 +312,7 @@ enum class LaneKind : uint8_t
     division,
     order,
     chord,
+    sample,
     count
 };
 constexpr int kLaneKinds = static_cast<int>(LaneKind::count);
@@ -659,7 +661,7 @@ class Engine
         uint8_t shiftIndex = 0;    // the Shift step in use (per cycle: all cycle long)
         uint32_t laneCounter[kLaneKinds] = {};
         uint8_t laneIndex[kLaneKinds] = {};
-        int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1 };
+        int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1 };
         Division stepDivision = Division::d1_16; // this cycle's (a division lane)
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;

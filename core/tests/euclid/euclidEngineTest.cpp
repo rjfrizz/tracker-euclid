@@ -1190,6 +1190,49 @@ static void testSamplerOutput()
     CHECK(sampleEvents[2].first == 48 && sampleEvents[2].second == 60);
 }
 
+// The Sample lane: each pulse its own instrument (a step at "-" keeps the
+// channel's), the note still the sequence's.
+static std::vector<uint8_t> samplesHeard;
+static void onSampleRecord(uint8_t ch, uint8_t instrument, uint8_t, uint8_t)
+{
+    if (ch == 0)
+        samplesHeard.push_back(instrument);
+}
+static void testSampleLane()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Output o;
+    o.sampleOn = onSampleRecord;
+    o.randomPercent = zeroPercent;
+    e.init(o);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    e.setEnabled(0, true);
+    Expression x = e.getExpression(0);
+    x.output = ChannelOutput::sampler;
+    x.instrument = 5;
+    Lane& l = x.lanes[static_cast<int>(LaneKind::sample)];
+    l.on = true;
+    l.length = 3;
+    l.advance = ShiftAdvance::perPulse;
+    l.step[0] = 0;
+    l.step[1] = kLaneNone;
+    l.step[2] = 11;
+    e.setExpression(0, x);
+    samplesHeard.clear();
+    e.start();
+    run(e, 48 * 6);
+    e.stop();
+    CHECK((samplesHeard == std::vector<uint8_t>{ 0, 5, 11, 0, 5, 11 }));
+    CHECK(e.getExpression(0).instrument == 5);
+    CHECK(laneValueCount(LaneKind::sample) == kSampleInstruments);
+    CHECK(std::string(laneValueName(LaneKind::sample, 11)) == "12");
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1600,6 +1643,7 @@ int main()
     testDivisionLanePerCycle();
     testModeLaneAndNone();
     testSamplerOutput();
+    testSampleLane();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

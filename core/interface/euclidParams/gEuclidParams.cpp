@@ -444,7 +444,8 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
           (x.shift.on ? 1 : 0) | (x.lanes[static_cast<int>(euclid::LaneKind::mode)].on ? 2 : 0) |
           (x.lanes[static_cast<int>(euclid::LaneKind::division)].on ? 4 : 0) |
           (x.lanes[static_cast<int>(euclid::LaneKind::order)].on ? 8 : 0) |
-          (x.lanes[static_cast<int>(euclid::LaneKind::chord)].on ? 16 : 0));
+          (x.lanes[static_cast<int>(euclid::LaneKind::chord)].on ? 16 : 0) |
+          (x.lanes[static_cast<int>(euclid::LaneKind::sample)].on ? 32 : 0));
         auto laneValue = [&](euclid::LaneKind k) -> const char* {
             const euclid::Lane& ln = x.lanes[static_cast<int>(k)];
             const int8_t at = euclidEngine.getLaneStep(i, k);
@@ -468,6 +469,7 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         add(s0, n0, laneValue(euclid::LaneKind::division));
         add(s0, n0, laneValue(euclid::LaneKind::order));
         add(s0, n0, laneValue(euclid::LaneKind::chord));
+        add(s0, n0, laneValue(euclid::LaneKind::sample));
         if (strlen(s0) > 13)
             s0[13] = 0; // as much as the column holds
         l.shift = s0[0] != 0 ? s0 : nullptr;

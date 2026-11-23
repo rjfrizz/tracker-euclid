@@ -184,6 +184,31 @@ static void toVersion3Layout(const uint8_t* v4, uint8_t* v3, uint8_t version)
         v3[kSetV3FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
 }
 
+// A version 10 file: the same records without the Sample lane.
+static void testLoadsVersion10()
+{
+    Engine a = makeEngine();
+    fill(a);
+    CHECK(a.getExpression(4).lanes[static_cast<int>(LaneKind::sample)].on); // fill: channel 4's lane
+    uint8_t v11[kSetFileSize];
+    serializeSet(a, 2, v11, sizeof(v11));
+    uint8_t v10[kSetV10FileSize];
+    std::memcpy(v10, v11, kSetHeaderSize);
+    v10[4] = 10;
+    for (int ch = 0; ch < kChannels; ch++)
+        std::memcpy(v10 + kSetHeaderSize + ch * kSetV10ChannelSize, v11 + kSetHeaderSize + ch * kSetChannelSize,
+                    kSetV10ChannelSize);
+    uint32_t crc = crc32(v10, kSetV10FileSize - 4);
+    for (int i = 0; i < 4; i++)
+        v10[kSetV10FileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+
+    Engine b = makeEngine();
+    CHECK(deserializeSet(b, v10, sizeof(v10)));
+    CHECK(!b.getExpression(4).lanes[static_cast<int>(LaneKind::sample)].on);
+    CHECK(b.getExpression(3).lanes[3].on == a.getExpression(3).lanes[3].on);
+    CHECK(b.getLiveRhythm(0).forceOn == a.getLiveRhythm(0).forceOn);
+}
+
 // A version 7 file: the same records without the text names.
 static void testLoadsVersion7()
 {
@@ -416,7 +441,8 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 2420);
+    CHECK(kSetFileSize == 2700);
+    CHECK(kSetV10FileSize == 2420);
     CHECK(kSetV9FileSize == 2356);
     CHECK(kSetV8FileSize == 1236);
     CHECK(kSetV7FileSize == 1140);
@@ -503,6 +529,7 @@ int main()
     testLoadsVersion3();
     testLoadsVersion4();
     testLoadsVersion5();
+    testLoadsVersion10();
     testLoadsVersion7();
     testLoadsVersion6();
     testRejectsBadData();

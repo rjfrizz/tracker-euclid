@@ -333,6 +333,7 @@ uint8_t laneValueCount(LaneKind k)
         case LaneKind::division: return static_cast<uint8_t>(Division::count);
         case LaneKind::order: return static_cast<uint8_t>(NoteDirection::count);
         case LaneKind::chord: return static_cast<uint8_t>(ChordType::count);
+        case LaneKind::sample: return kSampleInstruments;
         default: return 0;
     }
 }
@@ -350,6 +351,15 @@ const char* laneValueName(LaneKind k, int8_t v)
         case LaneKind::division: return divisionName(static_cast<Division>(v));
         case LaneKind::order: return orders[v];
         case LaneKind::chord: return chords[v];
+        case LaneKind::sample:
+        {
+            // The instrument's number, as the Tracker shows it (from 1).
+            static char numbers[kSampleInstruments][3];
+            numbers[v][0] = static_cast<char>('0' + (v + 1) / 10);
+            numbers[v][1] = static_cast<char>('0' + (v + 1) % 10);
+            numbers[v][2] = 0;
+            return numbers[v];
+        }
         default: return "-";
     }
 }
@@ -1335,7 +1345,7 @@ void Engine::triggerStep(Channel& c)
 
     // The other lanes move the same way, each on its own; a division lane
     // picks the step length for the cycle on its first step.
-    int8_t laneValue[kLaneKinds] = { kLaneNone, kLaneNone, kLaneNone, kLaneNone };
+    int8_t laneValue[kLaneKinds] = { kLaneNone, kLaneNone, kLaneNone, kLaneNone, kLaneNone };
     for (int k = 0; k < kLaneKinds; k++)
     {
         const Lane& l = c.expr.lanes[k];
@@ -1403,12 +1413,18 @@ void Engine::triggerStep(Channel& c)
         NoteMode mode;
         NoteDirection direction;
         ChordType chord;
-        explicit LaneOverride(Channel& ch) : c(ch), mode(ch.active.mode), direction(ch.active.direction), chord(ch.expr.chord) {}
+        uint8_t instrument;
+        explicit LaneOverride(Channel& ch)
+          : c(ch), mode(ch.active.mode), direction(ch.active.direction), chord(ch.expr.chord),
+            instrument(ch.expr.instrument)
+        {
+        }
         ~LaneOverride()
         {
             c.active.mode = mode;
             c.active.direction = direction;
             c.expr.chord = chord;
+            c.expr.instrument = instrument;
         }
     } restore(c);
     if (laneValue[static_cast<int>(LaneKind::mode)] >= 0)
@@ -1417,6 +1433,8 @@ void Engine::triggerStep(Channel& c)
         c.active.direction = static_cast<NoteDirection>(laneValue[static_cast<int>(LaneKind::order)]);
     if (laneValue[static_cast<int>(LaneKind::chord)] >= 0)
         c.expr.chord = static_cast<ChordType>(laneValue[static_cast<int>(LaneKind::chord)]);
+    if (laneValue[static_cast<int>(LaneKind::sample)] >= 0)
+        c.expr.instrument = static_cast<uint8_t>(laneValue[static_cast<int>(LaneKind::sample)]);
 
     // The note sequence advances on every pulse, even muted or skipped ones,
     // so muting a channel doesn't shift where its melody lands.
