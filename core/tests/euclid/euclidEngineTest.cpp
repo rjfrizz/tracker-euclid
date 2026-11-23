@@ -616,7 +616,11 @@ static std::vector<uint8_t> playSeq(Engine& e, int pulses)
 
 static void testSeqOwnIgnoresGlobalKey()
 {
+    CHECK(Expression().seqKeyMode == KeyMode::follow); // new lists follow the master key
     Engine e = makeSeqEngine(Key{0, 1}, {36, 39, 43});
+    Expression x = e.getExpression(0);
+    x.seqKeyMode = KeyMode::own;
+    e.setExpression(0, x);
     e.setGlobalKey(Key{5, 2}); // F major: an Own list doesn't care
     CHECK((playSeq(e, 3) == std::vector<uint8_t>{36, 39, 43}));
     CHECK(e.getRhythm(0).homeRoot == 0 && e.getRhythm(0).homeScale == 1);

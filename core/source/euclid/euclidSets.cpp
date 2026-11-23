@@ -268,6 +268,7 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
             r.notes[n] = p[6 + n];
 
         Expression x;
+        x.seqKeyMode = KeyMode::own; // files without it played their lists in their own key
         x.enabled = p[22] != 0;
         x.muted = p[23] != 0;
         x.midiChannel = p[24];

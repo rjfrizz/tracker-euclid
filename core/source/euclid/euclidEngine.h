@@ -367,7 +367,7 @@ struct Expression
     // Key. Generated modes and SEQ each have their own key mode, so
     // switching Mode doesn't change how a channel follows the key.
     KeyMode keyMode = KeyMode::follow; // generated modes
-    KeyMode seqKeyMode = KeyMode::own; // SEQ
+    KeyMode seqKeyMode = KeyMode::follow; // SEQ (new lists follow the master key)
     uint8_t keyOffset = 7; // semitones, 1-11 (KeyMode::offset, both)
     uint8_t ownRoot = 0;   // 0-11 (KeyMode::own, generated)
     uint8_t ownScale = 2;  // Major (KeyMode::own, generated)
