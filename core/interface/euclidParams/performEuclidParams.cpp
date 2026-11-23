@@ -1,9 +1,9 @@
 // The Perform page (the Performance key): live moves across all channels,
 // played on the 8 keys under the screen. Freeze (key 1) is held: pressing it
-// holds every note and the clock, the wheel then morphs each channel from
-// the notes it held to its next ones (a single MIDI note glides with pitch
-// bend, chords move a voice at a time), and letting go carries on from
-// whichever it's left nearer.
+// holds every note and the clock, the wheel then walks each channel through
+// its coming notes, the whole sequence over the wheel's travel (a single
+// MIDI note glides with pitch bend, chords move a voice at a time), and
+// letting go carries on from the notes it's left nearest.
 
 #include "euclidParams/euclidParams.h"
 
@@ -63,7 +63,7 @@ void cEuclidParams::changePerform(int16_t delta)
     if (euclidEngine.isFrozen())
     {
         const bool fine = buttons->isButtonPressed(interfaceButtonShift);
-        euclidEngine.setMorph(euclidEngine.getMorph() + delta * (fine ? 5 : 25));
+        euclidEngine.setMorph(euclidEngine.getMorph() + delta * (fine ? 8 : 38));
     }
     else if (selectedPerformRow == 1)
     {
@@ -116,15 +116,23 @@ void cEuclidParams::refreshPerform()
         panelData.names[row] = performNames[ch];
         char* t = performText[row];
         const size_t n = sizeof(performText[row]);
-        uint8_t held[8], next[8];
-        const uint8_t heldCount = euclidEngine.getHeldNotes(ch, held);
-        const uint8_t nextCount = euclidEngine.getNextNotesFor(ch, next);
-        if (frozen && nextCount > 0)
+        // Frozen: the notes it's nearest, the ones after, and how far along.
+        uint8_t steps = 0;
+        const uint8_t at = euclidEngine.getMorphStep(ch, &steps);
+        if (frozen && steps > 0)
         {
-            char a[28], b[28];
-            noteList(a, sizeof(a), held, heldCount);
-            noteList(b, sizeof(b), next, nextCount);
-            snprintf(t, n, "%s  >  %s", a, b);
+            uint8_t now[8], next[8];
+            const uint8_t nowCount = euclidEngine.getMorphNotes(ch, at, now);
+            char a[20], b[20];
+            noteList(a, sizeof(a), now, nowCount);
+            if (at < steps)
+            {
+                const uint8_t nextCount = euclidEngine.getMorphNotes(ch, static_cast<uint8_t>(at + 1), next);
+                noteList(b, sizeof(b), next, nextCount);
+                snprintf(t, n, "%s > %s  %d/%d", a, b, at, steps);
+            }
+            else
+                snprintf(t, n, "%s  %d/%d", a, at, steps);
         }
         else if (frozen)
             snprintf(t, n, "holds");

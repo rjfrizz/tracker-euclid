@@ -1341,10 +1341,18 @@ static void testFreezeGlide()
     const size_t before = events.size();
     run(g, 200); // frozen: nothing happens, the note holds
     CHECK(events.size() == before && sounding() == std::set<uint8_t>({ 60 }));
-    g.setMorph(500); // 62: a whole-tone bend, the range
+    // The whole sequence is the way: 64, 67, then 60 again, a third each.
+    uint8_t steps = 0;
+    CHECK(g.getMorphStep(0, &steps) == 0 && steps == 3);
+    g.setMorph(167); // 62: a whole-tone bend, the range
     CHECK(!bends.empty() && bends.back().first == 8191 && events.size() == before);
-    g.setMorph(1000); // 64: past the range, struck afresh
+    g.setMorph(1000); // round to 60
+    CHECK(sounding() == std::set<uint8_t>({ 60 }) && g.getMorphStep(0, nullptr) == 3);
+    g.setMorph(667); // 67
+    CHECK(sounding() == std::set<uint8_t>({ 67 }) && bends.back().first == 0);
+    g.setMorph(334); // 64: past the range, struck afresh
     CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.back().first == 0);
+    CHECK(g.getMorphStep(0, nullptr) == 1);
     g.unfreeze();
     CHECK(!g.isFrozen());
     // Carries on after the next notes: 67 comes next, not 64 again.
@@ -1381,11 +1389,16 @@ static void testFreezeChord()
     e.freeze(scratch);
     uint8_t next[8];
     CHECK(e.getNextNotesFor(0, next) == 3);
-    e.setMorph(500); // two of three voices: 64->65 (a semitone) first, then 60->62
+    // The way: the second chord (halfway), then the first again.
+    e.setMorph(250); // two of three voices: 64->65 (a semitone) first, then 60->62
     CHECK(sounding() == std::set<uint8_t>({ 62, 65, 67 }));
-    e.setMorph(1000);
+    e.setMorph(500);
     CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }));
-    e.setMorph(300); // back towards the held chord: one voice moved
+    e.setMorph(1000);
+    CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
+    e.setMorph(500);
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }));
+    e.setMorph(150); // back towards the held chord: one voice moved
     CHECK(sounding() == std::set<uint8_t>({ 60, 65, 67 }));
     e.unfreeze(); // nearer the held chord: back to it, and on as before
     CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));

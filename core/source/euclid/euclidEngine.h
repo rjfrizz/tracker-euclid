@@ -447,15 +447,17 @@ class Engine
 
     // Freeze (the Perform page): everything holds where it is, the notes
     // sounding stay on and nothing moves on (the sequencer stops calling
-    // onMicroStep, so the clock pauses too). Each channel's next notes are
-    // worked out on scratch (a copy of the engine run on). setMorph slides
-    // each channel from the notes it held towards those: a single MIDI note
-    // glides with pitch bend (in steps of bendRange semitones, re-striking
-    // past it), chords and sampler channels move a voice at a time, the
-    // nearest first. unfreeze lands on whichever is nearer and carries on
-    // from there: with the next notes, as if their pulse had just played.
+    // onMicroStep, so the clock pauses too). Each channel's coming notes are
+    // worked out on scratch (a copy of the engine run on): a pulse's worth
+    // at a time, for its whole note sequence (up to kMorphSteps; generated
+    // modes kMorphSteps / 2). setMorph walks each channel along them, the
+    // whole way at 1000: a single MIDI note glides with pitch bend (in steps
+    // of bendRange semitones, re-striking past it), chords and sampler
+    // channels move a voice at a time, the nearest first. unfreeze lands on
+    // the nearest of the notes on the way and carries on from there, as if
+    // its pulse had just played.
     void freeze(Engine& scratch);
-    void setMorph(int amount); // 0 (as held) .. 1000 (the next notes)
+    void setMorph(int amount); // 0 (as held) .. 1000 (the end of the sequence)
     int getMorph() const { return morphAmount; }
     void unfreeze();
     bool isFrozen() const { return frozen; }
@@ -464,6 +466,11 @@ class Engine
     // The notes a channel held and its next ones (0 if none), for the screen.
     uint8_t getHeldNotes(int ch, uint8_t* notes) const;
     uint8_t getNextNotesFor(int ch, uint8_t* notes) const;
+    // Where the morph has a channel: the nearest of its notes on the way
+    // (0 = as held) of how many there are after the held ones (0: none).
+    uint8_t getMorphStep(int ch, uint8_t* stepCount) const;
+    // The notes at a step of the way (0 = as held).
+    uint8_t getMorphNotes(int ch, uint8_t step, uint8_t* notes) const;
 
     // Transport, called from the sequencer.
     void start();
@@ -708,21 +715,24 @@ class Engine
     bool globalDirty = false;
 
     // Freeze and morph.
-    struct Morph
+    static constexpr int kMorphSteps = 16;
+    struct MorphStep
     {
-        uint8_t from[kMaxVoices] = {};
-        uint8_t fromCount = 0;
-        uint8_t to[kMaxVoices] = {};
-        uint8_t toCount = 0;
-        bool hasNext = false;
-        bool glide = false;      // one MIDI note to one: pitch bend
-        int16_t bend = 0;        // last bend sent
-        // The channel's note choosing just after the next notes' pulse.
+        uint8_t notes[kMaxVoices] = {};
+        uint8_t count = 0;
+        // The channel's note choosing just after this step's pulse.
         uint8_t noteIndex = 0;
         int8_t pingPongDir = 1;
-        int16_t degree = 0;
         int8_t degreeDir = 1;
+        int16_t degree = 0;
     };
+    struct Morph
+    {
+        MorphStep way[kMorphSteps + 1]; // [0]: as held
+        uint8_t steps = 0;              // after the held notes
+        int16_t bend = 0;               // last bend sent
+    };
+    void morphBetween(int ch, const MorphStep& a, const MorphStep& b, int amount);
     Morph morph[kChannels];
     bool frozen = false;
     int morphAmount = 0;
