@@ -107,6 +107,11 @@ param dt1 0x0100003C "Part 13 reserve" 0 64
 param dt1 0x0100003D "Part 14 reserve" 0 64
 param dt1 0x0100003E "Part 15 reserve" 0 64
 param dt1 0x0100003F "Part 16 reserve" 0 64
+list jvonoff "Off" "On"
+group "Effects on/off"
+param dt1 0x00000008 "EFX switch" 0 1 list=jvonoff init=1
+param dt1 0x00000009 "Chorus switch" 0 1 list=jvonoff init=1
+param dt1 0x0000000A "Reverb switch" 0 1 list=jvonoff init=1
 group "Common"
 param dt1 0x0200002E "Patch level" 0 127 init=127 stride=16384
 param dt1 0x0200002F "Patch pan" 0 127 init=64 stride=16384
@@ -158,18 +163,6 @@ param dt1 0x0200001D "EFX Ctl source 1" 0 10 stride=16384
 param dt1 0x0200001E "EFX Ctl depth 1" 0 126 stride=16384
 param dt1 0x0200001F "EFX Ctl source 2" 0 10 stride=16384
 param dt1 0x02000020 "EFX Ctl depth 2" 0 126 stride=16384
-group "Chorus/reverb"
-param dt1 0x02000021 "Chorus Level" 0 127 stride=16384
-param dt1 0x02000022 "Chorus Rate" 0 127 stride=16384
-param dt1 0x02000023 "Chorus Depth" 0 127 stride=16384
-param dt1 0x02000024 "Chorus Pre delay" 0 127 stride=16384
-param dt1 0x02000025 "Chorus Feedback" 0 127 stride=16384
-param dt1 0x02000026 "Chorus Output assign" 0 2 stride=16384
-param dt1 0x02000027 "Reverb type" 0 7 stride=16384
-param dt1 0x02000028 "Reverb Level" 0 127 stride=16384
-param dt1 0x02000029 "Reverb Time" 0 127 stride=16384
-param dt1 0x0200002A "Reverb HF damp" 0 17 stride=16384
-param dt1 0x0200002B "Reverb Feedback" 0 127 stride=16384
 group "T1 Wave"
 param dt1 0x02001000 "Tone sw" 0 1 init=1 stride=16384
 param dt1 0x02001001 "Wave group" 0 2 stride=16384

@@ -48,6 +48,11 @@ param dt1 0x0100100F "Receive volume" 0 1 stride=128
 param dt1 0x01001010 "Receive hold-1" 0 1 stride=128
 param dt1 0x01001011 "Key range lower" 0 127 stride=128
 param dt1 0x01001012 "Key range upper" 0 127 init=127 stride=128
+list jvonoff "Off" "On"
+group "Effects on/off"
+param dt1 0x00000008 "EFX switch" 0 1 list=jvonoff init=1
+param dt1 0x00000009 "Chorus switch" 0 1 list=jvonoff init=1
+param dt1 0x0000000A "Reverb switch" 0 1 list=jvonoff init=1
 group "Common"
 param dt1 0x0300002E "Patch level" 0 127 init=127
 param dt1 0x0300002F "Patch pan" 0 127 init=64

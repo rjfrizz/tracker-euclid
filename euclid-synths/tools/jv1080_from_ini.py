@@ -231,6 +231,15 @@ def main():
         for i in range(16):
             w('param dt1 0x%08X "Part %d reserve" 0 64' % (pc + 0x30 + i, i + 1))
 
+    # The JV's own effect switches (its EFFECTS ON/OFF button), from the
+    # owner's manual's System common table (00 00 00 08-0A): with one off,
+    # no send level brings that effect back. Shared by all parts and modes.
+    w('list jvonoff "Off" "On"')
+    w('group "Effects on/off"')
+    w('param dt1 0x00000008 "EFX switch" 0 1 list=jvonoff init=1')
+    w('param dt1 0x00000009 "Chorus switch" 0 1 list=jvonoff init=1')
+    w('param dt1 0x0000000A "Reverb switch" 0 1 list=jvonoff init=1')
+
     # Patch common: offsets in hex; groups of at most 24 rows.
     def common_param(off, parts, nibbles=False):
         name, lo, hi = rng(parts)
@@ -251,9 +260,12 @@ def main():
     w('group "Effects"')
     for o, p in effects:
         common_param(o, p)
-    w('group "Chorus/reverb"')
-    for o, p in fx2:
-        common_param(o, p)
+    # In Performance mode the performance's chorus and reverb play, not the
+    # patch's (owner's manual): the Performance group has them instead.
+    if not perform:
+        w('group "Chorus/reverb"')
+        for o, p in fx2:
+            common_param(o, p)
 
     # Tones 1-4: decimal offsets; the reverb send is at 0x80 (03 00 11 00).
     groups = [("Wave", 0, 20), ("Ctl", 21, 44), ("LFO", 45, 60), ("Pitch", 61, 79), ("Filter", 80, 100),
