@@ -139,6 +139,9 @@ def main():
     # Patch mode: the patch playing, chosen in the system settings (00 00
     # 00 02-05: group, group ID, number, which go together), then got.
     w('list jvgrouptype "User/Preset" "PCM card" "Expansion"')
+    # A part's output (owner's manual p. 57): PATCH keeps the patch's own
+    # tone outputs and sends; the others use the part's sends instead.
+    w('list jvpartout "Mix" "EFX" "Output 1" "Output 2" "Patch"')
     # The same numbers mean the bank with User/Preset and the board (its
     # SR-JV80 number) with Expansion, so each shows both.
     ids = ["0", "1 User", "2 Card/Exp 2", "3 PrA/Exp 3", "4 PrB/Exp 4", "5 PrC/Exp 5", "6 PrD/Exp 6"]
@@ -171,6 +174,8 @@ def main():
         again = " reload=1" if perform else ""
         if name == "Patch group":
             extra += " list=jvgrouptype" + again
+        if name == "Output assign":
+            extra += " list=jvpartout init=4"
         if name == "Patch group ID":
             extra += " list=jvgroupid init=1 then=-1" + again
         param("dt1pt" if name == "Patch group" else "dt1", 0x01001000 + off, name, lo, hi, extra)
@@ -193,18 +198,20 @@ def main():
         w('list jvctlsrc "Off" "Sys ctrl 1" "Sys ctrl 2" "Modulation" "Breath" "Foot" "Volume" "Pan" '
           '"Expression" "Bender" "Aftertouch"')
         pc = 0x01000000
+        # Insert sends every setting, so these start where they can be
+        # heard (a 0 level or time, or 200 Hz damping, would mute them).
         w('group "Performance"')
         w('param dt1 0x%08X "EFX source" 0 15 list=jvefxsrc' % (pc + 0x0C))
-        w('param dt1 0x%08X "Chorus level" 0 127' % (pc + 0x22))
+        w('param dt1 0x%08X "Chorus level" 0 127 init=64' % (pc + 0x22))
         w('param dt1 0x%08X "Chorus rate" 0 127' % (pc + 0x23))
         w('param dt1 0x%08X "Chorus depth" 0 127' % (pc + 0x24))
         w('param dt1 0x%08X "Chorus pre delay" 0 127' % (pc + 0x25))
         w('param dt1 0x%08X "Chorus feedback" 0 127' % (pc + 0x26))
         w('param dt1 0x%08X "Chorus output" 0 2 list=jvchoout' % (pc + 0x27))
-        w('param dt1 0x%08X "Reverb type" 0 7 list=jvrevtype' % (pc + 0x28))
-        w('param dt1 0x%08X "Reverb level" 0 127' % (pc + 0x29))
-        w('param dt1 0x%08X "Reverb time" 0 127' % (pc + 0x2A))
-        w('param dt1 0x%08X "Reverb HF damp" 0 17 list=jvhfdamp' % (pc + 0x2B))
+        w('param dt1 0x%08X "Reverb type" 0 7 list=jvrevtype init=4' % (pc + 0x28))
+        w('param dt1 0x%08X "Reverb level" 0 127 init=64' % (pc + 0x29))
+        w('param dt1 0x%08X "Reverb time" 0 127 init=64' % (pc + 0x2A))
+        w('param dt1 0x%08X "Reverb HF damp" 0 17 list=jvhfdamp init=17' % (pc + 0x2B))
         w('param dt1 0x%08X "Reverb feedback" 0 127' % (pc + 0x2C))
         w('param dt1n 0x%08X "Tempo" 20 250 nibbles=2 init=120' % (pc + 0x2D))
         w('param dt1 0x%08X "Key range switch" 0 1' % (pc + 0x2F))
