@@ -82,7 +82,7 @@ struct strEuclidPanelData
 
     // Tabs across the top (the Shift page's lanes): the one shown outlined in
     // the page's colour, lanes that are on bright, the rest dim.
-    static constexpr uint8_t kMaxTabs = 6;
+    static constexpr uint8_t kMaxTabs = 7;
     uint8_t tabCount = 0;
     int8_t tabSelected = -1;
     const char* tabs[kMaxTabs] = {};

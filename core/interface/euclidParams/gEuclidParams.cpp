@@ -410,7 +410,12 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         const euclid::Expression x = euclidEngine.getExpression(i);
         strEuclidPanelData::LaneData& l = panelData.lanes[i];
         l.steps = staged.steps;
-        l.pulses = pulseMask(staged);
+        // A pulses lane's cycle shows as it plays (unless an edit's waiting).
+        euclid::Rhythm shown = staged;
+        const int8_t cyclePulses = euclidEngine.getCyclePulses(i);
+        if (cyclePulses >= 0 && staged.pulses == active.pulses && staged.steps == active.steps)
+            shown.pulses = cyclePulses < staged.steps ? static_cast<uint8_t>(cyclePulses) : staged.steps;
+        l.pulses = pulseMask(shown);
         l.byHand = staged.forceOn | staged.forceOff;
         l.pending = staged.steps != active.steps || staged.pulses != active.pulses ||
                     staged.rotation != active.rotation || staged.direction != active.direction ||
@@ -445,7 +450,8 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
           (x.lanes[static_cast<int>(euclid::LaneKind::division)].on ? 4 : 0) |
           (x.lanes[static_cast<int>(euclid::LaneKind::order)].on ? 8 : 0) |
           (x.lanes[static_cast<int>(euclid::LaneKind::chord)].on ? 16 : 0) |
-          (x.lanes[static_cast<int>(euclid::LaneKind::sample)].on ? 32 : 0));
+          (x.lanes[static_cast<int>(euclid::LaneKind::sample)].on ? 32 : 0) |
+          (x.lanes[static_cast<int>(euclid::LaneKind::pulses)].on ? 64 : 0));
         auto laneValue = [&](euclid::LaneKind k) -> const char* {
             const euclid::Lane& ln = x.lanes[static_cast<int>(k)];
             const int8_t at = euclidEngine.getLaneStep(i, k);
@@ -470,6 +476,12 @@ void cEuclidParams::fillLanes(strEuclidPanelData& panelData)
         add(s0, n0, laneValue(euclid::LaneKind::order));
         add(s0, n0, laneValue(euclid::LaneKind::chord));
         add(s0, n0, laneValue(euclid::LaneKind::sample));
+        if (const char* p = laneValue(euclid::LaneKind::pulses))
+        {
+            char t[8];
+            snprintf(t, sizeof(t), "%sp", p);
+            add(s0, n0, t);
+        }
         if (strlen(s0) > 13)
             s0[13] = 0; // as much as the column holds
         l.shift = s0[0] != 0 ? s0 : nullptr;

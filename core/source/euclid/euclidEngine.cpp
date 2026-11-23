@@ -341,6 +341,7 @@ uint8_t laneValueCount(LaneKind k)
         case LaneKind::order: return static_cast<uint8_t>(NoteDirection::count);
         case LaneKind::chord: return static_cast<uint8_t>(ChordType::count);
         case LaneKind::sample: return kSampleInstruments;
+        case LaneKind::pulses: return kMaxSteps + 1;
         default: return 0;
     }
 }
@@ -366,6 +367,16 @@ const char* laneValueName(LaneKind k, int8_t v)
             numbers[v][1] = static_cast<char>('0' + (v + 1) % 10);
             numbers[v][2] = 0;
             return numbers[v];
+        }
+        case LaneKind::pulses:
+        {
+            static char counts[kMaxSteps + 1][3];
+            char* t = counts[v];
+            if (v >= 10)
+                *t++ = static_cast<char>('0' + v / 10);
+            *t++ = static_cast<char>('0' + v % 10);
+            *t = 0;
+            return counts[v];
         }
         default: return "-";
     }
@@ -500,7 +511,8 @@ Expression Engine::clampExpression(const Expression& e) const
     {
         Lane& l = x.lanes[k];
         l.length = clampValue<uint8_t>(l.length, 1, kShiftSteps);
-        if (l.advance >= ShiftAdvance::count || k == static_cast<int>(LaneKind::division))
+        if (l.advance >= ShiftAdvance::count || k == static_cast<int>(LaneKind::division) ||
+            k == static_cast<int>(LaneKind::pulses))
             l.advance = ShiftAdvance::perCycle;
         for (int8_t& v : l.step)
             if (v < kLaneNone || v >= laneValueCount(static_cast<LaneKind>(k)))
@@ -650,6 +662,7 @@ void Engine::resetChannelPosition(Channel& c)
         c.laneCounter[k] = 0;
         c.laneIndex[k] = 0;
         c.lanePlayed[k] = -1;
+        c.cyclePulses = -1;
     }
     c.stepDivision = c.active.division;
 }
@@ -1313,7 +1326,28 @@ void Engine::triggerStep(Channel& c)
 {
     const Rhythm& r = c.active;
     const Shift& sh = c.expr.shift;
-    const bool pulse = stepIsPulse(r, c.step);
+
+    // A pulses lane picks this cycle's pulses on its first step.
+    {
+        const int pk = static_cast<int>(LaneKind::pulses);
+        const Lane& pl = c.expr.lanes[pk];
+        if (!pl.on)
+        {
+            c.cyclePulses = -1;
+            c.lanePlayed[pk] = -1;
+        }
+        else if (c.step == 0)
+        {
+            c.laneIndex[pk] = static_cast<uint8_t>(c.laneCounter[pk] % pl.length);
+            c.laneCounter[pk]++;
+            c.cyclePulses = pl.step[c.laneIndex[pk]];
+            c.lanePlayed[pk] = static_cast<int8_t>(c.laneIndex[pk]);
+        }
+    }
+    Rhythm cycle = r;
+    if (c.cyclePulses >= 0)
+        cycle.pulses = c.cyclePulses < r.steps ? static_cast<uint8_t>(c.cyclePulses) : r.steps;
+    const bool pulse = stepIsPulse(cycle, c.step);
 
     // Which Shift step applies: per step it moves on every step, played or
     // not; per pulse only on pulses (muted or skipped ones too, like notes);
@@ -1325,6 +1359,8 @@ void Engine::triggerStep(Channel& c)
     int8_t laneValue[kLaneKinds] = { kLaneNone, kLaneNone, kLaneNone, kLaneNone, kLaneNone };
     for (int k = 0; k < kLaneKinds; k++)
     {
+        if (k == static_cast<int>(LaneKind::pulses))
+            continue; // above
         const Lane& l = c.expr.lanes[k];
         if (!l.on)
         {
@@ -1951,6 +1987,11 @@ uint8_t Engine::getNotePool(int ch, uint8_t* notes, uint8_t max) const
     return n;
 }
 
+int8_t Engine::getCyclePulses(int ch) const
+{
+    return validChannel(ch) && running ? channels[ch].cyclePulses : -1;
+}
+
 int8_t Engine::getLaneStep(int ch, LaneKind k) const
 {
     return validChannel(ch) && k < LaneKind::count ? channels[ch].lanePlayed[static_cast<int>(k)] : -1;
@@ -2289,6 +2330,7 @@ uint32_t Engine::repeatLength(int ch) const
     // except on an arp, where the chord is the melody.)
     const bool arp = r.mode == NoteMode::arpUp || r.mode == NoteMode::arpUpDown;
     if (x.lanes[static_cast<int>(LaneKind::mode)].on || x.lanes[static_cast<int>(LaneKind::division)].on ||
+        x.lanes[static_cast<int>(LaneKind::pulses)].on ||
         x.lanes[static_cast<int>(LaneKind::order)].on || (x.lanes[static_cast<int>(LaneKind::chord)].on && arp))
         return 0;
 

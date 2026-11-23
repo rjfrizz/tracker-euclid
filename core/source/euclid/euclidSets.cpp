@@ -3,6 +3,18 @@
 namespace euclid
 {
 
+namespace
+{
+// Where a lane is in a channel record: the first four together, the ones
+// added in version 11 after the hand changes.
+size_t laneOffset(int k)
+{
+    const int first = static_cast<int>(LaneKind::sample);
+    return k < first ? kSetLanesOffset + k * kSetLaneSize : kSetSampleLaneOffset + (k - first) * kSetLaneSize;
+}
+} // namespace
+
+
 uint32_t crc32(const uint8_t* data, size_t length)
 {
     uint32_t crc = 0xFFFFFFFFu;
@@ -129,8 +141,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
         for (int k = 0; k < kLaneKinds; k++)
         {
             const Lane& l = x.lanes[k];
-            uint8_t* q = k == static_cast<int>(LaneKind::sample) ? p + kSetSampleLaneOffset
-                                                                 : p + kSetLanesOffset + k * kSetLaneSize;
+            uint8_t* q = p + laneOffset(k);
             q[0] = l.on ? 1 : 0;
             q[1] = l.length;
             q[2] = static_cast<uint8_t>(l.advance);
@@ -336,12 +347,12 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
         }
         if (version >= 9)
         {
-            // The Sample lane came in version 11, after the hand changes.
+            // The Sample and Pulses lanes came in version 11, after the
+            // hand changes.
             const int kinds = version >= 11 ? kLaneKinds : static_cast<int>(LaneKind::sample);
             for (int k = 0; k < kinds; k++)
             {
-                const uint8_t* q = k == static_cast<int>(LaneKind::sample) ? p + kSetSampleLaneOffset
-                                                                           : p + kSetLanesOffset + k * kSetLaneSize;
+                const uint8_t* q = p + laneOffset(k);
                 Lane& l = x.lanes[k];
                 l.on = q[0] != 0;
                 l.length = q[1];

@@ -1233,6 +1233,51 @@ static void testSampleLane()
     CHECK(std::string(laneValueName(LaneKind::sample, 11)) == "12");
 }
 
+// The Pulses lane: each cycle its own number of pulses (a step at "-" the
+// rhythm's), the Euclidean spread worked out afresh.
+static void testPulsesLane()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Rhythm r;
+    r.steps = 8;
+    r.pulses = 2;
+    e.setRhythm(0, r);
+    uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    e.setEnabled(0, true);
+    Expression x = e.getExpression(0);
+    Lane& l = x.lanes[static_cast<int>(LaneKind::pulses)];
+    l.on = true;
+    l.length = 3;
+    l.advance = ShiftAdvance::perPulse; // made per cycle
+    l.step[0] = 4;
+    l.step[1] = kLaneNone;
+    l.step[2] = 40; // out of range: none
+    e.setExpression(0, x);
+    CHECK(e.getExpression(0).lanes[static_cast<int>(LaneKind::pulses)].advance == ShiftAdvance::perCycle);
+    CHECK(e.getExpression(0).lanes[static_cast<int>(LaneKind::pulses)].step[2] == kLaneNone);
+    x = e.getExpression(0);
+    x.lanes[static_cast<int>(LaneKind::pulses)].step[2] = 20; // more than the steps: all of them
+    e.setExpression(0, x);
+    reset();
+    e.start();
+    std::vector<int> perCycle;
+    for (int cycle = 0; cycle < 3; cycle++)
+    {
+        const size_t before = events.size();
+        run(e, 48 * 8);
+        int on = 0;
+        for (size_t i = before; i < events.size(); i++)
+            on += events[i].on;
+        perCycle.push_back(on);
+        if (cycle == 0)
+            CHECK(e.getCyclePulses(0) == 4);
+    }
+    e.stop();
+    CHECK((perCycle == std::vector<int>{ 4, 2, 8 }));
+    CHECK(std::string(laneValueName(LaneKind::pulses, 12)) == "12");
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1683,6 +1728,7 @@ int main()
     testModeLaneAndNone();
     testSamplerOutput();
     testSampleLane();
+    testPulsesLane();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

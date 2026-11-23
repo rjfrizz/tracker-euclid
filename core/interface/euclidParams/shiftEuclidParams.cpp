@@ -15,7 +15,7 @@ constexpr uint8_t kPads = 48;
 constexpr uint8_t kLanes = 1 + euclid::kLaneKinds;
 
 const char* const kShiftRowNames[cEuclidParams::shiftRowCount] = { "Lane", "Shift", "Length", "Advance", "Units" };
-const char* const kLaneNames[kLanes] = { "Pitch", "Mode", "Division", "Order", "Chord", "Sample" };
+const char* const kLaneNames[kLanes] = { "Pitch", "Mode", "Division", "Order", "Chord", "Sample", "Pulses" };
 
 const char* const kShiftHelp[] = {
     "Encoder: change the step, pads pick one",
@@ -23,8 +23,8 @@ const char* const kShiftHelp[] = {
     "Fx 2: next lane, +Shift: settings",
     nullptr,
 };
-// The tabs across the top: a lane each (short, to fit six).
-const char* const kLaneTabs[] = { "Pitch", "Mode", "Div", "Order", "Chord", "Smpl" };
+// The tabs across the top: a lane each (short, to fit seven).
+const char* const kLaneTabs[] = { "Pitch", "Mode", "Div", "Order", "Chord", "Smpl", "Puls" };
 static_assert(sizeof(kLaneTabs) / sizeof(kLaneTabs[0]) == kLanes, "a tab a lane");
 
 int clampInt(int v, int lo, int hi)
@@ -47,9 +47,10 @@ euclid::LaneKind kindOf(uint8_t lane)
     return static_cast<euclid::LaneKind>(lane - 1);
 }
 
+// Lanes that only change per cycle.
 bool isDivision(uint8_t lane)
 {
-    return lane != 0 && kindOf(lane) == euclid::LaneKind::division;
+    return lane != 0 && (kindOf(lane) == euclid::LaneKind::division || kindOf(lane) == euclid::LaneKind::pulses);
 }
 } // namespace
 

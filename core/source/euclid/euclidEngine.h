@@ -309,11 +309,12 @@ struct Shift
 };
 
 // More Shift lanes, beside the pitch one: each step sets the channel's
-// mode, division, note order (SEQ), chord or sample instrument (sampler
-// output; 0-based) for the notes it applies to, or
+// mode, division, note order (SEQ), chord, sample instrument (sampler
+// output; 0-based) or pulses (that cycle's, in the rhythm's steps; more than
+// the steps play every step) for the notes it applies to, or
 // is kLaneNone (the channel's own setting). Each lane has its own length and
-// advance; a division lane only changes per cycle, so a cycle keeps one step
-// length. Stored in set files, so only add at the end.
+// advance; division and pulses lanes only change per cycle, so a cycle keeps
+// one step length and one rhythm. Stored in set files, so only add at the end.
 enum class LaneKind : uint8_t
 {
     mode = 0,
@@ -321,6 +322,7 @@ enum class LaneKind : uint8_t
     order,
     chord,
     sample,
+    pulses,
     count
 };
 constexpr int kLaneKinds = static_cast<int>(LaneKind::count);
@@ -622,6 +624,7 @@ class Engine
     // The Shift step the channel last played (for the screen), or -1.
     int8_t getShiftStep(int ch) const;
     int8_t getLaneStep(int ch, LaneKind k) const; // the step used last, -1 for none
+    int8_t getCyclePulses(int ch) const;          // a pulses lane's this cycle, -1 for none
     // The notes the channel played last (they stay until the next pulse that
     // plays), and how many; 0 before any.
     uint8_t getLastNotes(int ch, uint8_t* notes) const;
@@ -668,7 +671,8 @@ class Engine
         uint8_t shiftIndex = 0;    // the Shift step in use (per cycle: all cycle long)
         uint32_t laneCounter[kLaneKinds] = {};
         uint8_t laneIndex[kLaneKinds] = {};
-        int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1 };
+        int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1, -1 };
+        int8_t cyclePulses = -1; // this cycle's pulses (a pulses lane), -1 = the rhythm's
         Division stepDivision = Division::d1_16; // this cycle's (a division lane)
         int16_t degree = 0; // position in the scale, generated modes
         int8_t degreeDir = 1;

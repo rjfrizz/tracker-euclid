@@ -441,7 +441,7 @@ static void testRoundTrip()
     fill(a);
     uint8_t buf[kSetFileSize];
     CHECK(serializeSet(a, 3, buf, sizeof(buf)) == kSetFileSize);
-    CHECK(kSetFileSize == 2700);
+    CHECK(kSetFileSize == 2980);
     CHECK(kSetV10FileSize == 2420);
     CHECK(kSetV9FileSize == 2356);
     CHECK(kSetV8FileSize == 1236);
