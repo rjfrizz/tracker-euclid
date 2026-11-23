@@ -463,7 +463,7 @@ class Engine
 
     // Freeze (the Perform page): everything holds where it is, the notes
     // sounding stay on and nothing moves on (the sequencer stops calling
-    // onMicroStep, so the clock pauses too). Each channel's coming notes are
+    // onMicroStep, so the clock pauses too; see setFreezeMask). Each channel's coming notes are
     // worked out on scratch (a copy of the engine run on): a pulse's worth
     // at a time, for its whole note sequence (up to kMorphSteps; generated
     // modes kMorphSteps / 2). setMorph walks each channel along them, the
@@ -477,6 +477,14 @@ class Engine
     int getMorph() const { return morphAmount; }
     void unfreeze();
     bool isFrozen() const { return frozen; }
+    // Which channels Freeze holds (bit per channel; all by default). The
+    // others play on, and so does the clock; it pauses only when every
+    // channel playing is held. Held channels keep their place in the
+    // rhythm, so they come back in time.
+    void setFreezeMask(uint8_t mask) { freezeMask = mask; }
+    uint8_t getFreezeMask() const { return freezeMask; }
+    bool isChannelFrozen(int ch) const { return frozen && (frozenChannels & (1u << ch)) != 0; }
+    bool isClockHeld() const { return frozen && clockHeld; }
     void setBendRange(uint8_t semitones) { bendRange = semitones < 1 ? 1 : (semitones > 48 ? 48 : semitones); }
     uint8_t getBendRange() const { return bendRange; }
     // The notes a channel held and its next ones (0 if none), for the screen.
@@ -754,6 +762,9 @@ class Engine
     void morphBetween(int ch, const MorphStep& a, const MorphStep& b, int amount);
     Morph morph[kChannels];
     bool frozen = false;
+    uint8_t freezeMask = 0xFF;
+    uint8_t frozenChannels = 0; // this freeze's
+    bool clockHeld = false;
     int morphAmount = 0;
     uint8_t bendRange = 2;
 };

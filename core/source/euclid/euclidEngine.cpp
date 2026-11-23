@@ -730,8 +730,24 @@ void Engine::freeze(Engine& scratch)
 {
     if (!running || frozen)
         return;
+    // The channels it holds: the ones picked that are playing.
+    uint8_t held = 0;
+    bool others = false;
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        const Channel& c = channels[ch];
+        const bool playing = c.expr.enabled && !c.expr.muted;
+        if (playing && (freezeMask & (1u << ch)))
+            held = static_cast<uint8_t>(held | (1u << ch));
+        else if (playing)
+            others = true;
+    }
+    if (held == 0)
+        return;
     lock();
     frozen = true;
+    frozenChannels = held;
+    clockHeld = !others;
     morphAmount = 0;
     scratch = *this;
     unlock();
@@ -756,16 +772,16 @@ void Engine::freeze(Engine& scratch)
         const Channel& c = channels[ch];
         m.steps = 0;
         m.bend = 0;
-        MorphStep& held = m.way[0];
-        held.count = c.openCount;
+        MorphStep& w = m.way[0];
+        w.count = c.openCount;
         for (uint8_t i = 0; i < c.openCount; i++)
-            held.notes[i] = c.openNotes[i];
-        held.noteIndex = c.noteIndex;
-        held.pingPongDir = c.pingPongDir;
-        held.degree = c.degree;
-        held.degreeDir = c.degreeDir;
+            w.notes[i] = c.openNotes[i];
+        w.noteIndex = c.noteIndex;
+        w.pingPongDir = c.pingPongDir;
+        w.degree = c.degree;
+        w.degreeDir = c.degreeDir;
         played[ch] = scratch.channels[ch].notesPlayed;
-        wanted[ch] = !c.expr.enabled || c.expr.muted ? 0 : morphLength(c.active, kMorphSteps);
+        wanted[ch] = (held & (1u << ch)) ? morphLength(c.active, kMorphSteps) : 0;
     }
     for (int t = 0; t < kMicroStepsPerBar * 16; t++)
     {
@@ -1014,6 +1030,8 @@ void Engine::unfreeze()
         }
     }
     frozen = false;
+    frozenChannels = 0;
+    clockHeld = false;
     morphAmount = 0;
     unlock();
 }
@@ -1918,7 +1936,7 @@ int8_t Engine::getLaneStep(int ch, LaneKind k) const
 
 void Engine::onMicroStep()
 {
-    if (!running || frozen)
+    if (!running || (frozen && clockHeld))
         return;
 
     const bool launchPoint = launchCounter % launchToMicroSteps(launch) == 0;
@@ -1931,6 +1949,21 @@ void Engine::onMicroStep()
 
     for (Channel& c : channels)
     {
+        // A channel Freeze holds: its notes stay on, nothing plays or
+        // changes, but its place in the rhythm moves on with the clock.
+        if (frozen && (frozenChannels & (1u << (&c - channels))))
+        {
+            c.microStepInStep++;
+            if (c.microStepInStep >= divisionToMicroSteps(c.stepDivision))
+            {
+                c.microStepInStep = 0;
+                c.step++;
+                if (c.step >= c.active.steps)
+                    c.step = 0;
+            }
+            continue;
+        }
+
         // Gates count down first, so a note that ends exactly where the
         // next one starts is released before the new note-on.
         if (c.openCount > 0)

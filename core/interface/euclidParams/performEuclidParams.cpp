@@ -3,7 +3,8 @@
 // holds every note and the clock, the wheel then walks each channel through
 // its coming notes, the whole sequence over the wheel's travel (a single
 // MIDI note glides with pitch bend, chords move a voice at a time), and
-// letting go carries on from the notes it's left nearest.
+// letting go carries on from the notes it's left nearest. The channel rows
+// pick which channels it holds (all, to start with): the others play on.
 
 #include "euclidParams/euclidParams.h"
 
@@ -48,6 +49,11 @@ void cEuclidParams::performKey(uint8_t key, bool pressed)
             return;
         }
         euclidFreeze();
+        if (!euclidEngine.isFrozen())
+        {
+            showMessage("No channel playing is set to freeze");
+            return;
+        }
         showMessage("Frozen: turn to morph");
     }
     else if (euclidEngine.isFrozen())
@@ -69,6 +75,13 @@ void cEuclidParams::changePerform(int16_t delta)
     {
         const int r = euclidEngine.getBendRange() + (delta > 0 ? 1 : -1);
         euclidEngine.setBendRange(static_cast<uint8_t>(r < 1 ? 1 : (r > 24 ? 24 : r)));
+    }
+    else if (selectedPerformRow >= kPerformHeader)
+    {
+        // A channel row: whether Freeze holds it.
+        const uint8_t bit = static_cast<uint8_t>(1u << (selectedPerformRow - kPerformHeader));
+        const uint8_t mask = euclidEngine.getFreezeMask();
+        euclidEngine.setFreezeMask(static_cast<uint8_t>(delta > 0 ? (mask | bit) : (mask & ~bit)));
     }
     else
         showMessage("Hold Freeze (key 1) and turn");
@@ -119,7 +132,12 @@ void cEuclidParams::refreshPerform()
         // Frozen: the notes it's nearest, the ones after, and how far along.
         uint8_t steps = 0;
         const uint8_t at = euclidEngine.getMorphStep(ch, &steps);
-        if (frozen && steps > 0)
+        if (frozen && !euclidEngine.isChannelFrozen(ch))
+        {
+            snprintf(t, n, "plays on");
+            dim |= 1ul << row;
+        }
+        else if (frozen && steps > 0)
         {
             uint8_t now[8], next[8];
             const uint8_t nowCount = euclidEngine.getMorphNotes(ch, at, now);
@@ -138,9 +156,15 @@ void cEuclidParams::refreshPerform()
             snprintf(t, n, "holds");
         else
         {
+            // Not frozen: whether Freeze will hold it (the wheel sets it).
             const euclid::Expression x = euclidEngine.getLiveExpression(ch);
-            snprintf(t, n, "%s", x.enabled && !x.muted ? "" : "off");
-            dim |= 1ul << row;
+            const bool picked = (euclidEngine.getFreezeMask() >> ch) & 1u;
+            if (!x.enabled || x.muted)
+                snprintf(t, n, "off");
+            else
+                snprintf(t, n, "%s", picked ? "Freeze" : "Plays on");
+            if (!picked || !x.enabled || x.muted)
+                dim |= 1ul << row;
         }
         panelData.values[row] = t;
     }

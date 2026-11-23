@@ -1409,6 +1409,64 @@ static void testFinePitchFreeRate()
     CHECK(modRateNearest(kMicroStepsPerBar * 64) == ModRate::bar64);
 }
 
+// Freeze on some channels only: those hold, keeping their place in the
+// rhythm; the others, and the clock, play on.
+static void testFreezeSomeChannels()
+{
+    Engine e = makeEngine();
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    const uint8_t a[] = { 60, 64, 67 };
+    const uint8_t b[] = { 48, 50 };
+    for (int ch = 0; ch < 2; ch++)
+    {
+        e.setRhythm(ch, r);
+        Expression x = e.getExpression(ch);
+        x.enabled = true;
+        x.midiChannel = static_cast<uint8_t>(ch + 1);
+        e.setExpression(ch, x);
+    }
+    e.setNotes(0, a, 3);
+    e.setNotes(1, b, 2);
+    e.setFreezeMask(0x01);
+    reset();
+    e.start();
+    run(e, 10);
+    static Engine scratch;
+    e.freeze(scratch);
+    CHECK(e.isFrozen() && e.isChannelFrozen(0) && !e.isChannelFrozen(1) && !e.isClockHeld());
+    uint8_t steps = 0;
+    e.getMorphStep(1, &steps);
+    CHECK(steps == 0); // nothing to morph on a channel playing on
+    reset();
+    run(e, 48 * 4); // a bar: channel 2 plays its four, channel 1 nothing
+    int on1 = 0, on2 = 0;
+    for (auto& ev : events)
+        if (ev.on)
+            (ev.channel == 1 ? on1 : on2)++;
+    CHECK(on1 == 0 && on2 == 4);
+    e.unfreeze();
+    // Back in time: the next note on the beat, the one after the held 60.
+    reset();
+    run(e, 48);
+    // (10 + 192 micro-steps in: the beat is 38 on, with channel 2's note.)
+    bool got64 = false, beat2 = false;
+    for (auto& ev : events)
+    {
+        got64 |= ev.on && ev.channel == 1 && ev.note == 64 && ev.tick == 38;
+        beat2 |= ev.on && ev.channel == 2 && ev.tick == 38;
+    }
+    CHECK(got64 && beat2);
+    // Every channel playing held: the clock is.
+    e.setFreezeMask(0xFF);
+    e.freeze(scratch);
+    CHECK(e.isClockHeld());
+    e.unfreeze();
+    e.stop();
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
@@ -1547,6 +1605,7 @@ int main()
     testStepsByHand();
     testFreezeGlide();
     testFreezeChord();
+    testFreezeSomeChannels();
     testFinePitchFreeRate();
     testLongGatesAndLegato();
     testShiftInScaleSteps();
