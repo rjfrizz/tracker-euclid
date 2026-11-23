@@ -321,6 +321,7 @@ void euclidPlatformInit()
     out.pitchBend = pitchBend;
     out.randomPercent = randomPercent;
     out.randomBelow = randomBelow;
+    out.millis = nowMs;
     out.lock = lock;
     out.unlock = unlock;
     euclidEngine.init(out);

@@ -171,6 +171,7 @@ const char* modDestName(ModDest d)
         case ModDest::cc: return "MIDI CC";
         case ModDest::modAmount: return "Mod amount";
         case ModDest::modRate: return "Mod rate";
+        case ModDest::finePitch: return "Fine pitch";
         default: return "?";
     }
 }
@@ -209,6 +210,16 @@ const char* modRateName(ModRate r)
         case ModRate::bar16: return "16 bars";
         case ModRate::bar32: return "32 bars";
         case ModRate::bar64: return "64 bars";
+        case ModRate::hz0_05: return "0.05 Hz";
+        case ModRate::hz0_1: return "0.1 Hz";
+        case ModRate::hz0_2: return "0.2 Hz";
+        case ModRate::hz0_5: return "0.5 Hz";
+        case ModRate::hz1: return "1 Hz";
+        case ModRate::hz2: return "2 Hz";
+        case ModRate::hz3: return "3 Hz";
+        case ModRate::hz5: return "5 Hz";
+        case ModRate::hz8: return "8 Hz";
+        case ModRate::hz12: return "12 Hz";
         default: return "?";
     }
 }
@@ -232,11 +243,34 @@ uint32_t modRateToMicroSteps(ModRate r)
     }
 }
 
+bool isFreeRate(ModRate r)
+{
+    return r >= ModRate::hz0_05 && r < ModRate::count;
+}
+
+uint32_t modRateCentiHz(ModRate r)
+{
+    switch (r)
+    {
+        case ModRate::hz0_05: return 5;
+        case ModRate::hz0_1: return 10;
+        case ModRate::hz0_2: return 20;
+        case ModRate::hz0_5: return 50;
+        case ModRate::hz1: return 100;
+        case ModRate::hz2: return 200;
+        case ModRate::hz3: return 300;
+        case ModRate::hz5: return 500;
+        case ModRate::hz8: return 800;
+        case ModRate::hz12: return 1200;
+        default: return 100;
+    }
+}
+
 ModRate modRateNearest(uint32_t microSteps)
 {
     ModRate best = ModRate::bar1;
     uint32_t bestError = 0xFFFFFFFFu;
-    for (uint8_t i = 0; i < static_cast<uint8_t>(ModRate::count); i++)
+    for (uint8_t i = 0; i <= static_cast<uint8_t>(ModRate::bar64); i++)
     {
         uint32_t p = modRateToMicroSteps(static_cast<ModRate>(i));
         uint32_t error = p > microSteps ? p - microSteps : microSteps - p;
@@ -666,6 +700,9 @@ void Engine::stop()
     for (Channel& c : channels)
     {
         closeNote(c);
+        if (c.lastBend != 0 && out.pitchBend)
+            out.pitchBend(0, c.expr.midiChannel);
+        c.lastBend = 0;
     }
 }
 
@@ -960,6 +997,8 @@ void Engine::unfreeze()
         const MorphStep& w = m.way[step];
         if (m.bend != 0 && out.pitchBend)
             out.pitchBend(0, c.openMidiChannel);
+        if (m.bend != 0)
+            c.lastBend = 0; // a Fine pitch modulator sends its own again
         m.bend = 0;
         setSounding(c, w.notes, w.count);
         if (step > 0)
@@ -1623,7 +1662,23 @@ void Engine::updateMods(Channel& c)
         // modulator changes the speed it's moved on step by step instead.
         const uint32_t period = modRateToMicroSteps(m.rate);
         uint32_t cycle;
-        if (speed[k] == 1000)
+        if (isFreeRate(m.rate))
+        {
+            // Free running: moved on by the time since last, whatever the
+            // tempo (a long gap, as after a pause, counts as none).
+            const uint32_t now = out.millis ? out.millis() : 0;
+            uint32_t dt = st.timed ? now - st.lastMs : 0;
+            if (dt > 100)
+                dt = 0;
+            st.lastMs = now;
+            st.timed = true;
+            const uint64_t perMs = (static_cast<uint64_t>(1) << 32) * modRateCentiHz(m.rate) / 100000;
+            const uint64_t advance = perMs * dt * static_cast<uint64_t>(speed[k]) / 1000;
+            const uint64_t total = static_cast<uint64_t>(st.phase) + advance;
+            st.phase = static_cast<uint32_t>(total);
+            cycle = st.cycle + static_cast<uint32_t>(total >> 32);
+        }
+        else if (speed[k] == 1000)
         {
             uint64_t pos = static_cast<uint64_t>(playTime % period) << 32;
             st.phase = phaseOffset(m) + static_cast<uint32_t>(pos / period);
@@ -1676,6 +1731,26 @@ void Engine::updateMods(Channel& c)
             default: break;
         }
         st.value = static_cast<int16_t>(v * 1000.0f);
+    }
+
+    // Fine pitch: the modulators on it add up to one pitch bend (100% =
+    // the synth's whole bend range), sent when it changes, at most every
+    // 4 micro-steps; back to the middle when muted or none are left.
+    if (playTime % 4 == 0 && c.expr.output == ChannelOutput::midi)
+    {
+        int sum = 0;
+        for (int k = 0; k < kModsPerChannel; k++)
+            if (c.expr.mod[k].dest == ModDest::finePitch)
+                sum += c.modEffectiveAmount[k] * c.modState[k].value / 100; // -1000..1000 each
+        if (!c.expr.enabled || c.expr.muted || !outputEnabled)
+            sum = 0;
+        const int bend = clampValue<int>(sum, -1000, 1000) * 8191 / 1000;
+        if (bend != c.lastBend)
+        {
+            c.lastBend = static_cast<int16_t>(bend);
+            if (out.pitchBend)
+                out.pitchBend(static_cast<int16_t>(bend), c.expr.midiChannel);
+        }
     }
 
     // CCs: modulators on the same CC number add up. Smooth shapes swing

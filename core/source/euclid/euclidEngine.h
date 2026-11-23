@@ -190,6 +190,7 @@ enum class ModDest : uint8_t
     cc,    // sent on the channel's MIDI channel; see Engine::updateMods
     modAmount,
     modRate,
+    finePitch, // pitch bend, MIDI: amount -100..+100% of the synth's bend range
     count
 };
 
@@ -209,7 +210,8 @@ enum class ModShape : uint8_t
     count
 };
 
-// Cycle lengths for the smooth shapes.
+// Cycle lengths for the smooth shapes: on the bar grid, or free running
+// (Hz, from the clock, whatever the tempo).
 enum class ModRate : uint8_t
 {
     r1_16 = 0,
@@ -223,6 +225,16 @@ enum class ModRate : uint8_t
     bar16,
     bar32,
     bar64,
+    hz0_05,
+    hz0_1,
+    hz0_2,
+    hz0_5,
+    hz1,
+    hz2,
+    hz3,
+    hz5,
+    hz8,
+    hz12,
     count
 };
 
@@ -249,7 +261,9 @@ constexpr int kModsPerChannel = 4;
 const char* modDestName(ModDest d);
 const char* modShapeName(ModShape s);
 const char* modRateName(ModRate r);
-uint32_t modRateToMicroSteps(ModRate r);
+uint32_t modRateToMicroSteps(ModRate r); // synced rates
+bool isFreeRate(ModRate r);
+uint32_t modRateCentiHz(ModRate r); // free rates, in 1/100 Hz
 bool isEuclidShape(ModShape s);
 // The rate nearest to a period, in micro-steps (for older set files).
 ModRate modRateNearest(uint32_t microSteps);
@@ -436,6 +450,8 @@ struct Output
     uint8_t (*randomPercent)() = nullptr;
     // Returns a value in [0, n).
     uint8_t (*randomBelow)(uint8_t n) = nullptr;
+    // Milliseconds, for the free-running modulator rates.
+    uint32_t (*millis)() = nullptr;
     void (*lock)() = nullptr;
     void (*unlock)() = nullptr;
 };
@@ -657,7 +673,10 @@ class Engine
             int16_t from = 0;     // random shapes: level at the start of the cycle
             int16_t to = 0;       // random shapes: level at the end of it
             int16_t value = 0;    // -1000..1000, updated every micro-step
+            uint32_t lastMs = 0;  // free rates: the clock when last moved on
+            bool timed = false;   // lastMs is set
         } modState[kModsPerChannel];
+        int16_t lastBend = 0; // Fine pitch: the bend sent last
         int16_t lastCc[kModsPerChannel] = { -1, -1, -1, -1 }; // last value sent, by first modulator of a CC
         int16_t modEffectiveAmount[kModsPerChannel] = {};     // amount after other modulators' depth
     };

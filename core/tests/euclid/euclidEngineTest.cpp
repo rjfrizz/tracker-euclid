@@ -1369,6 +1369,46 @@ static void testFreezeGlide()
     g.stop();
 }
 
+// Fine pitch: a pitch bend, the amount a share of the bend range; a free
+// rate runs on the clock (here a millisecond a micro-step), not the bars.
+static uint32_t testMillis() { return now; }
+static void testFinePitchFreeRate()
+{
+    Mod m;
+    m.dest = ModDest::finePitch;
+    m.shape = ModShape::square;
+    m.amount = 50;
+    m.rate = ModRate::hz1; // 1000 ms a cycle
+    Engine e = makeModEngine(m);
+    Output o;
+    o.noteOn = onNoteRecord;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.millis = testMillis;
+    e.init(o);
+    Expression x;
+    x.enabled = true;
+    x.mod[0] = m;
+    e.setExpression(0, x);
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    reset();
+    bends.clear();
+    e.start();
+    run(e, 100);
+    CHECK(!bends.empty() && bends.back().first == 4095); // first half: up, half the range
+    run(e, 500);                                         // 600 ms: second half
+    CHECK(bends.back().first == -4095);
+    run(e, 500); // 1100 ms: up again
+    CHECK(bends.back().first == 4095);
+    e.stop();
+    CHECK(bends.back().first == 0);
+    CHECK(isFreeRate(ModRate::hz12) && !isFreeRate(ModRate::bar64));
+    CHECK(modRateNearest(kMicroStepsPerBar * 64) == ModRate::bar64);
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
@@ -1507,6 +1547,7 @@ int main()
     testStepsByHand();
     testFreezeGlide();
     testFreezeChord();
+    testFinePitchFreeRate();
     testLongGatesAndLegato();
     testShiftInScaleSteps();
     testShiftCountsTowardsRepeatLength();
