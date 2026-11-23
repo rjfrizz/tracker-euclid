@@ -1592,6 +1592,52 @@ static void testFreezeSomeChannels()
     e.stop();
 }
 
+// Further on: Notes ahead 3 goes through the next three, 1000 a note.
+static void testFreezeReach()
+{
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine g;
+    g.init(o);
+    g.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    g.setRhythm(0, r);
+    const uint8_t notes[] = { 60, 64, 67, 72 };
+    g.setNotes(0, notes, 4);
+    g.setEnabled(0, true);
+    g.setBendRange(2);
+    CHECK(g.getMorphReach() == 3);
+    reset();
+    g.start();
+    run(g, 10);
+    static Engine scratch;
+    g.freeze(scratch);
+    uint8_t steps = 0;
+    g.getMorphStep(0, &steps);
+    CHECK(steps == 3);
+    g.setMorph(2000);
+    CHECK(sounding() == std::set<uint8_t>({ 67 }));
+    g.setMorph(9000); // no further than the third
+    CHECK(g.getMorph() == 3000 && sounding() == std::set<uint8_t>({ 72 }));
+    g.setMorph(1900); // nearest the second: 67, and on from there
+    g.unfreeze();
+    reset();
+    run(g, 48);
+    bool got72 = false;
+    for (auto& ev : events)
+        got72 |= ev.on && ev.note == 72;
+    CHECK(got72);
+    g.stop();
+    g.setMorphReach(9);
+    CHECK(g.getMorphReach() == 4);
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
@@ -1727,6 +1773,7 @@ int main()
     testStepsByHand();
     testFreezeGlide();
     testFreezeChord();
+    testFreezeReach();
     testFreezeSomeChannels();
     testFinePitchFreeRate();
     testFinePitchDelay();

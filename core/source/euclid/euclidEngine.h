@@ -476,16 +476,18 @@ class Engine
     // Freeze (the Perform page): everything holds where it is, the notes
     // sounding stay on and nothing moves on (the sequencer stops calling
     // onMicroStep, so the clock pauses too; see setFreezeMask). Each
-    // channel's next notes are worked out on scratch (a copy of the engine
-    // run on). setMorph slides each channel from the notes it held towards
-    // those: a single MIDI note glides with pitch bend (in steps of
-    // bendRange semitones, re-striking past it), chords and sampler channels
-    // move a voice at a time, the nearest first. unfreeze lands on whichever
-    // is nearer and carries on from there: with the next notes, as if their
-    // pulse had just played.
+    // channel's next notes, as many as the reach (1-4), are worked out on
+    // scratch (a copy of the engine run on). setMorph slides each channel
+    // from the notes it held towards those, 1000 a note: a single MIDI note
+    // glides with pitch bend (in steps of bendRange semitones, re-striking
+    // past it), chords and sampler channels move a voice at a time, the
+    // nearest first. unfreeze lands on the nearest notes on the way and
+    // carries on from there, as if their pulse had just played.
     void freeze(Engine& scratch);
-    void setMorph(int amount); // 0 (as held) .. 1000 (the next notes)
+    void setMorph(int amount); // 0 (as held) .. 1000 a note ahead
     int getMorph() const { return morphAmount; }
+    void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
+    uint8_t getMorphReach() const { return morphReach; }
     void unfreeze();
     bool isFrozen() const { return frozen; }
     // Which channels Freeze holds (bit per channel; all by default). The
@@ -757,7 +759,7 @@ class Engine
     bool globalDirty = false;
 
     // Freeze and morph.
-    static constexpr int kMorphSteps = 1; // the next notes
+    static constexpr int kMorphSteps = 4; // notes ahead at most
     struct MorphStep
     {
         uint8_t notes[kMaxVoices] = {};
@@ -781,6 +783,7 @@ class Engine
     uint8_t frozenChannels = 0; // this freeze's
     bool clockHeld = false;
     int morphAmount = 0;
+    uint8_t morphReach = 3; // notes ahead Freeze goes to
     uint8_t bendRange = 2;
 };
 

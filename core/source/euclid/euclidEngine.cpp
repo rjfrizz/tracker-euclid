@@ -798,7 +798,7 @@ void Engine::freeze(Engine& scratch)
         w.degree = c.degree;
         w.degreeDir = c.degreeDir;
         played[ch] = scratch.channels[ch].notesPlayed;
-        wanted[ch] = (held & (1u << ch)) ? kMorphSteps : 0;
+        wanted[ch] = (held & (1u << ch)) ? morphReach : 0;
     }
     for (int t = 0; t < kMicroStepsPerBar * 16; t++)
     {
@@ -974,19 +974,27 @@ void Engine::morphChannel(int ch, int amount)
     const Morph& m = morph[ch];
     if (m.steps == 0)
         return;
-    // The whole way is 1000; each step of it an equal share.
-    const int position = amount * m.steps; // 1000 a step
-    int step = position / 1000;
+    // 1000 a note; a channel with fewer notes found stays on its last.
+    int step = amount / 1000;
+    int into = amount - step * 1000;
     if (step >= m.steps)
+    {
         step = m.steps - 1;
-    morphBetween(ch, m.way[step], m.way[step + 1], position - step * 1000);
+        into = 1000;
+    }
+    morphBetween(ch, m.way[step], m.way[step + 1], into);
 }
 
 void Engine::setMorph(int amount)
 {
     if (!frozen)
         return;
-    amount = amount < 0 ? 0 : (amount > 1000 ? 1000 : amount);
+    // As far as the furthest channel's notes go.
+    uint8_t most = 0;
+    for (const Morph& m : morph)
+        most = m.steps > most ? m.steps : most;
+    const int top = 1000 * most;
+    amount = amount < 0 ? 0 : (amount > top ? top : amount);
     if (amount == morphAmount)
         return;
     lock();
@@ -1001,7 +1009,8 @@ uint8_t Engine::getMorphStep(int ch, uint8_t* stepCount) const
     const uint8_t steps = validChannel(ch) && frozen ? morph[ch].steps : 0;
     if (stepCount)
         *stepCount = steps;
-    return static_cast<uint8_t>((morphAmount * steps + 500) / 1000);
+    const int at = (morphAmount + 500) / 1000;
+    return static_cast<uint8_t>(at > steps ? steps : at);
 }
 
 uint8_t Engine::getMorphNotes(int ch, uint8_t step, uint8_t* notes) const
