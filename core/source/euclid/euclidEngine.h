@@ -475,23 +475,18 @@ class Engine
 
     // Freeze (the Perform page): everything holds where it is, the notes
     // sounding stay on and nothing moves on (the sequencer stops calling
-    // onMicroStep, so the clock pauses too; see setFreezeMask). setMorph
-    // moves each channel's held notes that many chord tones up (or down)
-    // through the master key's tonic triad, gliding there over the glide
-    // time (freezeTick moves the glide on). On MIDI the lowest note moves
-    // through the chord tones and a chord keeps its shape around it, all on
-    // one pitch bend (re-struck only past bendRange); a sampler channel
-    // moves from chord tone to chord tone as its glide passes each. unfreeze leaves the notes it
-    // got to ringing until the channel's next note, and the sequence
-    // carries on as it was.
-    static constexpr int kMorphRange = 12; // chord tones either way
-    void freeze();
-    void setMorph(int tones);
-    int getMorph() const { return morphTones; }
+    // onMicroStep, so the clock pauses too; see setFreezeMask). Each
+    // channel's next notes are worked out on scratch (a copy of the engine
+    // run on). setMorph slides each channel from the notes it held towards
+    // those: a single MIDI note glides with pitch bend (in steps of
+    // bendRange semitones, re-striking past it), chords and sampler channels
+    // move a voice at a time, the nearest first. unfreeze lands on whichever
+    // is nearer and carries on from there: with the next notes, as if their
+    // pulse had just played.
+    void freeze(Engine& scratch);
+    void setMorph(int amount); // 0 (as held) .. 1000 (the next notes)
+    int getMorph() const { return morphAmount; }
     void unfreeze();
-    void freezeTick(); // often, while frozen (from the sequencer's timer)
-    void setGlideTime(uint16_t ms) { glideMs = ms > 2000 ? 2000 : ms; }
-    uint16_t getGlideTime() const { return glideMs; }
     bool isFrozen() const { return frozen; }
     // Which channels Freeze holds (bit per channel; all by default). The
     // others play on, and so does the clock; it pauses only when every
@@ -503,10 +498,14 @@ class Engine
     bool isClockHeld() const { return frozen && clockHeld; }
     void setBendRange(uint8_t semitones) { bendRange = semitones < 1 ? 1 : (semitones > 48 ? 48 : semitones); }
     uint8_t getBendRange() const { return bendRange; }
-    // The notes a frozen channel held, and the ones it's going to, for the
-    // screen (0 if none).
+    // The notes a channel held and its next ones (0 if none), for the screen.
     uint8_t getHeldNotes(int ch, uint8_t* notes) const;
-    uint8_t getMorphNotes(int ch, uint8_t* notes) const;
+    uint8_t getNextNotesFor(int ch, uint8_t* notes) const;
+    // Where the morph has a channel: the nearest of its notes on the way
+    // (0 = as held) of how many there are after the held ones (0: none).
+    uint8_t getMorphStep(int ch, uint8_t* stepCount) const;
+    // The notes at a step of the way (0 = as held).
+    uint8_t getMorphNotes(int ch, uint8_t step, uint8_t* notes) const;
 
     // Transport, called from the sequencer.
     void start();
@@ -700,7 +699,6 @@ class Engine
         } modState[kModsPerChannel];
         int16_t lastBend = 0; // Fine pitch: the bend sent last
         uint32_t noteMs = 0;  // the clock at its last new note (mod delays)
-        bool bendUntilNote = false; // a freeze's bend stays until the next note
         int16_t lastCc[kModsPerChannel] = { -1, -1, -1, -1 }; // last value sent, by first modulator of a CC
         int16_t modEffectiveAmount[kModsPerChannel] = {};     // amount after other modulators' depth
     };
@@ -718,6 +716,7 @@ class Engine
     bool rollChord(const Channel& c);
     int shiftNote(const Channel& c, int note, int8_t amount) const;
     uint8_t modRotationAt(const Mod& m, uint32_t t) const;
+    void morphChannel(int ch, int amount);
     void setSounding(Channel& c, const uint8_t* notes, uint8_t count);
     void updateMods(Channel& c);
     void resetMods(Channel& c);
@@ -757,33 +756,31 @@ class Engine
     Key globalActive;
     bool globalDirty = false;
 
-    // Freeze and morph. Pitches in 1/100000 semitone (so a glide moves
-    // smoothly however slow).
-    struct FreezeVoice
+    // Freeze and morph.
+    static constexpr int kMorphSteps = 1; // the next notes
+    struct MorphStep
     {
-        uint8_t held = 0;
-        uint8_t to = 0;    // the note it's going to
-        int32_t pos = 0;   // where the glide has got to
-        int32_t rate = 0;  // per millisecond
+        uint8_t notes[kMaxVoices] = {};
+        uint8_t count = 0;
+        // The channel's note choosing just after this step's pulse.
+        uint8_t noteIndex = 0;
+        int8_t pingPongDir = 1;
+        int8_t degreeDir = 1;
+        int16_t degree = 0;
     };
     struct Morph
     {
-        FreezeVoice voice[kMaxVoices];
-        uint8_t count = 0;
-        int16_t bend = 0; // last bend sent
-        int8_t base = 0;  // MIDI: semitones the struck notes are from the held ones
+        MorphStep way[kMorphSteps + 1]; // [0]: as held
+        uint8_t steps = 0;              // after the held notes
+        int16_t bend = 0;               // last bend sent
     };
-    void morphChannel(int ch);
-    uint8_t chordToneFrom(uint8_t note, int tones) const;
+    void morphBetween(int ch, const MorphStep& a, const MorphStep& b, int amount);
     Morph morph[kChannels];
     bool frozen = false;
-    uint8_t triad[3] = {}; // the master key's tonic triad, pitch classes
-    int morphTones = 0;
-    uint16_t glideMs = 150;
-    uint32_t lastTickMs = 0;
     uint8_t freezeMask = 0xFF;
     uint8_t frozenChannels = 0; // this freeze's
     bool clockHeld = false;
+    int morphAmount = 0;
     uint8_t bendRange = 2;
 };
 

@@ -1401,128 +1401,56 @@ static std::set<uint8_t> sounding()
     return s;
 }
 
-static uint32_t freezeMillis() { return now; }
 static void testFreezeGlide()
 {
     Output o;
     o.noteOn = onNote;
     o.noteOff = offNote;
     o.pitchBend = onBend;
-    o.millis = freezeMillis;
     o.randomPercent = zeroPercent;
     o.randomBelow = zeroBelow;
     Engine g;
     g.init(o);
-    g.setGlobalKey(Key{0, 2}); // C major: chord tones C E G
+    g.setGlobalKey(Key{0, 2});
     Rhythm r;
     r.steps = 4;
     r.pulses = 4;
     g.setRhythm(0, r);
-    const uint8_t notes[] = { 60, 62, 67 };
+    const uint8_t notes[] = { 60, 64, 67 };
     g.setNotes(0, notes, 3);
     g.setEnabled(0, true);
     g.setBendRange(2);
-    g.setGlideTime(0);
     reset();
     bends.clear();
     g.start();
     run(g, 10);
+    static Engine scratch;
     CHECK(sounding() == std::set<uint8_t>({ 60 }));
-    g.freeze();
-    CHECK(g.isFrozen() && g.isClockHeld());
+    g.freeze(scratch);
+    CHECK(g.isFrozen());
+    uint8_t next[8];
+    CHECK(g.getNextNotesFor(0, next) == 1 && next[0] == 64);
     const size_t before = events.size();
     run(g, 200); // frozen: nothing happens, the note holds
     CHECK(events.size() == before && sounding() == std::set<uint8_t>({ 60 }));
-    g.setMorph(1); // up a chord tone: E, past a 2-semitone bend, struck afresh
-    CHECK(sounding() == std::set<uint8_t>({ 64 }));
-    uint8_t to[8];
-    CHECK(g.getMorphNotes(0, to) == 1 && to[0] == 64);
-    g.setBendRange(12);
-    g.setMorph(2); // G: within the range now, a bend
-    CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.back().first == 300 * 8191 / 1200);
-    // A glide: back to E over 100 ms, halfway after 50.
-    g.setGlideTime(100);
-    g.setMorph(1);
-    now += 50;
-    g.freezeTick();
-    CHECK(bends.back().first > 900 && bends.back().first < 1150 && sounding() == std::set<uint8_t>({ 64 }));
-    now += 60;
-    g.freezeTick();
-    CHECK(bends.back().first == 0);
-    g.setMorph(-1); // below the held C: G
-    now += 200;
-    g.freezeTick();
-    CHECK(sounding() == std::set<uint8_t>({ 64 })); // a bend of 9 from E
-    CHECK(bends.back().first == -900 * 8191 / 1200);
+    g.setMorph(500); // 62: a whole-tone bend, the range
+    CHECK(!bends.empty() && bends.back().first == 8191 && events.size() == before);
+    g.setMorph(1000); // 64: past the range, struck afresh
+    CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.back().first == 0);
     g.unfreeze();
     CHECK(!g.isFrozen());
-    // The bent note rings on, bent, until the next note; the sequence
-    // carries on as it was: 62 after the held 60.
-    run(g, 20);
-    CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.back().first == -900 * 8191 / 1200);
-    run(g, 28);
-    CHECK(bends.back().first == 0);
-    bool got62 = false;
-    for (auto& ev : events)
-        got62 |= ev.on && ev.note == 62;
-    CHECK(got62 && sounding() == std::set<uint8_t>({ 62 }));
-    g.stop();
-}
-
-// Freeze on some channels only: those hold, keeping their place in the
-// rhythm; the others, and the clock, play on.
-static void testFreezeSomeChannels()
-{
-    Engine e = makeEngine();
-    e.setGlobalKey(Key{0, 2});
-    Rhythm r;
-    r.steps = 4;
-    r.pulses = 4;
-    const uint8_t a[] = { 60, 64, 67 };
-    const uint8_t b[] = { 48, 50 };
-    for (int ch = 0; ch < 2; ch++)
-    {
-        e.setRhythm(ch, r);
-        Expression x = e.getExpression(ch);
-        x.enabled = true;
-        x.midiChannel = static_cast<uint8_t>(ch + 1);
-        e.setExpression(ch, x);
-    }
-    e.setNotes(0, a, 3);
-    e.setNotes(1, b, 2);
-    e.setFreezeMask(0x01);
+    // Carries on after the next notes: 67 comes next, not 64 again.
     reset();
-    e.start();
-    run(e, 10);
-    e.freeze();
-    CHECK(e.isFrozen() && e.isChannelFrozen(0) && !e.isChannelFrozen(1) && !e.isClockHeld());
-    uint8_t to[8];
-    CHECK(e.getMorphNotes(1, to) == 0); // nothing to morph on a channel playing on
-    reset();
-    run(e, 48 * 4); // a bar: channel 2 plays its four, channel 1 nothing
-    int on1 = 0, on2 = 0;
+    run(g, 48);
+    bool got67 = false, got64 = false;
     for (auto& ev : events)
         if (ev.on)
-            (ev.channel == 1 ? on1 : on2)++;
-    CHECK(on1 == 0 && on2 == 4);
-    e.unfreeze();
-    // Back in time: the next note on the beat, the one after the held 60.
-    // (10 + 192 micro-steps in: the beat is 38 on, with channel 2's note.)
-    reset();
-    run(e, 48);
-    bool got64 = false, beat2 = false;
-    for (auto& ev : events)
-    {
-        got64 |= ev.on && ev.channel == 1 && ev.note == 64 && ev.tick == 38;
-        beat2 |= ev.on && ev.channel == 2 && ev.tick == 38;
-    }
-    CHECK(got64 && beat2);
-    // Every channel playing held: the clock is.
-    e.setFreezeMask(0xFF);
-    e.freeze();
-    CHECK(e.isClockHeld());
-    e.unfreeze();
-    e.stop();
+        {
+            got67 |= ev.note == 67;
+            got64 |= ev.note == 64;
+        }
+    CHECK(got67 && !got64);
+    g.stop();
 }
 
 // Fine pitch: a pitch bend, the amount a share of the bend range; a free
@@ -1606,17 +1534,68 @@ static void testFinePitchDelay()
     e.stop();
 }
 
+// Freeze on some channels only: those hold, keeping their place in the
+// rhythm; the others, and the clock, play on.
+static void testFreezeSomeChannels()
+{
+    Engine e = makeEngine();
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    const uint8_t a[] = { 60, 64, 67 };
+    const uint8_t b[] = { 48, 50 };
+    for (int ch = 0; ch < 2; ch++)
+    {
+        e.setRhythm(ch, r);
+        Expression x = e.getExpression(ch);
+        x.enabled = true;
+        x.midiChannel = static_cast<uint8_t>(ch + 1);
+        e.setExpression(ch, x);
+    }
+    e.setNotes(0, a, 3);
+    e.setNotes(1, b, 2);
+    e.setFreezeMask(0x01);
+    reset();
+    e.start();
+    run(e, 10);
+    static Engine scratch;
+    e.freeze(scratch);
+    CHECK(e.isFrozen() && e.isChannelFrozen(0) && !e.isChannelFrozen(1) && !e.isClockHeld());
+    uint8_t steps = 0;
+    e.getMorphStep(1, &steps);
+    CHECK(steps == 0); // nothing to morph on a channel playing on
+    reset();
+    run(e, 48 * 4); // a bar: channel 2 plays its four, channel 1 nothing
+    int on1 = 0, on2 = 0;
+    for (auto& ev : events)
+        if (ev.on)
+            (ev.channel == 1 ? on1 : on2)++;
+    CHECK(on1 == 0 && on2 == 4);
+    e.unfreeze();
+    // Back in time: the next note on the beat, the one after the held 60.
+    reset();
+    run(e, 48);
+    // (10 + 192 micro-steps in: the beat is 38 on, with channel 2's note.)
+    bool got64 = false, beat2 = false;
+    for (auto& ev : events)
+    {
+        got64 |= ev.on && ev.channel == 1 && ev.note == 64 && ev.tick == 38;
+        beat2 |= ev.on && ev.channel == 2 && ev.tick == 38;
+    }
+    CHECK(got64 && beat2);
+    // Every channel playing held: the clock is.
+    e.setFreezeMask(0xFF);
+    e.freeze(scratch);
+    CHECK(e.isClockHeld());
+    e.unfreeze();
+    e.stop();
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
-    Output o;
-    o.noteOn = onNote;
-    o.noteOff = offNote;
-    o.pitchBend = onBend;
-    o.randomPercent = zeroPercent;
-    o.randomBelow = zeroBelow;
-    Engine e;
-    e.init(o);
+    Engine e = makeEngine();
     e.setGlobalKey(Key{0, 2});
     Rhythm r;
     r.steps = 4;
@@ -1625,34 +1604,28 @@ static void testFreezeChord()
     const uint8_t notes[] = { 60, 64, 67, 62, 65, 69 };
     e.setNotes(0, notes, 6, 0x36);
     e.setEnabled(0, true);
-    e.setGlideTime(0);
     reset();
     e.start();
     run(e, 10);
     CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
-    e.freeze();
-    bends.clear();
-    // The lowest note up a chord tone, the chord's shape kept: C E G to
-    // E G# B (past a 2-semitone bend: struck afresh there).
-    e.setMorph(1);
-    CHECK(sounding() == std::set<uint8_t>({ 64, 68, 71 }));
-    e.setMorph(-1); // G B D
-    CHECK(sounding() == std::set<uint8_t>({ 55, 59, 62 }));
-    e.setMorph(0);
+    static Engine scratch;
+    e.freeze(scratch);
+    uint8_t next[8];
+    CHECK(e.getNextNotesFor(0, next) == 3);
+    e.setMorph(500); // two of three voices: 64->65 (a semitone) first, then 60->62
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 67 }));
+    e.setMorph(1000);
+    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }));
+    e.setMorph(300); // back towards the held chord: one voice moved
+    CHECK(sounding() == std::set<uint8_t>({ 60, 65, 67 }));
+    e.unfreeze(); // nearer the held chord: back to it, and on as before
     CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
-    // Within the bend range the whole chord bends, nothing struck.
-    e.setBendRange(12);
-    const size_t struck = events.size();
-    e.setMorph(2); // G B D up: 7 semitones
-    CHECK(events.size() == struck && sounding() == std::set<uint8_t>({ 60, 64, 67 }));
-    CHECK(!bends.empty() && bends.back().first == 700 * 8191 / 1200);
-    uint8_t to[8];
-    CHECK(e.getMorphNotes(0, to) == 3);
-    CHECK(std::set<uint8_t>(to, to + 3) == std::set<uint8_t>({ 67, 71, 74 }));
-    e.unfreeze(); // rings on, bent, until the next note; then the sequence as it was
-    CHECK(sounding() == std::set<uint8_t>({ 60, 64, 67 }));
+    reset();
     run(e, 48);
-    CHECK(sounding() == std::set<uint8_t>({ 62, 65, 69 }) && bends.back().first == 0);
+    bool got62 = false;
+    for (auto& ev : events)
+        got62 |= ev.on && ev.note == 62;
+    CHECK(got62);
     e.stop();
 }
 
