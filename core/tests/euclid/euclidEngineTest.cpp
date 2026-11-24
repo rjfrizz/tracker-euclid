@@ -1311,6 +1311,111 @@ static void testModeOverride()
     CHECK(s.getModeOverride() == -1);
 }
 
+// The Perform page's Chord: a chord on every note, turned over by the wheel.
+static void testChordOverride()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    e.setChordOverride(static_cast<int8_t>(ChordType::triad));
+    auto chordHeard = [&](int8_t inversion) {
+        e.setChordInversion(inversion);
+        reset();
+        e.start();
+        run(e, 10);
+        e.stop();
+        std::set<uint8_t> s;
+        for (auto& ev : events)
+            if (ev.on)
+                s.insert(ev.note);
+        return s;
+    };
+    CHECK(chordHeard(0) == std::set<uint8_t>({ 60, 64, 67 }));
+    CHECK(chordHeard(1) == std::set<uint8_t>({ 64, 67, 72 }));
+    CHECK(chordHeard(2) == std::set<uint8_t>({ 67, 72, 76 }));
+    CHECK(chordHeard(-1) == std::set<uint8_t>({ 55, 60, 64 }));
+    e.setChordOverride(-1);
+    CHECK(chordHeard(1) == std::set<uint8_t>({ 60 })); // off: the note as it was
+    CHECK(e.getExpression(0).chord == ChordType::single);
+}
+
+// The Perform page's Pulses: more pulses on every channel, up to its steps.
+static void testPulseBoost()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Rhythm r;
+    r.steps = 8;
+    r.pulses = 2;
+    e.setRhythm(0, r);
+    auto pulsesIn = [&](uint8_t boost) {
+        e.setPulseBoost(boost);
+        reset();
+        e.start();
+        run(e, 48 * 8);
+        e.stop();
+        return playedNotes().size();
+    };
+    CHECK(pulsesIn(0) == 2);
+    CHECK(pulsesIn(3) == 5);
+    CHECK(pulsesIn(20) == 8);
+}
+
+// The Perform page's Jog: channels off the clock, moved by the wheel, then
+// back in time (snap) or carried on from where they got to.
+static void testJog()
+{
+    Engine e = makeEngine();
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    for (int ch = 0; ch < 2; ch++)
+    {
+        e.setRhythm(ch, r);
+        Expression x = e.getExpression(ch);
+        x.enabled = true;
+        x.midiChannel = static_cast<uint8_t>(ch + 1);
+        e.setExpression(ch, x);
+    }
+    const uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    e.setNotes(1, &n, 1);
+    e.setJogMask(0x01);
+    reset();
+    e.start();
+    run(e, 10);
+    CHECK(e.startJog() && e.isChannelJogged(0) && !e.isChannelJogged(1));
+    auto onsOf = [&](uint8_t midi) {
+        int k = 0;
+        for (auto& ev : events)
+            k += ev.on && ev.channel == midi;
+        return k;
+    };
+    reset();
+    run(e, 48 * 4); // the clock: channel 2's four, channel 1 none
+    CHECK(onsOf(1) == 0 && onsOf(2) == 4);
+    e.jog(48 * 2); // the wheel: two of channel 1's steps
+    CHECK(onsOf(1) == 2);
+    e.stopJog(true); // back where the clock has it: with channel 2
+    reset();
+    run(e, 48);
+    bool together = false;
+    for (auto& a : events)
+        for (auto& b : events)
+            together |= a.on && b.on && a.channel == 1 && b.channel == 2 && a.tick == b.tick;
+    CHECK(together);
+    // Carried on instead: out of time with channel 2, by the jogged half step.
+    CHECK(e.startJog());
+    e.jog(24);
+    e.stopJog(false);
+    reset();
+    run(e, 96);
+    bool apart = true;
+    for (auto& a : events)
+        for (auto& b : events)
+            apart &= !(a.on && b.on && a.channel == 1 && b.channel == 2 && a.tick == b.tick);
+    CHECK(apart && onsOf(1) == 2 && onsOf(2) == 2);
+    e.stop();
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1667,6 +1772,42 @@ static void testFreezeReach()
     CHECK(g.getMorphReach() == 4);
 }
 
+// Freeze's Jump: the notes change as the wheel passes halfway, no bends.
+static void testFreezeJump()
+{
+    Output o;
+    o.noteOn = onNote;
+    o.noteOff = offNote;
+    o.pitchBend = onBend;
+    o.randomPercent = zeroPercent;
+    o.randomBelow = zeroBelow;
+    Engine g;
+    g.init(o);
+    g.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    g.setRhythm(0, r);
+    const uint8_t notes[] = { 60, 64, 67 };
+    g.setNotes(0, notes, 3);
+    g.setEnabled(0, true);
+    g.setMorphJump(true);
+    reset();
+    bends.clear();
+    g.start();
+    run(g, 10);
+    static Engine scratch;
+    g.freeze(scratch);
+    g.setMorph(400);
+    CHECK(sounding() == std::set<uint8_t>({ 60 }));
+    g.setMorph(600);
+    CHECK(sounding() == std::set<uint8_t>({ 64 }) && bends.empty());
+    g.setMorph(1600);
+    CHECK(sounding() == std::set<uint8_t>({ 67 }) && bends.empty());
+    g.unfreeze();
+    g.stop();
+}
+
 static void testFreezeChord()
 {
     // Two chord entries: 60 64 67, then 62 65 69 (ties join a chord).
@@ -1798,6 +1939,10 @@ int main()
     testSampleLane();
     testPulsesLane();
     testModeOverride();
+    testFreezeJump();
+    testChordOverride();
+    testPulseBoost();
+    testJog();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

@@ -158,9 +158,10 @@ void cEuclidParams::update()
             refreshMiniLines();
     }
 
-    // The Perform page follows freeze (Stop unfreezes too).
+    // The Perform page follows freeze and jog (Stop ends them too).
     if (view == View::perform &&
-        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph))
+        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph ||
+         euclidEngine.isJogging() != lastPerformJog))
     {
         refreshPerform();
         refreshChannels();
@@ -1402,8 +1403,12 @@ static void functPerformView()
         functSwitchModule(interfaceButtonPerformance);
         return;
     }
+    // Again: the next tool's tab.
     if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->nextPerformTab();
         return;
+    }
     EP->setView(cEuclidParams::View::perform);
     EP->setDefaultScreenFunct();
 }
@@ -1572,25 +1577,11 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
 
 static void functChannelButton(uint8_t button, uint8_t state)
 {
-    // On the Perform page the keys are the effects, held or tapped. (Letting
-    // go of Freeze unfreezes on any page, in case the page changed meanwhile.)
-    if (state == buttonRelease && button == interfaceButton0 && euclidEngine.isFrozen())
-    {
-        euclidEngine.unfreeze();
-        EP->refreshChannels();
-        return;
-    }
-    // The same for Walk, Arp and Scale (keys 2-4).
-    if (state == buttonRelease && button >= interfaceButton1 && button <= interfaceButton3 &&
-        (EP->performModeHeld & (1u << (button - interfaceButton1))))
-    {
-        EP->performKey(static_cast<uint8_t>(button - interfaceButton0), false);
-        return;
-    }
+    // On the Perform page the keys are the tools: a press on, a press off.
     if (EP->view == cEuclidParams::View::perform)
     {
-        if (state == buttonPress || state == buttonRelease)
-            EP->performKey(static_cast<uint8_t>(button - interfaceButton0), state == buttonPress);
+        if (state == buttonPress)
+            EP->performKey(static_cast<uint8_t>(button - interfaceButton0));
         return;
     }
     if (state != buttonPress)

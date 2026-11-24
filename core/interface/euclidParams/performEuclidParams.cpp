@@ -1,15 +1,19 @@
-// The Perform page (the Performance key): live moves across all channels,
-// played on the 8 keys under the screen. Freeze (key 1) is held: pressing it
-// holds the notes of the channels picked (and the clock, if that's all of
-// them), the wheel then morphs each channel from the notes it held on
-// through its next ones, as many as Notes ahead (a single MIDI note glides
-// with pitch bend, chords move a voice at a time), and letting go carries on
-// from the notes it's left nearest.
-// Walk, Arp and Scale (keys 2-4), held, put every channel into that mode
-// from its next note (Arp and Scale up, or up and down, as their rows say),
-// each starting near the note it played last; letting go puts each back. The
-// channel rows
-// pick which channels it holds (all, to start with): the others play on.
+// The Perform page (the Performance key): live moves across all channels.
+// Seven tools, a key each under the screen and a tab each across the top;
+// a key turns its tool on, again off (hands free), and shows its tab, where
+// its settings are (the Performance key also moves on a tab).
+//   Freeze: holds the notes of the channels picked (and the clock, if
+//     that's all of them); the wheel then moves each on through its next
+//     notes, as many as Notes ahead, gliding (a single MIDI note bends,
+//     chords move a voice at a time) or jumping; off carries on from the
+//     notes it's nearest.
+//   Walk, Arp, Scale: every channel in that mode from its next note (one of
+//     them at a time), each starting near the note it played last.
+//   Chord: every channel's single notes get the chord picked; the wheel
+//     turns it through its inversions.
+//   Pulses: every channel gets that many more pulses.
+//   Jog: the channels picked leave the clock; the wheel moves them on. Off,
+//     they snap back to the clock or carry on out of time.
 
 #include "euclidParams/euclidParams.h"
 
@@ -22,8 +26,44 @@
 
 namespace
 {
-constexpr uint8_t kPerformHeader = 5; // Morph, Notes ahead, Bend range, Arp, Scale
-const char* const kPerformNames[kPerformHeader] = { "Morph", "Notes ahead", "Bend range", "Arp", "Scale" };
+enum Tool : uint8_t
+{
+    toolFreeze = 0,
+    toolWalk,
+    toolArp,
+    toolScale,
+    toolChord,
+    toolPulses,
+    toolJog,
+    toolCount
+};
+const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog" };
+
+// Each tab's rows before its channel rows (Freeze and Jog have those).
+const char* const kFreezeRows[] = { "Freeze", "Morph", "Move", "Notes ahead", "Bend range" };
+const char* const kWalkRows[] = { "Walk" };
+const char* const kArpRows[] = { "Arp", "Direction" };
+const char* const kScaleRows[] = { "Scale", "Direction" };
+const char* const kChordRows[] = { "Chord", "Type", "Inversion" };
+const char* const kPulsesRows[] = { "Pulses", "Add" };
+const char* const kJogRows[] = { "Jog", "Jog step", "Off" };
+const char* const* const kRows[toolCount] = { kFreezeRows, kWalkRows, kArpRows, kScaleRows,
+                                              kChordRows,  kPulsesRows, kJogRows };
+const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2, 3 };
+bool hasChannelRows(uint8_t tool)
+{
+    return tool == toolFreeze || tool == toolJog;
+}
+// The row a tab opens on: what's played live.
+const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1, 0 };
+
+// Jog: micro-steps a wheel click (1/32, 1/16, 1/8, 1/4).
+const uint8_t kJogTicks[] = { 24, 48, 96, 192 };
+const char* const kJogNames[] = { "1/32", "1/16", "1/8", "1/4" };
+constexpr uint8_t kJogSteps = 4;
+
+// Freeze's whole way (Notes ahead) in this many clicks.
+constexpr int kMorphClicks = 20;
 
 void noteList(char* out, size_t length, const uint8_t* notes, uint8_t count)
 {
@@ -34,118 +74,188 @@ void noteList(char* out, size_t length, const uint8_t* notes, uint8_t count)
     if (count == 0)
         snprintf(out, length, "-");
 }
+
+int clampInt(int v, int lo, int hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
 } // namespace
 
 uint8_t cEuclidParams::performRowCount() const
 {
-    return static_cast<uint8_t>(kPerformHeader + euclid::kChannels);
+    const uint8_t t = performTab < toolCount ? performTab : 0;
+    return static_cast<uint8_t>(kRowCounts[t] + (hasChannelRows(t) ? euclid::kChannels : 0));
 }
 
-// The mode the held Walk, Arp or Scale key puts every channel in (the last
-// pressed of those held), or none.
+bool cEuclidParams::performToolOn(uint8_t tool) const
+{
+    if (tool == toolFreeze)
+        return euclidEngine.isFrozen();
+    if (tool == toolJog)
+        return euclidEngine.isJogging();
+    return tool < toolCount && ((performOn >> tool) & 1u);
+}
+
+// Walk, Arp or Scale: whichever is on (one at a time), or none.
 void cEuclidParams::applyPerformMode()
 {
     int8_t mode = -1;
-    switch (performModeLast)
-    {
-        case 0: mode = static_cast<int8_t>(euclid::NoteMode::walk); break;
-        case 1:
-            mode = static_cast<int8_t>(performArpUpDown ? euclid::NoteMode::arpUpDown : euclid::NoteMode::arpUp);
-            break;
-        case 2:
-            mode = static_cast<int8_t>(performScaleUpDown ? euclid::NoteMode::scaleUpDown : euclid::NoteMode::scaleUp);
-            break;
-        default: break;
-    }
+    if (performOn & (1u << toolWalk))
+        mode = static_cast<int8_t>(euclid::NoteMode::walk);
+    else if (performOn & (1u << toolArp))
+        mode = static_cast<int8_t>(performArpUpDown ? euclid::NoteMode::arpUpDown : euclid::NoteMode::arpUp);
+    else if (performOn & (1u << toolScale))
+        mode = static_cast<int8_t>(performScaleUpDown ? euclid::NoteMode::scaleUpDown : euclid::NoteMode::scaleUp);
     euclidEngine.setModeOverride(mode);
+    euclidEngine.setChordOverride((performOn & (1u << toolChord)) ? static_cast<int8_t>(performChord) : -1);
+    euclidEngine.setPulseBoost((performOn & (1u << toolPulses)) ? performPulses : 0);
 }
 
-// The keys under the screen: key 1 is Freeze, keys 2-4 Walk, Arp and Scale,
-// all held.
-void cEuclidParams::performKey(uint8_t key, bool pressed)
+void cEuclidParams::setPerformTool(uint8_t tool, bool on)
 {
-    if (key >= 1 && key <= 3)
+    if (tool == toolFreeze)
     {
-        const uint8_t i = static_cast<uint8_t>(key - 1);
-        if (pressed)
+        if (on && !euclidEngine.isFrozen())
         {
-            performModeHeld = static_cast<uint8_t>(performModeHeld | (1u << i));
-            performModeLast = static_cast<int8_t>(i);
-            showMessage(i == 0 ? "All channels walk" : (i == 1 ? "All channels arp" : "All channels run the scale"));
+            if (!euclidEngine.isRunning())
+            {
+                showMessage("Play first: freeze holds what plays");
+                return;
+            }
+            euclidFreeze();
+            showMessage(euclidEngine.isFrozen() ? "Frozen: turn to morph" : "No channel playing is set to freeze");
+        }
+        else if (!on && euclidEngine.isFrozen())
+            euclidEngine.unfreeze();
+    }
+    else if (tool == toolJog)
+    {
+        if (on && !euclidEngine.isJogging())
+        {
+            if (!euclidEngine.isRunning())
+            {
+                showMessage("Play first: jog takes channels off the clock");
+                return;
+            }
+            showMessage(euclidEngine.startJog() ? "Jog: turn to move them" : "No channel playing is set to jog");
+        }
+        else if (!on && euclidEngine.isJogging())
+            euclidEngine.stopJog(performJogSnap);
+    }
+    else if (tool < toolCount)
+    {
+        if (on)
+        {
+            // Walk, Arp and Scale are modes: one at a time.
+            if (tool == toolWalk || tool == toolArp || tool == toolScale)
+                performOn = static_cast<uint8_t>(performOn & ~((1u << toolWalk) | (1u << toolArp) | (1u << toolScale)));
+            performOn = static_cast<uint8_t>(performOn | (1u << tool));
         }
         else
-        {
-            performModeHeld = static_cast<uint8_t>(performModeHeld & ~(1u << i));
-            if (performModeLast == static_cast<int8_t>(i))
-            {
-                // Another still held takes over.
-                performModeLast = -1;
-                for (int8_t k = 0; k < 3; k++)
-                    if (performModeHeld & (1u << k))
-                        performModeLast = k;
-            }
-        }
+            performOn = static_cast<uint8_t>(performOn & ~(1u << tool));
         applyPerformMode();
-        refreshPerform();
-        refreshChannels();
+    }
+}
+
+// A key under the screen: its tool on or off, and its tab shown.
+void cEuclidParams::performKey(uint8_t key)
+{
+    if (key >= toolCount)
         return;
-    }
-    if (key != 0)
-        return; // more to come
-    if (pressed)
+    setPerformTool(key, !performToolOn(key));
+    if (performTab != key)
     {
-        if (!euclidEngine.isRunning())
-        {
-            showMessage("Play first: freeze holds what plays");
-            return;
-        }
-        euclidFreeze();
-        if (!euclidEngine.isFrozen())
-        {
-            showMessage("No channel playing is set to freeze");
-            return;
-        }
-        showMessage("Frozen: turn to morph");
+        performTab = key;
+        selectedPerformRow = kFirstRow[key];
     }
-    else if (euclidEngine.isFrozen())
-        euclidEngine.unfreeze();
     refreshPerform();
     refreshChannels();
     refreshTitle();
 }
 
+void cEuclidParams::nextPerformTab()
+{
+    performTab = static_cast<uint8_t>((performTab + 1) % toolCount);
+    selectedPerformRow = kFirstRow[performTab];
+    refreshPerform();
+}
+
 void cEuclidParams::changePerform(int16_t delta)
 {
-    // While frozen the wheel morphs; otherwise it sets the selected row.
-    if (euclidEngine.isFrozen())
+    const int dir = delta > 0 ? 1 : -1;
+    const uint8_t row = selectedPerformRow;
+    const bool shift = buttons->isButtonPressed(interfaceButtonShift);
+
+    // Live: Freeze's wheel morphs, Jog's moves the channels on.
+    if (performTab == toolFreeze && euclidEngine.isFrozen())
     {
-        const bool fine = buttons->isButtonPressed(interfaceButtonShift);
-        euclidEngine.setMorph(euclidEngine.getMorph() + delta * (fine ? 8 : 38));
+        const int click = euclidEngine.getMorphReach() * 1000 / kMorphClicks;
+        euclidEngine.setMorph(euclidEngine.getMorph() + delta * (shift ? click / 5 : click));
+        refreshPerform();
+        return;
     }
-    else if (selectedPerformRow == 1)
-        euclidEngine.setMorphReach(static_cast<uint8_t>(euclidEngine.getMorphReach() + (delta > 0 ? 1 : -1)));
-    else if (selectedPerformRow == 2)
+    if (performTab == toolJog && euclidEngine.isJogging())
     {
-        const int r = euclidEngine.getBendRange() + (delta > 0 ? 1 : -1);
-        euclidEngine.setBendRange(static_cast<uint8_t>(r < 1 ? 1 : (r > 24 ? 24 : r)));
+        if (delta > 0)
+            euclidEngine.jog(delta * kJogTicks[performJogStep % kJogSteps]);
+        refreshPerform();
+        return;
     }
-    else if (selectedPerformRow == 3 || selectedPerformRow == 4)
+
+    if (row == 0)
+        setPerformTool(performTab, dir > 0);
+    else if (hasChannelRows(performTab) && row >= kRowCounts[performTab])
     {
-        // Up, or up and down (heard straight away if the key's held).
-        bool& upDown = selectedPerformRow == 3 ? performArpUpDown : performScaleUpDown;
-        upDown = delta > 0;
-        applyPerformMode();
-    }
-    else if (selectedPerformRow >= kPerformHeader)
-    {
-        // A channel row: whether Freeze holds it.
-        const uint8_t bit = static_cast<uint8_t>(1u << (selectedPerformRow - kPerformHeader));
-        const uint8_t mask = euclidEngine.getFreezeMask();
-        euclidEngine.setFreezeMask(static_cast<uint8_t>(delta > 0 ? (mask | bit) : (mask & ~bit)));
+        // A channel row: whether the tool takes it.
+        const uint8_t bit = static_cast<uint8_t>(1u << (row - kRowCounts[performTab]));
+        if (performTab == toolFreeze)
+        {
+            const uint8_t m = euclidEngine.getFreezeMask();
+            euclidEngine.setFreezeMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
+        }
+        else
+        {
+            const uint8_t m = euclidEngine.getJogMask();
+            euclidEngine.setJogMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
+        }
     }
     else
-        showMessage("Hold Freeze (key 1) and turn");
+    {
+        switch (performTab)
+        {
+            case toolFreeze:
+                if (row == 1)
+                    showMessage("Freeze (key 1), then turn");
+                else if (row == 2)
+                    euclidEngine.setMorphJump(dir > 0);
+                else if (row == 3)
+                    euclidEngine.setMorphReach(static_cast<uint8_t>(euclidEngine.getMorphReach() + dir));
+                else if (row == 4)
+                    euclidEngine.setBendRange(static_cast<uint8_t>(clampInt(euclidEngine.getBendRange() + dir, 1, 24)));
+                break;
+            case toolArp: performArpUpDown = dir > 0; break;
+            case toolScale: performScaleUpDown = dir > 0; break;
+            case toolChord:
+                if (row == 1)
+                    performChord = static_cast<uint8_t>(
+                      clampInt(performChord + dir, 1, static_cast<int>(euclid::ChordType::count) - 1));
+                else
+                    euclidEngine.setChordInversion(static_cast<int8_t>(euclidEngine.getChordInversion() + dir));
+                break;
+            case toolPulses: performPulses = static_cast<uint8_t>(clampInt(performPulses + dir, 1, 16)); break;
+            case toolJog:
+                if (row == 1)
+                    performJogStep = static_cast<uint8_t>(clampInt(performJogStep + dir, 0, kJogSteps - 1));
+                else
+                    performJogSnap = dir < 0;
+                break;
+            default: break;
+        }
+        applyPerformMode(); // heard straight away if the tool's on
+    }
     refreshPerform();
+    refreshChannels();
+    refreshTitle();
 }
 
 void cEuclidParams::movePerformRow(int delta)
@@ -160,81 +270,139 @@ void cEuclidParams::refreshPerform()
     if (view != View::perform)
         return;
     const bool frozen = euclidEngine.isFrozen();
+    const bool jogging = euclidEngine.isJogging();
     lastPerformFrozen = frozen;
+    lastPerformJog = jogging;
     lastPerformMorph = euclidEngine.getMorph();
+    const uint8_t tab = performTab < toolCount ? performTab : 0;
+
+    // The tools as tabs, the ones on marked.
+    panelData.tabCount = toolCount;
+    panelData.tabSelected = static_cast<int8_t>(tab);
+    panelData.tabOn = 0;
+    for (uint8_t i = 0; i < toolCount; i++)
+    {
+        panelData.tabs[i] = kToolNames[i];
+        if (performToolOn(i))
+            panelData.tabOn = static_cast<uint8_t>(panelData.tabOn | (1u << i));
+    }
 
     panelData.mode = strEuclidPanelData::Mode::list;
     panelData.rows = performRowCount();
+    if (selectedPerformRow >= panelData.rows)
+        selectedPerformRow = static_cast<uint8_t>(panelData.rows - 1);
     for (uint8_t i = 0; i < strEuclidPanelData::kMaxRows; i++)
     {
         panelData.names[i] = nullptr;
         panelData.values[i] = nullptr;
     }
-    // How far on, in notes (a tenth at a time).
-    const int morph = euclidEngine.getMorph();
-    snprintf(performText[0], sizeof(performText[0]), "%d.%d notes", morph / 1000, (morph % 1000) / 100);
-    snprintf(performText[1], sizeof(performText[1]), "%d", euclidEngine.getMorphReach());
-    snprintf(performText[2], sizeof(performText[2]), "+/-%d", euclidEngine.getBendRange());
-    snprintf(performText[3], sizeof(performText[3]), "%s", performArpUpDown ? "Up-down" : "Up");
-    snprintf(performText[4], sizeof(performText[4]), "%s", performScaleUpDown ? "Up-down" : "Up");
-    for (uint8_t i = 0; i < kPerformHeader; i++)
+    const uint8_t header = kRowCounts[tab];
+    for (uint8_t i = 0; i < header; i++)
     {
-        panelData.names[i] = kPerformNames[i];
+        panelData.names[i] = kRows[tab][i];
         panelData.values[i] = performText[i];
     }
-    uint32_t dim = frozen ? 0 : 1ul; // Morph, only while frozen
-    for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+    const size_t tn = sizeof(performText[0]);
+    if (performToolOn(tab))
+        snprintf(performText[0], tn, "On");
+    else
+        snprintf(performText[0], tn, "Off  (key %d)", tab + 1);
+    uint32_t dim = 0;
+    switch (tab)
     {
-        const uint8_t row = static_cast<uint8_t>(kPerformHeader + ch);
-        const char* name = euclidEngine.getNameShown(ch);
-        if (name != nullptr)
-            snprintf(performNames[ch], sizeof(performNames[ch]), "%d %.12s", ch + 1, name);
-        else
-            snprintf(performNames[ch], sizeof(performNames[ch]), "Channel %d", ch + 1);
-        panelData.names[row] = performNames[ch];
-        char* t = performText[row];
-        const size_t n = sizeof(performText[row]);
-        // Frozen: the notes it's nearest, the ones after, and how far on.
-        uint8_t steps = 0;
-        const uint8_t at = euclidEngine.getMorphStep(ch, &steps);
-        if (frozen && !euclidEngine.isChannelFrozen(ch))
+        case toolFreeze:
         {
-            snprintf(t, n, "plays on");
-            dim |= 1ul << row;
+            const int morph = euclidEngine.getMorph();
+            snprintf(performText[1], tn, "%d.%d notes", morph / 1000, (morph % 1000) / 100);
+            snprintf(performText[2], tn, "%s", euclidEngine.getMorphJump() ? "Jump" : "Glide");
+            snprintf(performText[3], tn, "%d", euclidEngine.getMorphReach());
+            snprintf(performText[4], tn, "+/-%d", euclidEngine.getBendRange());
+            if (!frozen)
+                dim |= 1ul << 1;
+            if (euclidEngine.getMorphJump())
+                dim |= 1ul << 4; // no bends
+            break;
         }
-        else if (frozen && steps > 0)
+        case toolArp:
+        case toolScale:
+            snprintf(performText[1], tn, "%s", (tab == toolArp ? performArpUpDown : performScaleUpDown) ? "Up-down" : "Up");
+            break;
+        case toolChord:
         {
-            uint8_t now[8], next[8];
-            const uint8_t nowCount = euclidEngine.getMorphNotes(ch, at, now);
-            char a[20], b[20];
-            noteList(a, sizeof(a), now, nowCount);
-            if (at < steps)
+            snprintf(performText[1], tn, "%s",
+                     euclid::laneValueName(euclid::LaneKind::chord, static_cast<int8_t>(performChord)));
+            const int inv = euclidEngine.getChordInversion();
+            if (inv == 0)
+                snprintf(performText[2], tn, "Root position");
+            else
+                snprintf(performText[2], tn, "%+d", inv);
+            break;
+        }
+        case toolPulses: snprintf(performText[1], tn, "+%d", performPulses); break;
+        case toolJog:
+            snprintf(performText[1], tn, "%s a click", kJogNames[performJogStep % kJogSteps]);
+            snprintf(performText[2], tn, "%s", performJogSnap ? "Back in time" : "Stay out of time");
+            break;
+        default: break;
+    }
+
+    if (hasChannelRows(tab))
+    {
+        for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
+        {
+            const uint8_t row = static_cast<uint8_t>(header + ch);
+            const char* name = euclidEngine.getNameShown(ch);
+            if (name != nullptr)
+                snprintf(performNames[ch], sizeof(performNames[ch]), "%d %.12s", ch + 1, name);
+            else
+                snprintf(performNames[ch], sizeof(performNames[ch]), "Channel %d", ch + 1);
+            panelData.names[row] = performNames[ch];
+            char* t = performText[row];
+            const size_t n = sizeof(performText[row]);
+            const euclid::Expression x = euclidEngine.getLiveExpression(ch);
+            const bool playing = x.enabled && !x.muted;
+            if (tab == toolFreeze && frozen && euclidEngine.isChannelFrozen(ch))
             {
-                const uint8_t nextCount = euclidEngine.getMorphNotes(ch, static_cast<uint8_t>(at + 1), next);
-                noteList(b, sizeof(b), next, nextCount);
-                if (steps == 1)
-                    snprintf(t, n, "%s  >  %s", a, b);
+                // The notes it's nearest, the ones after, and how far on.
+                uint8_t steps = 0;
+                const uint8_t at = euclidEngine.getMorphStep(ch, &steps);
+                uint8_t now[8], next[8];
+                char a[20], b[20];
+                noteList(a, sizeof(a), now, euclidEngine.getMorphNotes(ch, at, now));
+                if (steps == 0)
+                    snprintf(t, n, "holds");
+                else if (at < steps)
+                {
+                    noteList(b, sizeof(b), next, euclidEngine.getMorphNotes(ch, static_cast<uint8_t>(at + 1), next));
+                    if (steps == 1)
+                        snprintf(t, n, "%s  >  %s", a, b);
+                    else
+                        snprintf(t, n, "%s > %s  %d/%d", a, b, at, steps);
+                }
                 else
-                    snprintf(t, n, "%s > %s  %d/%d", a, b, at, steps);
+                    snprintf(t, n, "%s  %d/%d", a, at, steps);
+            }
+            else if (tab == toolJog && jogging && euclidEngine.isChannelJogged(ch))
+                snprintf(t, n, "on the wheel");
+            else if ((tab == toolFreeze && frozen) || (tab == toolJog && jogging))
+            {
+                snprintf(t, n, "%s", playing ? "plays on" : "off");
+                dim |= 1ul << row;
             }
             else
-                snprintf(t, n, "%s  %d/%d", a, at, steps);
+            {
+                // Whether the tool will take it (the wheel sets it).
+                const uint8_t mask = tab == toolFreeze ? euclidEngine.getFreezeMask() : euclidEngine.getJogMask();
+                const bool picked = (mask >> ch) & 1u;
+                if (!playing)
+                    snprintf(t, n, "off");
+                else
+                    snprintf(t, n, "%s", picked ? kToolNames[tab] : "Plays on");
+                if (!picked || !playing)
+                    dim |= 1ul << row;
+            }
+            panelData.values[row] = t;
         }
-        else if (frozen)
-            snprintf(t, n, "holds");
-        else
-        {
-            // Not frozen: whether Freeze will hold it (the wheel sets it).
-            const euclid::Expression x = euclidEngine.getLiveExpression(ch);
-            const bool picked = (euclidEngine.getFreezeMask() >> ch) & 1u;
-            if (!x.enabled || x.muted)
-                snprintf(t, n, "off");
-            else
-                snprintf(t, n, "%s", picked ? "Freeze" : "Plays on");
-            if (!picked || !x.enabled || x.muted)
-                dim |= 1ul << row;
-        }
-        panelData.values[row] = t;
     }
     panelData.dimRows = dim;
     panelData.stagedRows = 0;

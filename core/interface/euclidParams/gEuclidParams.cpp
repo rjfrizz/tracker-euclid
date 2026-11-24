@@ -166,7 +166,7 @@ void cEuclidParams::setView(View v)
     display.refreshControl(miniLines);
     view = v;
     armedAction = SetAction::none;
-    panelData.tabCount = 0; // only the Shift page has tabs (refreshShift)
+    panelData.tabCount = 0; // only the Shift and Perform pages have tabs
     // Params, Global and Mod are lists of settings; Notes and Sets are grids.
     panelData.mode = isListView() ? strEuclidPanelData::Mode::list : strEuclidPanelData::Mode::grid;
     panelData.cells = view == View::sets ? euclid::kSetSlots : kNoteSlots;
@@ -302,7 +302,18 @@ void cEuclidParams::refreshTitle()
                  guessText);
     }
     else if (view == View::perform)
-        snprintf(titleText, sizeof(titleText), "Perform%s", euclidEngine.isFrozen() ? "  -  frozen" : "");
+    {
+        // The tools on, by name.
+        static const char* const kTools[7] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog" };
+        int n = snprintf(titleText, sizeof(titleText), "Perform");
+        bool first = true;
+        for (uint8_t i = 0; i < 7 && n < static_cast<int>(sizeof(titleText)) - 8; i++)
+            if (performToolOn(i))
+            {
+                n += snprintf(titleText + n, sizeof(titleText) - n, "%s%s", first ? "  -  " : " ", kTools[i]);
+                first = false;
+            }
+    }
     else if (view == View::chain)
         snprintf(titleText, sizeof(titleText), "Chain%s", euclidEngine.isRunning() && euclidChain::get().on
                                                               ? "  -  playing"
@@ -958,15 +969,14 @@ void cEuclidParams::refreshChannels()
     // held), the rest for more to come.
     if (view == View::perform)
     {
-        static const char* const kPerformKeys[8] = { "Freeze", "Walk", "Arp", "Scale", "", "", "", "" };
-        const bool frozen = euclidEngine.isFrozen();
+        static const char* const kPerformKeys[8] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog", "" };
         for (uint8_t i = 0; i < 8; i++)
         {
-            const bool held = i == 0 ? frozen : (i <= 3 && (performModeHeld & (1u << (i - 1))));
-            display.setControlColors(channelLabel[i], held ? theme.performMutedTrackLabelsColors
-                                                           : theme.activeLabelsColors);
+            const bool on = i < 7 && performToolOn(i);
+            display.setControlColors(channelLabel[i], on ? theme.performMutedTrackLabelsColors
+                                                         : theme.activeLabelsColors);
             display.setControlText(channelLabel[i], kPerformKeys[i]);
-            display.setControlText2(channelLabel[i], i <= 3 ? (held ? "held" : "hold") : "");
+            display.setControlText2(channelLabel[i], i < 7 ? (on ? "on" : "off") : "");
             display.refreshControl(channelLabel[i]);
         }
         return;

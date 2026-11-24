@@ -491,6 +491,33 @@ class Engine
     // channel coming into it starts from the note nearest its last one.
     void setModeOverride(int8_t mode) { modeOverride = mode < -1 || mode >= static_cast<int8_t>(NoteMode::count) ? -1 : mode; }
     int8_t getModeOverride() const { return modeOverride; }
+    // Freeze's move: glide there (a single MIDI note bends, chords a voice
+    // at a time), or jump: the notes change as the wheel passes halfway.
+    void setMorphJump(bool jump) { morphJump = jump; }
+    bool getMorphJump() const { return morphJump; }
+    // The Perform page's Chord: every channel's single notes get this chord
+    // (every time, whatever its chance), turned the inversion over (+n:
+    // the lowest n tones up an octave, -n: the highest down); -1 for none.
+    void setChordOverride(int8_t chord) { chordOverride = chord < -1 || chord >= static_cast<int8_t>(ChordType::count) ? -1 : chord; }
+    int8_t getChordOverride() const { return chordOverride; }
+    void setChordInversion(int8_t n) { chordInversion = n < -kMaxInversion ? -kMaxInversion : (n > kMaxInversion ? kMaxInversion : n); }
+    int8_t getChordInversion() const { return chordInversion; }
+    static constexpr int8_t kMaxInversion = 8;
+    // The Perform page's Pulses: this many more pulses on every channel (up
+    // to its steps), from its next step.
+    void setPulseBoost(uint8_t n) { pulseBoost = n > kMaxSteps ? kMaxSteps : n; }
+    uint8_t getPulseBoost() const { return pulseBoost; }
+    // The Perform page's Jog: the channels picked (and playing) leave the
+    // clock and move only as jog() moves them, in micro-steps. stopJog
+    // puts them back where the clock would have them (snap), or carries
+    // them on from where they got to.
+    void setJogMask(uint8_t mask) { jogMask = mask; }
+    uint8_t getJogMask() const { return jogMask; }
+    bool startJog();
+    void stopJog(bool snap);
+    void jog(int microSteps);
+    bool isJogging() const { return jogging; }
+    bool isChannelJogged(int ch) const { return jogging && (jogChannels & (1u << ch)) != 0; }
     void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
     uint8_t getMorphReach() const { return morphReach; }
     void unfreeze();
@@ -792,7 +819,21 @@ class Engine
     bool clockHeld = false;
     int morphAmount = 0;
     uint8_t morphReach = 3; // notes ahead Freeze goes to
+    bool morphJump = false;
     volatile int8_t modeOverride = -1;
+    volatile int8_t chordOverride = -1;
+    volatile int8_t chordInversion = 0;
+    volatile uint8_t pulseBoost = 0;
+    uint8_t jogMask = 0xFF;
+    bool jogging = false;
+    uint8_t jogChannels = 0;
+    uint32_t jogStartTime = 0;
+    struct JogStart
+    {
+        uint16_t microStep = 0;
+        uint8_t step = 0;
+    } jogStart[kChannels];
+    void tickChannel(Channel& c, bool launchPoint);
     uint8_t bendRange = 2;
 };
 

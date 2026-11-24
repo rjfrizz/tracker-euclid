@@ -308,7 +308,9 @@ class cEuclidParams : public ModuleBase
     void refreshChain();
     // The Perform page (performEuclidParams.cpp).
     uint8_t performRowCount() const;
-    void performKey(uint8_t key, bool pressed);
+    void performKey(uint8_t key);
+    void nextPerformTab();
+    bool performToolOn(uint8_t tool) const;
     void changePerform(int16_t delta);
     void movePerformRow(int delta);
     void refreshPerform();
@@ -316,12 +318,20 @@ class cEuclidParams : public ModuleBase
     bool lastPerformFrozen = false;
     int lastPerformMorph = 0;
     char performText[13][40];
-    // Walk, Arp and Scale (keys 2-4), held: which are, and the last pressed.
-    uint8_t performModeHeld = 0; // bit per key, from key 2
-    int8_t performModeLast = -1;
+    // The tools (a tab and a key each): Freeze, Walk, Arp, Scale, Chord,
+    // Pulses, Jog. Walk, Arp, Scale, Chord and Pulses on (bit per tool;
+    // Freeze and Jog are the engine's).
+    uint8_t performTab = 0;
+    uint8_t performOn = 0;
     bool performArpUpDown = false;
     bool performScaleUpDown = false;
+    uint8_t performChord = 1;  // euclid::ChordType, triad to start
+    uint8_t performPulses = 2; // Pulses adds
+    uint8_t performJogStep = 1; // index: 1/32, 1/16, 1/8, 1/4 a click
+    bool performJogSnap = true;
+    bool lastPerformJog = false;
     void applyPerformMode();
+    void setPerformTool(uint8_t tool, bool on);
     char performNames[8][16];
     uint8_t chainRowCount() const;
     void changeChain(int16_t delta);

@@ -730,6 +730,8 @@ void Engine::stop()
 {
     if (frozen)
         unfreeze();
+    jogging = false;
+    jogChannels = 0;
     running = false;
     for (Channel& c : channels)
     {
@@ -888,6 +890,19 @@ void Engine::morphBetween(int ch, const MorphStep& from, const MorphStep& to, in
 {
     Morph& m = morph[ch];
     Channel& c = channels[ch];
+    if (morphJump)
+    {
+        // Straight to the notes, as the wheel passes halfway.
+        if (m.bend != 0)
+        {
+            if (out.pitchBend)
+                out.pitchBend(0, c.openMidiChannel);
+            m.bend = 0;
+        }
+        const MorphStep& w = amount >= 500 ? to : from;
+        setSounding(c, w.notes, w.count);
+        return;
+    }
     if (from.count == 1 && to.count == 1 && !c.openSampler)
     {
         // Pitch from one note to the next; the sounding note is moved
@@ -1382,6 +1397,26 @@ uint8_t Engine::nextNotes(Channel& c, uint8_t* notes)
     return nextGeneratedNotes(c, notes);
 }
 
+namespace
+{
+// A chord turned over: +n moves its lowest tone up an octave n times, -n
+// its highest down.
+void invertChord(uint8_t* notes, uint8_t count, int inversion)
+{
+    for (int k = inversion > 0 ? inversion : -inversion; k > 0; k--)
+    {
+        uint8_t at = 0;
+        for (uint8_t i = 1; i < count; i++)
+            if (inversion > 0 ? notes[i] < notes[at] : notes[i] > notes[at])
+                at = i;
+        const int moved = notes[at] + (inversion > 0 ? 12 : -12);
+        if (moved < 0 || moved > 127)
+            return;
+        notes[at] = static_cast<uint8_t>(moved);
+    }
+}
+} // namespace
+
 void Engine::triggerStep(Channel& c)
 {
     const Rhythm& r = c.active;
@@ -1407,6 +1442,12 @@ void Engine::triggerStep(Channel& c)
     Rhythm cycle = r;
     if (c.cyclePulses >= 0)
         cycle.pulses = c.cyclePulses < r.steps ? static_cast<uint8_t>(c.cyclePulses) : r.steps;
+    if (pulseBoost > 0)
+    {
+        // The Perform page's Pulses: more of them (only so many as steps).
+        const int more = cycle.pulses + pulseBoost;
+        cycle.pulses = more > r.steps ? r.steps : static_cast<uint8_t>(more);
+    }
     const bool pulse = stepIsPulse(cycle, c.step);
 
     // Which Shift step applies: per step it moves on every step, played or
@@ -1488,9 +1529,10 @@ void Engine::triggerStep(Channel& c)
         ChordType chord;
         uint8_t instrument;
         uint8_t octave;
+        uint8_t chordChance;
         explicit LaneOverride(Channel& ch)
           : c(ch), mode(ch.active.mode), direction(ch.active.direction), chord(ch.expr.chord),
-            instrument(ch.expr.instrument), octave(ch.expr.octave)
+            instrument(ch.expr.instrument), octave(ch.expr.octave), chordChance(ch.expr.chordChance)
         {
         }
         ~LaneOverride()
@@ -1500,6 +1542,7 @@ void Engine::triggerStep(Channel& c)
             c.expr.chord = chord;
             c.expr.instrument = instrument;
             c.expr.octave = octave;
+            c.expr.chordChance = chordChance;
         }
     } restore(c);
     if (laneValue[static_cast<int>(LaneKind::mode)] >= 0)
@@ -1510,6 +1553,13 @@ void Engine::triggerStep(Channel& c)
         c.expr.chord = static_cast<ChordType>(laneValue[static_cast<int>(LaneKind::chord)]);
     if (laneValue[static_cast<int>(LaneKind::sample)] >= 0)
         c.expr.instrument = static_cast<uint8_t>(laneValue[static_cast<int>(LaneKind::sample)]);
+    // The Perform page's chord, every time (restored after, as above).
+    const int8_t chordForced = chordOverride;
+    if (chordForced >= 0)
+    {
+        c.expr.chord = static_cast<ChordType>(chordForced);
+        c.expr.chordChance = 100;
+    }
     // The Perform page's mode, over everything (restored after, as above).
     const int8_t forced = modeOverride;
     if (forced >= 0)
@@ -1538,6 +1588,8 @@ void Engine::triggerStep(Channel& c)
     // so muting a channel doesn't shift where its melody lands.
     uint8_t notes[kMaxVoices];
     uint8_t count = nextNotes(c, notes);
+    if (chordForced >= 0 && chordInversion != 0 && count > 1)
+        invertChord(notes, count, chordInversion);
 
     if (!c.expr.enabled || c.expr.muted || !outputEnabled)
         return;
@@ -2073,6 +2125,105 @@ int8_t Engine::getLaneStep(int ch, LaneKind k) const
     return validChannel(ch) && k < LaneKind::count ? channels[ch].lanePlayed[static_cast<int>(k)] : -1;
 }
 
+// A channel's micro-step: its gate, its waiting changes, its modulators,
+// its step.
+void Engine::tickChannel(Channel& c, bool launchPoint)
+{
+    // Gates count down first, so a note that ends exactly where the next
+    // one starts is released before the new note-on.
+    if (c.openCount > 0)
+    {
+        if (c.gateRemaining > 0 && c.gateRemaining != kGateHold)
+            c.gateRemaining--;
+        if (c.gateRemaining == 0 || !c.expr.enabled || c.expr.muted)
+            closeNote(c);
+    }
+
+    if (launchPoint && c.pendingDirty)
+        applyPending(c);
+
+    updateMods(c);
+
+    if (c.microStepInStep == 0)
+        triggerStep(c);
+
+    c.microStepInStep++;
+    if (c.microStepInStep >= divisionToMicroSteps(c.stepDivision))
+    {
+        c.microStepInStep = 0;
+        c.step++;
+        if (c.step >= c.active.steps)
+            c.step = 0;
+    }
+}
+
+bool Engine::startJog()
+{
+    if (!running || jogging)
+        return false;
+    uint8_t picked = 0;
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        const Channel& c = channels[ch];
+        if ((jogMask & (1u << ch)) && c.expr.enabled && !c.expr.muted)
+            picked = static_cast<uint8_t>(picked | (1u << ch));
+    }
+    if (picked == 0)
+        return false;
+    lock();
+    for (int ch = 0; ch < kChannels; ch++)
+    {
+        jogStart[ch].microStep = channels[ch].microStepInStep;
+        jogStart[ch].step = channels[ch].step;
+    }
+    jogStartTime = playTime;
+    jogChannels = picked;
+    jogging = true;
+    unlock();
+    return true;
+}
+
+void Engine::stopJog(bool snap)
+{
+    if (!jogging)
+        return;
+    lock();
+    if (snap)
+    {
+        // Where the clock would have them: where they were, moved on by
+        // the time gone by.
+        const uint32_t gone = playTime - jogStartTime;
+        for (int ch = 0; ch < kChannels; ch++)
+        {
+            if (!(jogChannels & (1u << ch)))
+                continue;
+            Channel& c = channels[ch];
+            const uint32_t length = divisionToMicroSteps(c.stepDivision);
+            const uint32_t total = jogStart[ch].microStep + gone;
+            const uint8_t steps = c.active.steps > 0 ? c.active.steps : 1;
+            c.step = static_cast<uint8_t>((jogStart[ch].step + total / length) % steps);
+            c.microStepInStep = static_cast<uint16_t>(total % length);
+        }
+    }
+    jogging = false;
+    jogChannels = 0;
+    unlock();
+}
+
+void Engine::jog(int microSteps)
+{
+    if (!jogging || microSteps <= 0)
+        return;
+    if (microSteps > kMicroStepsPerBar)
+        microSteps = kMicroStepsPerBar;
+    lock();
+    for (int t = 0; t < microSteps; t++)
+        for (int ch = 0; ch < kChannels; ch++)
+            if ((jogChannels & (1u << ch)) && !(frozen && (frozenChannels & (1u << ch))))
+                tickChannel(channels[ch], false);
+    unlock();
+}
+
 void Engine::onMicroStep()
 {
     if (!running || (frozen && clockHeld))
@@ -2103,32 +2254,11 @@ void Engine::onMicroStep()
             continue;
         }
 
-        // Gates count down first, so a note that ends exactly where the
-        // next one starts is released before the new note-on.
-        if (c.openCount > 0)
-        {
-            if (c.gateRemaining > 0 && c.gateRemaining != kGateHold)
-                c.gateRemaining--;
-            if (c.gateRemaining == 0 || !c.expr.enabled || c.expr.muted)
-                closeNote(c);
-        }
+        // A channel on the jog wheel moves only as that does.
+        if (jogging && (jogChannels & (1u << (&c - channels))))
+            continue;
 
-        if (launchPoint && c.pendingDirty)
-            applyPending(c);
-
-        updateMods(c);
-
-        if (c.microStepInStep == 0)
-            triggerStep(c);
-
-        c.microStepInStep++;
-        if (c.microStepInStep >= divisionToMicroSteps(c.stepDivision))
-        {
-            c.microStepInStep = 0;
-            c.step++;
-            if (c.step >= c.active.steps)
-                c.step = 0;
-        }
+        tickChannel(c, launchPoint);
     }
 
     launchCounter++;
