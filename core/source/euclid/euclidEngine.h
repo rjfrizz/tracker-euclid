@@ -516,6 +516,8 @@ class Engine
     bool startJog();
     void stopJog(bool snap);
     void jog(int microSteps);
+    // Each jogged channel on to its next pulse, played (a pad on the Jog tab).
+    void jogPulse();
     bool isJogging() const { return jogging; }
     bool isChannelJogged(int ch) const { return jogging && (jogChannels & (1u << ch)) != 0; }
     void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
@@ -707,6 +709,7 @@ class Engine
         uint8_t laneIndex[kLaneKinds] = {};
         int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1, -1 };
         int8_t cyclePulses = -1; // this cycle's pulses (a pulses lane), -1 = the rhythm's
+        uint32_t pulsesReached = 0; // pulse steps it's come to (played or not)
         int8_t overrideSeen = -1; // the mode override it last played in
         int16_t seedNote = -1;    // a generated mode starts nearest this, once
         int8_t overrideOctave = -1; // a SEQ channel's octave while overridden

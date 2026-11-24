@@ -1416,6 +1416,37 @@ static void testJog()
     e.stop();
 }
 
+// Jog's pads: each takes the jogged channels on to their next pulse,
+// played; its note still ends after its gate, in time.
+static void testJogPulse()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60, 64});
+    Rhythm r;
+    r.steps = 8;
+    r.pulses = 2; // x . . . x . . .
+    e.setRhythm(0, r);
+    const uint8_t notes[] = { 60, 64 };
+    e.setNotes(0, notes, 2);
+    reset();
+    e.start();
+    run(e, 10); // the first pulse played
+    CHECK(e.startJog());
+    reset();
+    run(e, 48 * 8); // a cycle of the clock: nothing from it
+    CHECK(playedNotes().empty());
+    e.jogPulse();
+    CHECK((playedNotes() == std::vector<uint8_t>{ 64 }));
+    e.jogPulse();
+    CHECK((playedNotes() == std::vector<uint8_t>{ 64, 60 }));
+    run(e, 48); // the clock ends the note (its gate), nothing more plays
+    bool ended = false;
+    for (auto& ev : events)
+        ended |= !ev.on && ev.note == 60;
+    CHECK(ended && playedNotes().size() == 2);
+    e.stopJog(true);
+    e.stop();
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1943,6 +1974,7 @@ int main()
     testChordOverride();
     testPulseBoost();
     testJog();
+    testJogPulse();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

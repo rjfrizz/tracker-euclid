@@ -12,8 +12,9 @@
 //   Chord: every channel's single notes get the chord picked; the wheel
 //     turns it through its inversions.
 //   Pulses: every channel gets that many more pulses.
-//   Jog: the channels picked leave the clock; the wheel moves them on. Off,
-//     they snap back to the clock or carry on out of time.
+//   Jog: the channels picked leave the clock; the wheel moves them on, and
+//     any pad takes them to their next pulse. Off, they snap back to the
+//     clock or carry on out of time.
 
 #include "euclidParams/euclidParams.h"
 
@@ -137,7 +138,8 @@ void cEuclidParams::setPerformTool(uint8_t tool, bool on)
                 showMessage("Play first: jog takes channels off the clock");
                 return;
             }
-            showMessage(euclidEngine.startJog() ? "Jog: turn to move them" : "No channel playing is set to jog");
+            showMessage(euclidEngine.startJog() ? "Jog: turn, or a pad for the next pulse"
+                                                : "No channel playing is set to jog");
         }
         else if (!on && euclidEngine.isJogging())
             euclidEngine.stopJog(performJogSnap);

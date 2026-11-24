@@ -1520,6 +1520,18 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
+        // On the Perform page, with Jog on, any pad moves the jogged
+        // channels on to their next pulse.
+        if (EP->view == cEuclidParams::View::perform)
+        {
+            if (euclidEngine.isJogging())
+            {
+                euclidEngine.jogPulse();
+                EP->refreshPerform();
+            }
+            return;
+        }
+
         // On the Pattern page a pad is a step of the selected channel: a
         // pulse is muted, a rest added, a changed step put back (staged; with
         // Shift straight away).
