@@ -330,6 +330,9 @@ class cEuclidParams : public ModuleBase
     uint8_t performJogStep = 1; // index: 1/32, 1/16, 1/8, 1/4 a click
     bool performJogSnap = true;
     bool lastPerformJog = false;
+    // Walk, Arp, Scale, Chord and Pulses: the channels each reaches (bit per
+    // channel, by tool; Freeze's and Jog's are the engine's).
+    uint8_t performMask[7] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     void applyPerformMode();
     void setPerformTool(uint8_t tool, bool on);
     char performNames[8][16];

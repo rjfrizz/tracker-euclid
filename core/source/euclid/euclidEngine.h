@@ -490,6 +490,14 @@ class Engine
     // and Scale keys, held), from its next pulse; -1 for each its own. A
     // channel coming into it starts from the note nearest its last one.
     void setModeOverride(int8_t mode) { modeOverride = mode < -1 || mode >= static_cast<int8_t>(NoteMode::count) ? -1 : mode; }
+    // Which channels the mode override, the chord override and the pulse
+    // boost reach (bit per channel; all by default).
+    void setOverrideMasks(uint8_t mode, uint8_t chord, uint8_t pulses)
+    {
+        modeMask = mode;
+        chordMask = chord;
+        boostMask = pulses;
+    }
     int8_t getModeOverride() const { return modeOverride; }
     // Freeze's move: glide there (a single MIDI note bends, chords a voice
     // at a time), or jump: the notes change as the wheel passes halfway.
@@ -827,6 +835,9 @@ class Engine
     volatile int8_t chordOverride = -1;
     volatile int8_t chordInversion = 0;
     volatile uint8_t pulseBoost = 0;
+    volatile uint8_t modeMask = 0xFF;
+    volatile uint8_t chordMask = 0xFF;
+    volatile uint8_t boostMask = 0xFF;
     uint8_t jogMask = 0xFF;
     bool jogging = false;
     uint8_t jogChannels = 0;

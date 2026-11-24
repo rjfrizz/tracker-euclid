@@ -1447,6 +1447,38 @@ static void testJogPulse()
     e.stop();
 }
 
+// The tools' channel toggles: a channel left out plays on as it was.
+static void testOverrideMasks()
+{
+    Engine e = makeEngine();
+    e.setGlobalKey(Key{0, 2});
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    for (int ch = 0; ch < 2; ch++)
+    {
+        e.setRhythm(ch, r);
+        Expression x = e.getExpression(ch);
+        x.enabled = true;
+        x.midiChannel = static_cast<uint8_t>(ch + 1);
+        e.setExpression(ch, x);
+    }
+    const uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    e.setNotes(1, &n, 1);
+    e.setChordOverride(static_cast<int8_t>(ChordType::triad));
+    e.setOverrideMasks(0xFF, 0x02, 0xFF); // the chord on channel 2 only
+    reset();
+    e.start();
+    run(e, 10);
+    e.stop();
+    int on1 = 0, on2 = 0;
+    for (auto& ev : events)
+        if (ev.on)
+            (ev.channel == 1 ? on1 : on2)++;
+    CHECK(on1 == 1 && on2 == 3);
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1975,6 +2007,7 @@ int main()
     testPulseBoost();
     testJog();
     testJogPulse();
+    testOverrideMasks();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

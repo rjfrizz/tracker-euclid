@@ -1,7 +1,8 @@
 // The Perform page (the Performance key): live moves across all channels.
 // Seven tools, a key each under the screen and a tab each across the top;
 // a key turns its tool on, again off (hands free), and shows its tab, where
-// its settings are (the Performance key also moves on a tab).
+// its settings are, ending with a row a channel for which channels it takes
+// (all to start with; the Performance key also moves on a tab).
 //   Freeze: holds the notes of the channels picked (and the clock, if
 //     that's all of them); the wheel then moves each on through its next
 //     notes, as many as Notes ahead, gliding (a single MIDI note bends,
@@ -40,7 +41,7 @@ enum Tool : uint8_t
 };
 const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog" };
 
-// Each tab's rows before its channel rows (Freeze and Jog have those).
+// Each tab's rows before its channel rows.
 const char* const kFreezeRows[] = { "Freeze", "Morph", "Move", "Notes ahead", "Bend range" };
 const char* const kWalkRows[] = { "Walk" };
 const char* const kArpRows[] = { "Arp", "Direction" };
@@ -51,9 +52,10 @@ const char* const kJogRows[] = { "Jog", "Jog step", "Off" };
 const char* const* const kRows[toolCount] = { kFreezeRows, kWalkRows, kArpRows, kScaleRows,
                                               kChordRows,  kPulsesRows, kJogRows };
 const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2, 3 };
+// Every tool's tab ends with a row a channel: whether it takes that one.
 bool hasChannelRows(uint8_t tool)
 {
-    return tool == toolFreeze || tool == toolJog;
+    return tool < toolCount;
 }
 // The row a tab opens on: what's played live.
 const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1, 0 };
@@ -108,6 +110,8 @@ void cEuclidParams::applyPerformMode()
     else if (performOn & (1u << toolScale))
         mode = static_cast<int8_t>(performScaleUpDown ? euclid::NoteMode::scaleUpDown : euclid::NoteMode::scaleUp);
     euclidEngine.setModeOverride(mode);
+    const uint8_t modeTool = (performOn & (1u << toolArp)) ? toolArp : ((performOn & (1u << toolScale)) ? toolScale : toolWalk);
+    euclidEngine.setOverrideMasks(performMask[modeTool], performMask[toolChord], performMask[toolPulses]);
     euclidEngine.setChordOverride((performOn & (1u << toolChord)) ? static_cast<int8_t>(performChord) : -1);
     euclidEngine.setPulseBoost((performOn & (1u << toolPulses)) ? performPulses : 0);
 }
@@ -215,10 +219,17 @@ void cEuclidParams::changePerform(int16_t delta)
             const uint8_t m = euclidEngine.getFreezeMask();
             euclidEngine.setFreezeMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
         }
-        else
+        else if (performTab == toolJog)
         {
             const uint8_t m = euclidEngine.getJogMask();
             euclidEngine.setJogMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
+        }
+        else
+        {
+            // Heard straight away if the tool's on.
+            uint8_t& m = performMask[performTab];
+            m = static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit));
+            applyPerformMode();
         }
     }
     else
@@ -394,7 +405,9 @@ void cEuclidParams::refreshPerform()
             else
             {
                 // Whether the tool will take it (the wheel sets it).
-                const uint8_t mask = tab == toolFreeze ? euclidEngine.getFreezeMask() : euclidEngine.getJogMask();
+                const uint8_t mask = tab == toolFreeze ? euclidEngine.getFreezeMask()
+                                     : tab == toolJog  ? euclidEngine.getJogMask()
+                                                       : performMask[tab];
                 const bool picked = (mask >> ch) & 1u;
                 if (!playing)
                     snprintf(t, n, "off");

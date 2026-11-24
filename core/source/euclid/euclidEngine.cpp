@@ -1442,7 +1442,8 @@ void Engine::triggerStep(Channel& c)
     Rhythm cycle = r;
     if (c.cyclePulses >= 0)
         cycle.pulses = c.cyclePulses < r.steps ? static_cast<uint8_t>(c.cyclePulses) : r.steps;
-    if (pulseBoost > 0)
+    const uint8_t self = static_cast<uint8_t>(1u << (&c - channels));
+    if (pulseBoost > 0 && (boostMask & self))
     {
         // The Perform page's Pulses: more of them (only so many as steps).
         const int more = cycle.pulses + pulseBoost;
@@ -1556,14 +1557,14 @@ void Engine::triggerStep(Channel& c)
     if (laneValue[static_cast<int>(LaneKind::sample)] >= 0)
         c.expr.instrument = static_cast<uint8_t>(laneValue[static_cast<int>(LaneKind::sample)]);
     // The Perform page's chord, every time (restored after, as above).
-    const int8_t chordForced = chordOverride;
+    const int8_t chordForced = (chordMask & self) ? chordOverride : static_cast<int8_t>(-1);
     if (chordForced >= 0)
     {
         c.expr.chord = static_cast<ChordType>(chordForced);
         c.expr.chordChance = 100;
     }
     // The Perform page's mode, over everything (restored after, as above).
-    const int8_t forced = modeOverride;
+    const int8_t forced = (modeMask & self) ? modeOverride : static_cast<int8_t>(-1);
     if (forced >= 0)
     {
         if (c.overrideSeen != forced && c.lastCount > 0)
