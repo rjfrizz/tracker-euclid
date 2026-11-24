@@ -87,7 +87,9 @@ def main():
     for layer, title in ((1, "Primary"), (2, "Secondary")):
         k = "i%d" % layer
         w('group "%s"' % title)
-        param(k + "instrument", "Instrument", 0, len(instruments) - 1, "list=inst map=inst init=%d" % (1 if layer == 1 else 0))
+        # sound=1: a saved patch is named after its instruments.
+        param(k + "instrument", "Instrument", 0, len(instruments) - 1,
+              "list=inst map=inst init=%d sound=1" % (1 if layer == 1 else 0))
         param(k + "volume", "Volume", 0, 127, "init=127")
         param(k + "pan", "Pan", -7, 7, "init=0")
         param(k + "tuningcoarse", "Tune", -36, 36, "init=0")

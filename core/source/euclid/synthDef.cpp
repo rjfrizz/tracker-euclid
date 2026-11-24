@@ -662,6 +662,7 @@ bool parse(const char* text, size_t length, Definition& d)
             prm.nibbles = 0;
             prm.then = 0;
             prm.at = 0xFFFF;
+            prm.sound = false;
 
             if (!line.word(w, sizeof(w)))
                 return fail(d, lineNumber, "param: template missing");
@@ -722,6 +723,8 @@ bool parse(const char* text, size_t length, Definition& d)
                     prm.stride = static_cast<uint16_t>(v);
                 else if (strcmp(w, "reload") == 0)
                     prm.reload = v != 0;
+                else if (strcmp(w, "sound") == 0)
+                    prm.sound = v != 0;
                 else if (strcmp(w, "nibbles") == 0 && (v == 0 || v == 2))
                     prm.nibbles = static_cast<uint8_t>(v);
                 else if (strcmp(w, "then") == 0 && v != 0 && v >= -64 && v <= 64)

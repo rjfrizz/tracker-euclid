@@ -17,6 +17,7 @@
 //   group "Op 4 EG"                 params below belong to this group
 //   param vced 0 "Attack" 0 31 [init=31] [show=1] [list=waves] [send=64]
 //                              [stride=16] [reload=1] [nibbles=2] [then=2]
+//                              [sound=1]
 //   listen                          take its dumps whenever they come (a synth
 //                                   that sends its patch itself, unasked)
 //   parts 8 246 [channel=2]         8 copies of the params, 246 apart;
@@ -55,6 +56,8 @@
 // and init= is the value before anything is known about the patch.
 // stride= gives the param its own distance between parts (see parts), and
 // reload=1 asks for the patch again after it changes (a tone selection).
+// sound=1 marks a param naming one of the sounds a patch is built from (an
+// instrument or wave from a list): saving a patch names the file after them.
 // at=n is the param's byte in dumps when that isn't its number (a DSI
 // Tetra's NRPN numbers and dump order differ).
 // then=n also sends the param n lines further on (or back, if negative)
@@ -160,6 +163,7 @@ struct Param
     uint8_t nibbles; // 0: a byte in dumps; 2: two bytes of 4 bits, high first
     int8_t then;     // also send the param this many further on (0: none)
     uint16_t at;     // its place in dumps, if not its number (0xFFFF: none)
+    bool sound;      // names one of the patch's sounds (sound=1)
 };
 
 struct Dump

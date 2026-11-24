@@ -108,6 +108,23 @@ param prm 300 "Tune" -64 63 send=64
     CHECK((message(*d, 0, 10, 1) == std::vector<uint8_t>{0xF0, 0x18, 0x04, 0x00, 0x03, 44, 2, 74, 0, 0xF7}));
 }
 
+// sound=1: the params naming a patch's sounds (for patch file names).
+static void testSoundParams()
+{
+    auto d = load(R"(
+synth "E-mu Proteus/2"
+template prm F0 18 04 d+00 03 pl ph vl vh F7
+list inst "No Instrument" "Piano" "Strings"
+group "Layer 1"
+param prm 23 "Instrument" 0 2 list=inst sound=1
+param prm 24 "Volume" 0 127
+)");
+    CHECK(d->params[0].sound && !d->params[1].sound);
+    char text[24];
+    formatValue(*d, 0, 2, text, sizeof(text));
+    CHECK(std::string(text) == "Strings");
+}
+
 static void testErrors()
 {
     Definition* d = new Definition();
@@ -667,6 +684,7 @@ int main()
     testYamaha();
     testRolandChecksum();
     testEmu14Bit();
+    testSoundParams();
     testErrors();
     testQueue();
     testYamahaDump();

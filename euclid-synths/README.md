@@ -7,8 +7,12 @@ Definition files for the EUCLID Synth page (Params on a MIDI channel): one `.syn
 On the Synth page, edits go out as you make them. File opens the
 channel's patch library (Synths/<synth>/, standard .syx files): Insert
 sends the selected patch, Shift + Delete deletes it, and Shift + File saves
-the page as a new patch, named after the channel (get or load a patch
-first: a patch is the synth's own dump with the page's values written in).
+the page as a new patch (get or load a patch first: a patch is the synth's
+own dump with the page's values written in). It's named after the synth's
+definition and the sounds it's built from (params marked `sound=1`, such as
+the Proteus/2's layer instruments: "Proteus2 Arco Basses+Solo Cello"), or
+else the patch's own name ("JV1080Perf Velvet Pad"); the Tracker keeps no
+date, so that can't be in the name.
 Patches are kept at Device 1 and Part 1 and moved to the channel's on
 loading, so they work on any part. Insert sends the whole
 patch; Shift + Insert gets the synth's patch (for definitions with

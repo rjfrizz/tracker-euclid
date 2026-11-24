@@ -105,7 +105,10 @@ uint32_t bulkNextUs = 0;
 
 // The patches in the channel's synth's folder (names without .syx).
 constexpr uint8_t kMaxPatches = 64;
-char patchNames[kMaxPatches][euclidSynth::kNameLength];
+// Patch files' names (with .syx): longer than other names, to hold a synth
+// and its sounds.
+constexpr int kPatchNameLength = 40;
+char patchNames[kMaxPatches][kPatchNameLength];
 uint8_t patchCount = 0;
 
 // A patch request waiting for its reply.
@@ -782,29 +785,29 @@ uint8_t scanPatches(uint8_t ch)
     FileSystem* f = fs();
     if (!patchDir(ch, dir, sizeof(dir)) || f == nullptr || !f->isSdCardInserted() || !f->exists(dir))
         return 0;
-    static char names[kMaxPatches * kNameLength];
+    static char names[kMaxPatches * kPatchNameLength];
     static char* list[kMaxPatches];
     int count = kMaxPatches;
     f->listDirContents(
       dir, FileSystem::DirContentType::kFiles,
       [](const char* name) {
           size_t len = strlen(name);
-          return len > 4 && len < kNameLength && strcasecmp(name + len - 4, ".syx") == 0;
+          return len > 4 && len < kPatchNameLength && strcasecmp(name + len - 4, ".syx") == 0;
       },
-      names, sizeof(names), kNameLength, count, list);
+      names, sizeof(names), kPatchNameLength, count, list);
     for (int i = 0; i < count && patchCount < kMaxPatches; i++)
     {
-        snprintf(patchNames[patchCount], kNameLength, "%s", list[i]);
+        snprintf(patchNames[patchCount], kPatchNameLength, "%s", list[i]);
         patchNames[patchCount][strlen(patchNames[patchCount]) - 4] = 0; // without .syx
         patchCount++;
     }
     for (int a = 1; a < patchCount; a++)
         for (int b = a; b > 0 && strcasecmp(patchNames[b], patchNames[b - 1]) < 0; b--)
         {
-            char t[kNameLength];
-            memcpy(t, patchNames[b], kNameLength);
-            memcpy(patchNames[b], patchNames[b - 1], kNameLength);
-            memcpy(patchNames[b - 1], t, kNameLength);
+            char t[kPatchNameLength];
+            memcpy(t, patchNames[b], kPatchNameLength);
+            memcpy(patchNames[b], patchNames[b - 1], kPatchNameLength);
+            memcpy(patchNames[b - 1], t, kPatchNameLength);
         }
     return patchCount;
 }
@@ -847,16 +850,61 @@ bool savePatch(uint8_t ch, char* savedAs, size_t length)
         n += imageLength[ch][i];
     }
 
-    // Named after the channel (a patch's name, usually), made safe for the
-    // card, with a number added if that name is taken.
-    char base[16];
-    const char* name = euclidEngine.getNameShown(ch);
+    // Named after the synth (its definition's file) and the sounds the
+    // patch is built from (the params marked sound=1: a Proteus's layer
+    // instruments), or else its own name (the channel's, after getting
+    // it), made safe for the card, with a number added if that's taken.
+    // (The Tracker keeps no date, so it can't be in the name.)
+    char wanted[48];
+    size_t w = 0;
+    {
+        const char* file = channels[ch].slot >= 0 ? slots[channels[ch].slot].file : "";
+        for (const char* c = file; *c != 0 && *c != '.' && w + 1 < sizeof(wanted); c++)
+            wanted[w++] = *c;
+        wanted[w] = 0;
+    }
+    bool anySound = false;
+    char seen[4][24] = {};
+    uint8_t seenCount = 0;
+    for (uint16_t i = 0; i < d->paramCount && seenCount < 4; i++)
+    {
+        if (!d->params[i].sound)
+            continue;
+        char text[24];
+        euclid::synth::formatValue(*d, i, values[ch][i], text, sizeof(text));
+        // Nothing there, or the same sound twice: not named.
+        if (text[0] == 0 || strncasecmp(text, "No ", 3) == 0 || strcasecmp(text, "Off") == 0 ||
+            strcasecmp(text, "None") == 0 || strcmp(text, "-") == 0)
+            continue;
+        bool again = false;
+        for (uint8_t k = 0; k < seenCount; k++)
+            again |= strcmp(seen[k], text) == 0;
+        if (again)
+            continue;
+        snprintf(seen[seenCount++], sizeof(seen[0]), "%s", text);
+        w += static_cast<size_t>(snprintf(wanted + w, sizeof(wanted) - w, "%s%s", anySound ? "+" : (w > 0 ? " " : ""), text));
+        if (w >= sizeof(wanted))
+            w = sizeof(wanted) - 1;
+        anySound = true;
+    }
+    if (!anySound)
+    {
+        const char* name = euclidEngine.getNameShown(ch);
+        if (name != nullptr && name[0] != 0)
+        {
+            w += static_cast<size_t>(snprintf(wanted + w, sizeof(wanted) - w, "%s%s", w > 0 ? " " : "", name));
+            if (w >= sizeof(wanted))
+                w = sizeof(wanted) - 1;
+        }
+    }
+    // Made safe, and short enough to show in the patch list with a number.
+    char base[kPatchNameLength - 8]; // room for " 99.syx"
     size_t b = 0;
-    for (const char* c = name != nullptr ? name : "Patch"; *c != 0 && b + 1 < sizeof(base); c++)
+    for (const char* c = wanted; *c != 0 && b + 1 < sizeof(base); c++)
     {
         const char k = *c;
         const bool ok = (k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z') || (k >= '0' && k <= '9') || k == ' ' ||
-                        k == '-' || k == '_';
+                        k == '-' || k == '_' || k == '+';
         base[b++] = ok ? k : '_';
     }
     while (b > 0 && base[b - 1] == ' ')
@@ -870,7 +918,7 @@ bool savePatch(uint8_t ch, char* savedAs, size_t length)
     if (!f->exists(dir))
         f->mkdir(0, dir);
     char path[96];
-    char file[24];
+    char file[kPatchNameLength];
     for (int k = 1; k < 100; k++)
     {
         if (k == 1)

@@ -27,7 +27,7 @@ list rtdst "Off" "Pitch" "Primary Pitch" "Secondary Pitch" "Volume" "Primary Vol
 list kvsrc "Key" "Velocity"
 list kvdst "Off" "Pitch" "Primary Pitch" "Secondary Pitch" "Volume" "Primary Volume" "Secondary Volume" "Attack" "Primary Attack" "Secondary Attack" "Decay" "Primary Decay" "Secondary Decay" "Release" "Primary Release" "Secondary Release" "Crossfade" "LFO 1 Amount" "LFO 1 Rate" "LFO 2 Amount" "LFO 2 Rate" "Auxiliary Envelope Amount" "Auxiliary Envelope Attack" "Auxiliary Envelope Decay" "Auxiliary Envelope Release" "Sample Start" "Primary Sample Start" "Secondary Sample Start" "Pan" "Primary Pan" "Secondary Pan" "Tone" "Primary Tone" "Secondary Tone"
 group "Primary"
-param p 23 "Instrument" 0 144 list=inst map=inst init=1
+param p 23 "Instrument" 0 144 list=inst map=inst init=1 sound=1
 param p 27 "Volume" 0 127 init=127
 param p 28 "Pan" -7 7 init=0
 param p 25 "Tune" -36 36 init=0
@@ -46,7 +46,7 @@ param p 38 "Solo" 0 1 list=offon
 param p 39 "Chorus" 0 15
 param p 40 "Reverse" 0 1 list=offon
 group "Secondary"
-param p 41 "Instrument" 0 144 list=inst map=inst init=0
+param p 41 "Instrument" 0 144 list=inst map=inst init=0 sound=1
 param p 45 "Volume" 0 127 init=127
 param p 46 "Pan" -7 7 init=0
 param p 43 "Tune" -36 36 init=0
