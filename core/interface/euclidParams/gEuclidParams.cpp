@@ -304,10 +304,10 @@ void cEuclidParams::refreshTitle()
     else if (view == View::perform)
     {
         // The tools on, by name.
-        static const char* const kTools[7] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog" };
+        static const char* const kTools[6] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses" };
         int n = snprintf(titleText, sizeof(titleText), "Perform");
         bool first = true;
-        for (uint8_t i = 0; i < 7 && n < static_cast<int>(sizeof(titleText)) - 8; i++)
+        for (uint8_t i = 0; i < 6 && n < static_cast<int>(sizeof(titleText)) - 8; i++)
             if (performToolOn(i))
             {
                 n += snprintf(titleText + n, sizeof(titleText) - n, "%s%s", first ? "  -  " : " ", kTools[i]);
@@ -330,8 +330,9 @@ void cEuclidParams::refreshTitle()
             if (dot != nullptr)
                 *dot = 0;
         }
-        snprintf(titleText, sizeof(titleText), "%s patches  Ch %d%s", synthName, selectedChannel + 1,
-                 euclidSynth::sending() ? "  -  sending" : "");
+        // How to use one, while nothing's going out.
+        snprintf(titleText, sizeof(titleText), "%s patches  Ch %d  -  %s", synthName, selectedChannel + 1,
+                 euclidSynth::sending() ? "sending" : "Insert sends");
     }
     else if (view == View::synth)
         snprintf(titleText, sizeof(titleText), "Synth  Ch %d%s", selectedChannel + 1,
@@ -969,14 +970,14 @@ void cEuclidParams::refreshChannels()
     // held), the rest for more to come.
     if (view == View::perform)
     {
-        static const char* const kPerformKeys[8] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog", "" };
+        static const char* const kPerformKeys[8] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "", "" };
         for (uint8_t i = 0; i < 8; i++)
         {
-            const bool on = i < 7 && performToolOn(i);
+            const bool on = i < 6 && performToolOn(i);
             display.setControlColors(channelLabel[i], on ? theme.performMutedTrackLabelsColors
                                                          : theme.activeLabelsColors);
             display.setControlText(channelLabel[i], kPerformKeys[i]);
-            display.setControlText2(channelLabel[i], i < 7 ? (on ? "on" : "off") : "");
+            display.setControlText2(channelLabel[i], i < 6 ? (on ? "on" : "off") : "");
             display.refreshControl(channelLabel[i]);
         }
         return;

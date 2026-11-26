@@ -1358,95 +1358,6 @@ static void testPulseBoost()
     CHECK(pulsesIn(20) == 8);
 }
 
-// The Perform page's Jog: channels off the clock, moved by the wheel, then
-// back in time (snap) or carried on from where they got to.
-static void testJog()
-{
-    Engine e = makeEngine();
-    e.setGlobalKey(Key{0, 2});
-    Rhythm r;
-    r.steps = 4;
-    r.pulses = 4;
-    for (int ch = 0; ch < 2; ch++)
-    {
-        e.setRhythm(ch, r);
-        Expression x = e.getExpression(ch);
-        x.enabled = true;
-        x.midiChannel = static_cast<uint8_t>(ch + 1);
-        e.setExpression(ch, x);
-    }
-    const uint8_t n = 60;
-    e.setNotes(0, &n, 1);
-    e.setNotes(1, &n, 1);
-    e.setJogMask(0x01);
-    reset();
-    e.start();
-    run(e, 10);
-    CHECK(e.startJog() && e.isChannelJogged(0) && !e.isChannelJogged(1));
-    auto onsOf = [&](uint8_t midi) {
-        int k = 0;
-        for (auto& ev : events)
-            k += ev.on && ev.channel == midi;
-        return k;
-    };
-    reset();
-    run(e, 48 * 4); // the clock: channel 2's four, channel 1 none
-    CHECK(onsOf(1) == 0 && onsOf(2) == 4);
-    e.jog(48 * 2); // the wheel: two of channel 1's steps
-    CHECK(onsOf(1) == 2);
-    e.stopJog(true); // back where the clock has it: with channel 2
-    reset();
-    run(e, 48);
-    bool together = false;
-    for (auto& a : events)
-        for (auto& b : events)
-            together |= a.on && b.on && a.channel == 1 && b.channel == 2 && a.tick == b.tick;
-    CHECK(together);
-    // Carried on instead: out of time with channel 2, by the jogged half step.
-    CHECK(e.startJog());
-    e.jog(24);
-    e.stopJog(false);
-    reset();
-    run(e, 96);
-    bool apart = true;
-    for (auto& a : events)
-        for (auto& b : events)
-            apart &= !(a.on && b.on && a.channel == 1 && b.channel == 2 && a.tick == b.tick);
-    CHECK(apart && onsOf(1) == 2 && onsOf(2) == 2);
-    e.stop();
-}
-
-// Jog's pads: each takes the jogged channels on to their next pulse,
-// played; its note still ends after its gate, in time.
-static void testJogPulse()
-{
-    Engine e = makeSeqEngine(Key{0, 2}, {60, 64});
-    Rhythm r;
-    r.steps = 8;
-    r.pulses = 2; // x . . . x . . .
-    e.setRhythm(0, r);
-    const uint8_t notes[] = { 60, 64 };
-    e.setNotes(0, notes, 2);
-    reset();
-    e.start();
-    run(e, 10); // the first pulse played
-    CHECK(e.startJog());
-    reset();
-    run(e, 48 * 8); // a cycle of the clock: nothing from it
-    CHECK(playedNotes().empty());
-    e.jogPulse();
-    CHECK((playedNotes() == std::vector<uint8_t>{ 64 }));
-    e.jogPulse();
-    CHECK((playedNotes() == std::vector<uint8_t>{ 64, 60 }));
-    run(e, 48); // the clock ends the note (its gate), nothing more plays
-    bool ended = false;
-    for (auto& ev : events)
-        ended |= !ev.on && ev.note == 60;
-    CHECK(ended && playedNotes().size() == 2);
-    e.stopJog(true);
-    e.stop();
-}
-
 // The tools' channel toggles: a channel left out plays on as it was.
 static void testOverrideMasks()
 {
@@ -2005,8 +1916,6 @@ int main()
     testFreezeJump();
     testChordOverride();
     testPulseBoost();
-    testJog();
-    testJogPulse();
     testOverrideMasks();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();

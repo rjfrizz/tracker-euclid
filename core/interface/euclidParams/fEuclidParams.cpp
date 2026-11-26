@@ -158,10 +158,9 @@ void cEuclidParams::update()
             refreshMiniLines();
     }
 
-    // The Perform page follows freeze and jog (Stop ends them too).
+    // The Perform page follows freeze (Stop unfreezes too).
     if (view == View::perform &&
-        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph ||
-         euclidEngine.isJogging() != lastPerformJog))
+        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph))
     {
         refreshPerform();
         refreshChannels();
@@ -1520,17 +1519,9 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
-        // On the Perform page, with Jog on, any pad moves the jogged
-        // channels on to their next pulse.
+        // The Perform page's pads do nothing (yet).
         if (EP->view == cEuclidParams::View::perform)
-        {
-            if (euclidEngine.isJogging())
-            {
-                euclidEngine.jogPulse();
-                EP->refreshPerform();
-            }
             return;
-        }
 
         // On the Pattern page a pad is a step of the selected channel: a
         // pulse is muted, a rest added, a changed step put back (staged; with

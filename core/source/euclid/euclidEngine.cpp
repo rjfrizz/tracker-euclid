@@ -730,8 +730,6 @@ void Engine::stop()
 {
     if (frozen)
         unfreeze();
-    jogging = false;
-    jogChannels = 0;
     running = false;
     for (Channel& c : channels)
     {
@@ -1517,8 +1515,6 @@ void Engine::triggerStep(Channel& c)
             c.shiftPlayed = static_cast<int8_t>(index);
         }
     }
-    if (pulse)
-        c.pulsesReached++;
     if (!pulse)
         return;
 
@@ -2160,93 +2156,6 @@ void Engine::tickChannel(Channel& c, bool launchPoint)
     }
 }
 
-bool Engine::startJog()
-{
-    if (!running || jogging)
-        return false;
-    uint8_t picked = 0;
-    for (int ch = 0; ch < kChannels; ch++)
-    {
-        const Channel& c = channels[ch];
-        if ((jogMask & (1u << ch)) && c.expr.enabled && !c.expr.muted)
-            picked = static_cast<uint8_t>(picked | (1u << ch));
-    }
-    if (picked == 0)
-        return false;
-    lock();
-    for (int ch = 0; ch < kChannels; ch++)
-    {
-        jogStart[ch].microStep = channels[ch].microStepInStep;
-        jogStart[ch].step = channels[ch].step;
-    }
-    jogStartTime = playTime;
-    jogChannels = picked;
-    jogging = true;
-    unlock();
-    return true;
-}
-
-void Engine::stopJog(bool snap)
-{
-    if (!jogging)
-        return;
-    lock();
-    if (snap)
-    {
-        // Where the clock would have them: where they were, moved on by
-        // the time gone by.
-        const uint32_t gone = playTime - jogStartTime;
-        for (int ch = 0; ch < kChannels; ch++)
-        {
-            if (!(jogChannels & (1u << ch)))
-                continue;
-            Channel& c = channels[ch];
-            const uint32_t length = divisionToMicroSteps(c.stepDivision);
-            const uint32_t total = jogStart[ch].microStep + gone;
-            const uint8_t steps = c.active.steps > 0 ? c.active.steps : 1;
-            c.step = static_cast<uint8_t>((jogStart[ch].step + total / length) % steps);
-            c.microStepInStep = static_cast<uint16_t>(total % length);
-        }
-    }
-    jogging = false;
-    jogChannels = 0;
-    unlock();
-}
-
-void Engine::jog(int microSteps)
-{
-    if (!jogging || microSteps <= 0)
-        return;
-    if (microSteps > kMicroStepsPerBar)
-        microSteps = kMicroStepsPerBar;
-    lock();
-    for (int t = 0; t < microSteps; t++)
-        for (int ch = 0; ch < kChannels; ch++)
-            if ((jogChannels & (1u << ch)) && !(frozen && (frozenChannels & (1u << ch))))
-                tickChannel(channels[ch], false);
-    unlock();
-}
-
-void Engine::jogPulse()
-{
-    if (!jogging)
-        return;
-    lock();
-    for (int ch = 0; ch < kChannels; ch++)
-    {
-        if (!(jogChannels & (1u << ch)) || (frozen && (frozenChannels & (1u << ch))))
-            continue;
-        // On a micro-step at a time until a pulse has been played (at most
-        // two cycles: a rhythm with no pulses doesn't hang).
-        Channel& c = channels[ch];
-        const uint32_t start = c.pulsesReached;
-        const uint32_t most = 2u * kMaxSteps * divisionToMicroSteps(Division::d1_4);
-        for (uint32_t t = 0; t < most && c.pulsesReached == start; t++)
-            tickChannel(c, false);
-    }
-    unlock();
-}
-
 void Engine::onMicroStep()
 {
     if (!running || (frozen && clockHeld))
@@ -2273,20 +2182,6 @@ void Engine::onMicroStep()
                 c.step++;
                 if (c.step >= c.active.steps)
                     c.step = 0;
-            }
-            continue;
-        }
-
-        // A channel on the jog wheel moves only as that does, but its notes
-        // still end after their gate, in time.
-        if (jogging && (jogChannels & (1u << (&c - channels))))
-        {
-            if (c.openCount > 0)
-            {
-                if (c.gateRemaining > 0 && c.gateRemaining != kGateHold)
-                    c.gateRemaining--;
-                if (c.gateRemaining == 0 || !c.expr.enabled || c.expr.muted)
-                    closeNote(c);
             }
             continue;
         }

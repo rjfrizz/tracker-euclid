@@ -1,5 +1,5 @@
 // The Perform page (the Performance key): live moves across all channels.
-// Seven tools, a key each under the screen and a tab each across the top;
+// Six tools, a key each under the screen and a tab each across the top;
 // a key turns its tool on, again off (hands free), and shows its tab, where
 // its settings are, ending with a row a channel for which channels it takes
 // (all to start with; the Performance key also moves on a tab).
@@ -13,9 +13,6 @@
 //   Chord: every channel's single notes get the chord picked; the wheel
 //     turns it through its inversions.
 //   Pulses: every channel gets that many more pulses.
-//   Jog: the channels picked leave the clock; the wheel moves them on, and
-//     any pad takes them to their next pulse. Off, they snap back to the
-//     clock or carry on out of time.
 
 #include "euclidParams/euclidParams.h"
 
@@ -36,10 +33,9 @@ enum Tool : uint8_t
     toolScale,
     toolChord,
     toolPulses,
-    toolJog,
     toolCount
 };
-const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Jog" };
+const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses" };
 
 // Each tab's rows before its channel rows.
 const char* const kFreezeRows[] = { "Freeze", "Morph", "Move", "Notes ahead", "Bend range" };
@@ -48,22 +44,17 @@ const char* const kArpRows[] = { "Arp", "Direction" };
 const char* const kScaleRows[] = { "Scale", "Direction" };
 const char* const kChordRows[] = { "Chord", "Type", "Inversion" };
 const char* const kPulsesRows[] = { "Pulses", "Add" };
-const char* const kJogRows[] = { "Jog", "Jog step", "Off" };
 const char* const* const kRows[toolCount] = { kFreezeRows, kWalkRows, kArpRows, kScaleRows,
-                                              kChordRows,  kPulsesRows, kJogRows };
-const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2, 3 };
+                                              kChordRows,  kPulsesRows };
+const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2 };
 // Every tool's tab ends with a row a channel: whether it takes that one.
 bool hasChannelRows(uint8_t tool)
 {
     return tool < toolCount;
 }
 // The row a tab opens on: what's played live.
-const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1, 0 };
+const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1 };
 
-// Jog: micro-steps a wheel click (1/32, 1/16, 1/8, 1/4).
-const uint8_t kJogTicks[] = { 24, 48, 96, 192 };
-const char* const kJogNames[] = { "1/32", "1/16", "1/8", "1/4" };
-constexpr uint8_t kJogSteps = 4;
 
 // Freeze's whole way (Notes ahead) in this many clicks.
 constexpr int kMorphClicks = 20;
@@ -94,8 +85,6 @@ bool cEuclidParams::performToolOn(uint8_t tool) const
 {
     if (tool == toolFreeze)
         return euclidEngine.isFrozen();
-    if (tool == toolJog)
-        return euclidEngine.isJogging();
     return tool < toolCount && ((performOn >> tool) & 1u);
 }
 
@@ -132,21 +121,6 @@ void cEuclidParams::setPerformTool(uint8_t tool, bool on)
         }
         else if (!on && euclidEngine.isFrozen())
             euclidEngine.unfreeze();
-    }
-    else if (tool == toolJog)
-    {
-        if (on && !euclidEngine.isJogging())
-        {
-            if (!euclidEngine.isRunning())
-            {
-                showMessage("Play first: jog takes channels off the clock");
-                return;
-            }
-            showMessage(euclidEngine.startJog() ? "Jog: turn, or a pad for the next pulse"
-                                                : "No channel playing is set to jog");
-        }
-        else if (!on && euclidEngine.isJogging())
-            euclidEngine.stopJog(performJogSnap);
     }
     else if (tool < toolCount)
     {
@@ -192,18 +166,11 @@ void cEuclidParams::changePerform(int16_t delta)
     const uint8_t row = selectedPerformRow;
     const bool shift = buttons->isButtonPressed(interfaceButtonShift);
 
-    // Live: Freeze's wheel morphs, Jog's moves the channels on.
+    // Live: Freeze's wheel morphs.
     if (performTab == toolFreeze && euclidEngine.isFrozen())
     {
         const int click = euclidEngine.getMorphReach() * 1000 / kMorphClicks;
         euclidEngine.setMorph(euclidEngine.getMorph() + delta * (shift ? click / 5 : click));
-        refreshPerform();
-        return;
-    }
-    if (performTab == toolJog && euclidEngine.isJogging())
-    {
-        if (delta > 0)
-            euclidEngine.jog(delta * kJogTicks[performJogStep % kJogSteps]);
         refreshPerform();
         return;
     }
@@ -218,11 +185,6 @@ void cEuclidParams::changePerform(int16_t delta)
         {
             const uint8_t m = euclidEngine.getFreezeMask();
             euclidEngine.setFreezeMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
-        }
-        else if (performTab == toolJog)
-        {
-            const uint8_t m = euclidEngine.getJogMask();
-            euclidEngine.setJogMask(static_cast<uint8_t>(dir > 0 ? (m | bit) : (m & ~bit)));
         }
         else
         {
@@ -256,12 +218,6 @@ void cEuclidParams::changePerform(int16_t delta)
                     euclidEngine.setChordInversion(static_cast<int8_t>(euclidEngine.getChordInversion() + dir));
                 break;
             case toolPulses: performPulses = static_cast<uint8_t>(clampInt(performPulses + dir, 1, 16)); break;
-            case toolJog:
-                if (row == 1)
-                    performJogStep = static_cast<uint8_t>(clampInt(performJogStep + dir, 0, kJogSteps - 1));
-                else
-                    performJogSnap = dir < 0;
-                break;
             default: break;
         }
         applyPerformMode(); // heard straight away if the tool's on
@@ -283,9 +239,7 @@ void cEuclidParams::refreshPerform()
     if (view != View::perform)
         return;
     const bool frozen = euclidEngine.isFrozen();
-    const bool jogging = euclidEngine.isJogging();
     lastPerformFrozen = frozen;
-    lastPerformJog = jogging;
     lastPerformMorph = euclidEngine.getMorph();
     const uint8_t tab = performTab < toolCount ? performTab : 0;
 
@@ -352,10 +306,6 @@ void cEuclidParams::refreshPerform()
             break;
         }
         case toolPulses: snprintf(performText[1], tn, "+%d", performPulses); break;
-        case toolJog:
-            snprintf(performText[1], tn, "%s a click", kJogNames[performJogStep % kJogSteps]);
-            snprintf(performText[2], tn, "%s", performJogSnap ? "Back in time" : "Stay out of time");
-            break;
         default: break;
     }
 
@@ -395,9 +345,7 @@ void cEuclidParams::refreshPerform()
                 else
                     snprintf(t, n, "%s  %d/%d", a, at, steps);
             }
-            else if (tab == toolJog && jogging && euclidEngine.isChannelJogged(ch))
-                snprintf(t, n, "on the wheel");
-            else if ((tab == toolFreeze && frozen) || (tab == toolJog && jogging))
+            else if (tab == toolFreeze && frozen)
             {
                 snprintf(t, n, "%s", playing ? "plays on" : "off");
                 dim |= 1ul << row;
@@ -405,9 +353,7 @@ void cEuclidParams::refreshPerform()
             else
             {
                 // Whether the tool will take it (the wheel sets it).
-                const uint8_t mask = tab == toolFreeze ? euclidEngine.getFreezeMask()
-                                     : tab == toolJog  ? euclidEngine.getJogMask()
-                                                       : performMask[tab];
+                const uint8_t mask = tab == toolFreeze ? euclidEngine.getFreezeMask() : performMask[tab];
                 const bool picked = (mask >> ch) & 1u;
                 if (!playing)
                     snprintf(t, n, "off");

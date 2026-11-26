@@ -319,19 +319,16 @@ class cEuclidParams : public ModuleBase
     int lastPerformMorph = 0;
     char performText[13][40];
     // The tools (a tab and a key each): Freeze, Walk, Arp, Scale, Chord,
-    // Pulses, Jog. Walk, Arp, Scale, Chord and Pulses on (bit per tool;
-    // Freeze and Jog are the engine's).
+    // Pulses. Walk, Arp, Scale, Chord and Pulses on (bit per tool; Freeze
+    // is the engine's).
     uint8_t performTab = 0;
     uint8_t performOn = 0;
     bool performArpUpDown = false;
     bool performScaleUpDown = false;
     uint8_t performChord = 1;  // euclid::ChordType, triad to start
     uint8_t performPulses = 2; // Pulses adds
-    uint8_t performJogStep = 1; // index: 1/32, 1/16, 1/8, 1/4 a click
-    bool performJogSnap = true;
-    bool lastPerformJog = false;
     // Walk, Arp, Scale, Chord and Pulses: the channels each reaches (bit per
-    // channel, by tool; Freeze's and Jog's are the engine's).
+    // channel, by tool; Freeze's is the engine's).
     uint8_t performMask[7] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     void applyPerformMode();
     void setPerformTool(uint8_t tool, bool on);

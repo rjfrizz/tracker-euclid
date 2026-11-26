@@ -515,19 +515,6 @@ class Engine
     // to its steps), from its next step.
     void setPulseBoost(uint8_t n) { pulseBoost = n > kMaxSteps ? kMaxSteps : n; }
     uint8_t getPulseBoost() const { return pulseBoost; }
-    // The Perform page's Jog: the channels picked (and playing) leave the
-    // clock and move only as jog() moves them, in micro-steps. stopJog
-    // puts them back where the clock would have them (snap), or carries
-    // them on from where they got to.
-    void setJogMask(uint8_t mask) { jogMask = mask; }
-    uint8_t getJogMask() const { return jogMask; }
-    bool startJog();
-    void stopJog(bool snap);
-    void jog(int microSteps);
-    // Each jogged channel on to its next pulse, played (a pad on the Jog tab).
-    void jogPulse();
-    bool isJogging() const { return jogging; }
-    bool isChannelJogged(int ch) const { return jogging && (jogChannels & (1u << ch)) != 0; }
     void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
     uint8_t getMorphReach() const { return morphReach; }
     void unfreeze();
@@ -717,7 +704,6 @@ class Engine
         uint8_t laneIndex[kLaneKinds] = {};
         int8_t lanePlayed[kLaneKinds] = { -1, -1, -1, -1, -1, -1 };
         int8_t cyclePulses = -1; // this cycle's pulses (a pulses lane), -1 = the rhythm's
-        uint32_t pulsesReached = 0; // pulse steps it's come to (played or not)
         int8_t overrideSeen = -1; // the mode override it last played in
         int16_t seedNote = -1;    // a generated mode starts nearest this, once
         int8_t overrideOctave = -1; // a SEQ channel's octave while overridden
@@ -838,15 +824,6 @@ class Engine
     volatile uint8_t modeMask = 0xFF;
     volatile uint8_t chordMask = 0xFF;
     volatile uint8_t boostMask = 0xFF;
-    uint8_t jogMask = 0xFF;
-    bool jogging = false;
-    uint8_t jogChannels = 0;
-    uint32_t jogStartTime = 0;
-    struct JogStart
-    {
-        uint16_t microStep = 0;
-        uint8_t step = 0;
-    } jogStart[kChannels];
     void tickChannel(Channel& c, bool launchPoint);
     uint8_t bendRange = 2;
 };

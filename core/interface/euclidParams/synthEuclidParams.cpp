@@ -522,6 +522,8 @@ void cEuclidParams::openPatches(bool open)
         euclidSynth::scanPatches(selectedChannel);
         patchCursor = 0;
         patchFirst = 0;
+        if (euclidSynth::patches() > 0)
+            showMessage("Pick one, Insert sends it to the synth");
     }
     selectedSynthRow = 0;
     refreshTitle();
