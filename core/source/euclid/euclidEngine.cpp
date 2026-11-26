@@ -2181,7 +2181,7 @@ struct PresetDef
 };
 // Roots are semitones above the key's root when it starts: its I (or i).
 const PresetDef kPresets[] = {
-    // A long vamp on i and bVII (as the Koln Concert's opening).
+    // A long vamp on i and bVII.
     { "i-bVII vamp", 2, { { 0, kMin, 4 }, { 10, kMix, 4 } } },
     // Gospel plagal: I and IV, back and forth.
     { "Gospel I-IV", 2, { { 0, kMaj, 4 }, { 5, kMaj, 4 } } },

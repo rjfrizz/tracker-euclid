@@ -2,7 +2,7 @@
 
 **A generative Euclidean MIDI and sampler sequencer for the Original Polyend Tracker.**
 
-EUCLID turns the Tracker into an instrument for improvising: eight channels of Euclidean rhythms that choose their own notes in a key, which you shape and steer live rather than writing out note by note. It was started with Keith Jarrett's solo piano concerts in mind: long vamps, shifting harmony, sequences and sudden lifts into new keys, played by hand from the Tracker.
+EUCLID is a Euclidean sequencer: eight channels of Euclidean rhythms that choose their own notes in a key, which you shape and steer live rather than writing out note by note.
 
 > [!WARNING]
 > **Work in progress (beta).** EUCLID is a personal project, under active development and tested only on the **Original Tracker (MK66)**. Things will change between builds, and some features are still to be tried on real synths. Keep a stock `.ptf` on your card (see [Installing](#installing) for recovery).
