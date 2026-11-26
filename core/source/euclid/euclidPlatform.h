@@ -136,7 +136,8 @@ const char* file(uint8_t index);
 bool assign(uint8_t ch, int fileIndex); // -1 for none; false (see error()) if it can't load
 int assignedFile(uint8_t ch);           // -1 for none
 const euclid::synth::Definition* definition(uint8_t ch);
-uint8_t device(uint8_t ch);
+uint8_t device(uint8_t ch);    // 0: follows the channel's MIDI channel
+uint8_t deviceFor(uint8_t ch); // the device number in use (1-16)
 void setDevice(uint8_t ch, uint8_t device);
 uint8_t ports(uint8_t ch); // 0 wherever notes go, 1 DIN, 2 USB, 3 both
 void setPorts(uint8_t ch, uint8_t ports);

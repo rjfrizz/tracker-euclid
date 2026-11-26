@@ -125,6 +125,20 @@ param prm 24 "Volume" 0 127
     CHECK(std::string(text) == "Strings");
 }
 
+// device follow: the channel's MIDI channel (0); a number 1-16; nothing else.
+static void testDeviceFollow()
+{
+    const char* body = "\ntemplate cc d+B0 p v\ngroup \"G\"\nparam cc 7 \"Volume\" 0 127\n";
+    auto parsed = [&](const char* device, Definition& d) {
+        std::string text = std::string("synth \"S\"\ndevice ") + device + body;
+        return parse(text.data(), text.size(), d);
+    };
+    auto d = std::make_unique<Definition>();
+    CHECK(parsed("follow", *d) && d->device == 0);
+    CHECK(parsed("8", *d) && d->device == 8);
+    CHECK(!parsed("0", *d) && !parsed("17", *d) && !parsed("x", *d));
+}
+
 static void testErrors()
 {
     Definition* d = new Definition();
@@ -685,6 +699,7 @@ int main()
     testRolandChecksum();
     testEmu14Bit();
     testSoundParams();
+    testDeviceFollow();
     testErrors();
     testQueue();
     testYamahaDump();

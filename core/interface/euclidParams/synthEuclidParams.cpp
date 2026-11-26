@@ -246,7 +246,7 @@ cEuclidParams::PadMap cEuclidParams::synthPadMap(uint8_t row) const
     switch (headerAt(d, row))
     {
         case Header::synth: break; // above
-        case Header::device: return { PadMap::list, 16, 1, 0 };
+        case Header::device: return { PadMap::list, 17, 0, 0 }; // Follow, then 1-16
         case Header::port: return { PadMap::list, 4, 0, 0 };
         case Header::part:
             // With Auto (0) first, for synths whose parts follow MIDI channels.
@@ -340,7 +340,7 @@ void cEuclidParams::setSynthRowValue(uint8_t row, int v)
     {
         case Header::synth: break; // above
         case Header::device:
-            euclidSynth::setDevice(ch, static_cast<uint8_t>(clampInt(v, 1, 16)));
+            euclidSynth::setDevice(ch, static_cast<uint8_t>(clampInt(v, 0, 16)));
             euclidSynth::saveAssignments();
             break;
         case Header::port:
@@ -479,7 +479,13 @@ void cEuclidParams::refreshSynth()
             switch (h)
             {
                 case Header::synth: snprintf(t, n, "%s", d ? d->name : "None (MIDI)"); break;
-                case Header::device: snprintf(t, n, "%d", euclidSynth::device(ch)); break;
+                case Header::device:
+                    // Following the channel's MIDI channel, or its own.
+                    if (euclidSynth::device(ch) == 0)
+                        snprintf(t, n, "Follow (%d)", euclidSynth::deviceFor(ch));
+                    else
+                        snprintf(t, n, "%d", euclidSynth::device(ch));
+                    break;
                 case Header::port: snprintf(t, n, "%s", kPortNames[euclidSynth::ports(ch) & 3]); break;
                 case Header::part:
                     if (euclidSynth::partSetting(ch) != 0)

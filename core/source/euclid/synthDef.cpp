@@ -419,19 +419,25 @@ bool parse(const char* text, size_t length, Definition& d)
             if (!line.word(d.hint, sizeof(d.hint)))
                 return fail(d, lineNumber, "hint: text missing");
         }
-        else if (strcmp(key, "pause") == 0 || strcmp(key, "device") == 0)
+        else if (strcmp(key, "pause") == 0)
         {
             long v;
             if (!line.word(w, sizeof(w)) || !parseInt(w, v) || v < 0 || v > 2000)
                 return fail(d, lineNumber, "number expected");
-            if (key[0] == 'p')
-                d.pauseMs = static_cast<uint16_t>(v);
-            else
-            {
-                if (v < 1 || v > 16)
-                    return fail(d, lineNumber, "device: 1-16");
+            d.pauseMs = static_cast<uint16_t>(v);
+        }
+        else if (strcmp(key, "device") == 0)
+        {
+            // A number, or follow: the channel's MIDI channel (0).
+            long v;
+            if (!line.word(w, sizeof(w)))
+                return fail(d, lineNumber, "device: 1-16 or follow");
+            if (strcmp(w, "follow") == 0)
+                d.device = 0;
+            else if (parseInt(w, v) && v >= 1 && v <= 16)
                 d.device = static_cast<uint8_t>(v);
-            }
+            else
+                return fail(d, lineNumber, "device: 1-16 or follow");
         }
         else if (strcmp(key, "port") == 0)
         {

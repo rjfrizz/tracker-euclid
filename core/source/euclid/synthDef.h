@@ -10,7 +10,8 @@
 // File format, one item per line ('#' starts a comment):
 //   synth "Yamaha TX81Z"            name shown on screen
 //   pause 30                        ms to wait after each message
-//   device 1                        default device number, 1-16
+//   device 1                        default device number, 1-16 (or follow:
+//                                   the channel's MIDI channel)
 //   port din                        default port: din, usb, both or notes
 //   template vced F0 43 d+10 12 p v F7
 //   list waves "W1" "W2" "W3"       named values for params (list=waves)

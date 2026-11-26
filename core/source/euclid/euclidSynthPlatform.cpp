@@ -301,7 +301,7 @@ void queueParam(uint8_t ch, uint16_t param)
     const uint8_t part = euclidSynth::part(ch);
     if (part == 0)
         return; // the notes' MIDI channel isn't one of the synth's parts
-    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], c.device, part, msg, sizeof(msg), values[ch]);
+    size_t n = euclid::synth::buildMessage(d, param, values[ch][param], euclidSynth::deviceFor(ch), part, msg, sizeof(msg), values[ch]);
     // One entry a message, each with its pause (a template can send several).
     size_t at = 0;
     for (uint32_t piece = 0; at < n; piece++)
@@ -401,7 +401,7 @@ void takeInbox()
                 const Definition* d = definition(ch);
                 euclid::synth::DumpData dump;
                 if (d == nullptr || !d->listen ||
-                    !euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], channels[ch].device, dump))
+                    !euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], euclidSynth::deviceFor(ch), dump))
                     continue;
                 const uint8_t part = euclidSynth::part(ch);
                 if (part == 0)
@@ -410,7 +410,7 @@ void takeInbox()
                 char name[24] = "";
                 euclid::synth::dumpName(*d, dump, part, name, sizeof(name));
                 imageCount[ch] = 0;
-                keepImage(ch, inbox[slot], inboxLength[slot], channels[ch].device, part);
+                keepImage(ch, inbox[slot], inboxLength[slot], euclidSynth::deviceFor(ch), part);
                 if (name[0] != 0)
                 {
                     euclidEngine.setTextName(ch, name);
@@ -427,12 +427,12 @@ void takeInbox()
             const Definition* d = definition(ch);
             euclid::synth::DumpData dump;
             if (d != nullptr &&
-                euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], channels[ch].device, dump))
+                euclid::synth::matchDump(*d, inbox[slot], inboxLength[slot], euclidSynth::deviceFor(ch), dump))
             {
                 const uint8_t part = euclidSynth::part(ch);
                 valuesReceived += euclid::synth::applyDump(*d, dump, part, values[ch]);
                 euclid::synth::dumpName(*d, dump, part, patchName, sizeof(patchName));
-                keepImage(ch, inbox[slot], inboxLength[slot], channels[ch].device, part);
+                keepImage(ch, inbox[slot], inboxLength[slot], euclidSynth::deviceFor(ch), part);
                 dumpsReceived++;
                 requestDeadline = nowMs() + kMoreWaitMs;
             }
@@ -461,7 +461,7 @@ void update()
         {
             uint8_t msg[euclid::synth::kMaxMessage];
             const uint16_t p = eachNext++;
-            const size_t n = euclid::synth::buildEachRequest(*d, p, c.device, part, msg, sizeof(msg));
+            const size_t n = euclid::synth::buildEachRequest(*d, p, euclidSynth::deviceFor(static_cast<uint8_t>(eachChannel)), part, msg, sizeof(msg));
             if (n > 0)
                 queue.push(0x80000000u | (static_cast<uint32_t>(eachChannel) << 16) | p, msg, n, c.ports, d->pauseMs);
         }
@@ -609,9 +609,20 @@ uint8_t device(uint8_t ch)
     return ch < euclid::kChannels ? channels[ch].device : 1;
 }
 
+// 0 follows the MIDI channel the channel's notes go out on.
+uint8_t deviceFor(uint8_t ch)
+{
+    if (ch >= euclid::kChannels)
+        return 1;
+    if (channels[ch].device != 0)
+        return channels[ch].device;
+    const uint8_t m = euclidEngine.getLiveExpression(ch).midiChannel;
+    return m >= 1 && m <= 16 ? m : 1;
+}
+
 void setDevice(uint8_t ch, uint8_t d)
 {
-    if (ch < euclid::kChannels && d >= 1 && d <= 16)
+    if (ch < euclid::kChannels && d <= 16)
         channels[ch].device = d;
 }
 
@@ -720,7 +731,7 @@ bool requestPatch(uint8_t ch)
     for (uint8_t i = 0; i < d->requestCount; i++)
     {
         uint8_t msg[euclid::synth::kMaxMessage];
-        size_t n = euclid::synth::buildRequest(*d, i, c.device, part, msg, sizeof(msg));
+        size_t n = euclid::synth::buildRequest(*d, i, euclidSynth::deviceFor(ch), part, msg, sizeof(msg));
         if (n > 0)
             queue.push((static_cast<uint32_t>(ch) << 16) | (0xFF00u + i), msg, n, c.ports, d->pauseMs);
     }
@@ -1009,8 +1020,8 @@ bool loadPatch(uint8_t ch, uint8_t index)
                 continue;
             keepImage(ch, msg, len, 1, 1);
             memcpy(bulk + out, msg, len);
-            euclid::synth::moveDump(*d, bulk + out, len, 1, 1, c.device, part);
-            if (euclid::synth::matchDump(*d, bulk + out, len, c.device, dump))
+            euclid::synth::moveDump(*d, bulk + out, len, 1, 1, euclidSynth::deviceFor(ch), part);
+            if (euclid::synth::matchDump(*d, bulk + out, len, euclidSynth::deviceFor(ch), dump))
             {
                 euclid::synth::applyDump(*d, dump, part, values[ch]);
                 euclid::synth::dumpName(*d, dump, part, name, sizeof(name));
