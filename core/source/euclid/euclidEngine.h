@@ -485,6 +485,7 @@ struct Progression
 {
     char name[kProgNameLength] = {};
     uint8_t count = 0; // slots used, 0-16 (0: an empty user one)
+    uint8_t kept = 0;  // slots holding chords, past count too (not saved)
     ProgSlot slot[kProgSlots];
 };
 // The built-in ones, modelled on solo piano improvising.

@@ -332,11 +332,15 @@ void cEuclidParams::changePerform(int16_t delta)
                         slot.beats = static_cast<uint8_t>(clampInt(slot.beats + dir, 1, 16));
                     else if (row == 7)
                     {
-                        // More chords: each new one a copy of the last.
+                        // Fewer chords keeps the rest for coming back to; more
+                        // brings them back, then repeats the progression.
                         const int count = clampInt(p.count + dir, 1, euclid::kProgSlots);
+                        const int kept = p.kept > p.count ? p.kept : p.count;
                         for (int k = p.count; k < count; k++)
-                            p.slot[k] = p.slot[p.count - 1];
+                            if (k >= kept)
+                                p.slot[k] = p.slot[k % p.count];
                         p.count = static_cast<uint8_t>(count);
+                        p.kept = static_cast<uint8_t>(count > kept ? count : kept);
                         if (performProgSlot >= p.count)
                             performProgSlot = static_cast<uint8_t>(p.count - 1);
                     }

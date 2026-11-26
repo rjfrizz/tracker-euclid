@@ -1560,14 +1560,17 @@ void Engine::triggerStep(Channel& c)
     if (laneValue[static_cast<int>(LaneKind::sample)] >= 0)
         c.expr.instrument = static_cast<uint8_t>(laneValue[static_cast<int>(LaneKind::sample)]);
     // The Perform page's chord, every time (restored after, as above).
-    const int8_t chordForced = (chordMask & self) ? chordOverride : static_cast<int8_t>(-1);
+    // A channel keeping its own key keeps its own notes too: the Perform
+    // page's chord and mode don't reach it.
+    const bool ownKey = (restore.mode == NoteMode::seq ? c.expr.seqKeyMode : c.expr.keyMode) == KeyMode::own;
+    const int8_t chordForced = (chordMask & self) && !ownKey ? chordOverride : static_cast<int8_t>(-1);
     if (chordForced >= 0)
     {
         c.expr.chord = static_cast<ChordType>(chordForced);
         c.expr.chordChance = 100;
     }
     // The Perform page's mode, over everything (restored after, as above).
-    const int8_t forced = (modeMask & self) ? modeOverride : static_cast<int8_t>(-1);
+    const int8_t forced = (modeMask & self) && !ownKey ? modeOverride : static_cast<int8_t>(-1);
     if (forced >= 0)
     {
         if (c.overrideSeen != forced && c.lastCount > 0)

@@ -462,6 +462,7 @@ bool deserializeProgressions(Progression* user, const uint8_t* buf, size_t lengt
         p.count = buf[at++];
         if (p.count > kProgSlots)
             p.count = 0;
+        p.kept = p.count;
         for (int k = 0; k < kProgSlots; k++)
         {
             p.slot[k].root = static_cast<uint8_t>(buf[at++] % 12);

@@ -1442,6 +1442,32 @@ static void testProgression()
         CHECK(progressionPreset(i).count > 0 && progressionPreset(i).name[0] != 0);
 }
 
+// A channel keeping its own key isn't reached by the Perform page's chord
+// or mode.
+static void testOwnKeyIgnoresOverrides()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60});
+    Expression x = e.getExpression(0);
+    x.seqKeyMode = KeyMode::own;
+    e.setExpression(0, x);
+    e.setChordOverride(static_cast<int8_t>(ChordType::triad));
+    e.setModeOverride(static_cast<int8_t>(NoteMode::arpUp));
+    reset();
+    e.start();
+    run(e, 48 * 3);
+    e.stop();
+    CHECK((playedNotes() == std::vector<uint8_t>{ 60, 60, 60 }));
+    // Following the key, it is.
+    x.seqKeyMode = KeyMode::follow;
+    e.setExpression(0, x);
+    e.setModeOverride(-1);
+    reset();
+    e.start();
+    run(e, 10);
+    e.stop();
+    CHECK(playedNotes().size() == 3);
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1970,6 +1996,7 @@ int main()
     testPulseBoost();
     testOverrideMasks();
     testProgression();
+    testOwnKeyIgnoresOverrides();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();
