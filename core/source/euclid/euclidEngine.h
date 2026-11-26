@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 // Generative Euclidean MIDI engine for the EUCLID edition.
@@ -468,6 +469,32 @@ struct Output
     void (*unlock)() = nullptr;
 };
 
+// Progressions (the Perform page's Progression): a list of chords, each a
+// root (semitones above the master key's root when the progression starts),
+// a scale (scales.h) and a length in beats. Playing one sets the master key
+// to each in turn, on its beat (not the launch point), round and round.
+constexpr int kProgSlots = 16;
+constexpr int kProgNameLength = 16;
+struct ProgSlot
+{
+    uint8_t root = 0;  // 0-11 above the progression's home root
+    uint8_t scale = 2; // scales.h, major to start
+    uint8_t beats = 4; // 1-16
+};
+struct Progression
+{
+    char name[kProgNameLength] = {};
+    uint8_t count = 0; // slots used, 0-16 (0: an empty user one)
+    ProgSlot slot[kProgSlots];
+};
+// The built-in ones, modelled on solo piano improvising.
+uint8_t progressionPresetCount();
+const Progression& progressionPreset(uint8_t i);
+// A short chord name for a slot in a key: "Am", "G7", "Ddor"...
+void progressionChordName(const ProgSlot& s, uint8_t homeRoot, char* out, size_t length);
+// User progressions: kUserProgs of them, kept in a file (euclidSets.h).
+constexpr int kUserProgs = 4;
+
 class Engine
 {
   public:
@@ -515,6 +542,16 @@ class Engine
     // to its steps), from its next step.
     void setPulseBoost(uint8_t n) { pulseBoost = n > kMaxSteps ? kMaxSteps : n; }
     uint8_t getPulseBoost() const { return pulseBoost; }
+    // Progression: plays p from its first chord (home: the master key now,
+    // put back by stopProgression). Ticks on the beat while running;
+    // setProgression swaps the chords in while it plays (an edit).
+    void startProgression(const Progression& p);
+    void setProgression(const Progression& p);
+    void stopProgression();
+    void jumpProgression(uint8_t slot); // straight to that chord
+    bool isProgressing() const { return progressing; }
+    uint8_t getProgressionSlot() const { return progSlot; }
+    Key getProgressionHome() const { return progHome; }
     void setMorphReach(uint8_t notes) { morphReach = notes < 1 ? 1 : (notes > kMorphSteps ? kMorphSteps : notes); }
     uint8_t getMorphReach() const { return morphReach; }
     void unfreeze();
@@ -550,6 +587,8 @@ class Engine
     Rhythm getRhythm(int ch) const;
     Expression getExpression(int ch) const;
     Key getGlobalKey() const { return globalStaged; }
+    // The key to save: a progression playing changes the key, not the set's.
+    Key getSavedGlobalKey() const { return progressing ? progHome : globalStaged; }
     // The key a channel plays in, from its staged settings. For a SEQ
     // channel set to Own it's the list's home key.
     Key getChannelKey(int ch) const;
@@ -818,6 +857,14 @@ class Engine
     uint8_t morphReach = 3; // notes ahead Freeze goes to
     bool morphJump = false;
     volatile int8_t modeOverride = -1;
+    bool progressing = false;
+    Progression progression;
+    Key progHome;
+    uint8_t progSlot = 0;
+    uint8_t progBeatsLeft = 0;
+    bool progSkipBeat = false; // started between beats: the next one doesn't count
+    void applyProgSlotLocked();
+    void progressionTick();
     volatile int8_t chordOverride = -1;
     volatile int8_t chordInversion = 0;
     volatile uint8_t pulseBoost = 0;

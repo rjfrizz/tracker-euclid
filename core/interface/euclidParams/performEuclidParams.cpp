@@ -1,5 +1,5 @@
 // The Perform page (the Performance key): live moves across all channels.
-// Six tools, a key each under the screen and a tab each across the top;
+// Seven tools, a key each under the screen and a tab each across the top;
 // a key turns its tool on, again off (hands free), and shows its tab, where
 // its settings are, ending with a row a channel for which channels it takes
 // (all to start with; the Performance key also moves on a tab).
@@ -13,11 +13,16 @@
 //   Chord: every channel's single notes get the chord picked; the wheel
 //     turns it through its inversions.
 //   Pulses: every channel gets that many more pulses.
+//   Progression: the master key moves through a progression's chords, each
+//     on its beat, round and round (off: back to the key it started in).
+//     Built-in ones, and four of your own to edit (editing a built-in one
+//     copies it to the first empty one of yours); the pads jump to a chord.
 
 #include "euclidParams/euclidParams.h"
 
 #include "euclid/euclidEngine.h"
 #include "euclid/euclidPlatform.h"
+#include "scales.h"
 #include "mtStructs.h"
 
 #include <stdio.h>
@@ -33,9 +38,10 @@ enum Tool : uint8_t
     toolScale,
     toolChord,
     toolPulses,
+    toolProg,
     toolCount
 };
-const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses" };
+const char* const kToolNames[toolCount] = { "Freeze", "Walk", "Arp", "Scale", "Chord", "Pulses", "Prog" };
 
 // Each tab's rows before its channel rows.
 const char* const kFreezeRows[] = { "Freeze", "Morph", "Move", "Notes ahead", "Bend range" };
@@ -44,16 +50,42 @@ const char* const kArpRows[] = { "Arp", "Direction" };
 const char* const kScaleRows[] = { "Scale", "Direction" };
 const char* const kChordRows[] = { "Chord", "Type", "Inversion" };
 const char* const kPulsesRows[] = { "Pulses", "Add" };
+const char* const kProgRows[] = { "Progression", "Pick", "Chords", "Chord", "Root", "Type", "Beats", "Chords used" };
 const char* const* const kRows[toolCount] = { kFreezeRows, kWalkRows, kArpRows, kScaleRows,
-                                              kChordRows,  kPulsesRows };
-const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2 };
+                                              kChordRows,  kPulsesRows, kProgRows };
+const uint8_t kRowCounts[toolCount] = { 5, 1, 2, 2, 3, 2, 8 };
 // Every tool's tab ends with a row a channel: whether it takes that one.
 bool hasChannelRows(uint8_t tool)
 {
-    return tool < toolCount;
+    return tool < toolCount && tool != toolProg; // the progression moves the master key
 }
 // The row a tab opens on: what's played live.
-const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1 };
+const uint8_t kFirstRow[toolCount] = { 1, 0, 1, 1, 2, 1, 1 };
+
+// A chord's root as a degree of the key the progression started in.
+const char* const kDegrees[12] = { "I", "bII", "II", "bIII", "III", "IV", "#IV", "V", "bVI", "VI", "bVII", "VII" };
+const char* const kNoteNames[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+
+// Presets first, then the user ones.
+uint8_t progCount()
+{
+    return static_cast<uint8_t>(euclid::progressionPresetCount() + euclid::kUserProgs);
+}
+const euclid::Progression& progAt(uint8_t i)
+{
+    const uint8_t presets = euclid::progressionPresetCount();
+    return i < presets ? euclid::progressionPreset(i) : euclidProgressions::user(static_cast<uint8_t>(i - presets));
+}
+bool isUserProg(uint8_t i)
+{
+    return i >= euclid::progressionPresetCount();
+}
+// The key the chords are named in: the progression's home while it plays.
+uint8_t progHomeRoot()
+{
+    return euclidEngine.isProgressing() ? euclidEngine.getProgressionHome().root
+                                        : euclidEngine.getLiveGlobalKey().root;
+}
 
 
 // Freeze's whole way (Notes ahead) in this many clicks.
@@ -85,6 +117,8 @@ bool cEuclidParams::performToolOn(uint8_t tool) const
 {
     if (tool == toolFreeze)
         return euclidEngine.isFrozen();
+    if (tool == toolProg)
+        return euclidEngine.isProgressing();
     return tool < toolCount && ((performOn >> tool) & 1u);
 }
 
@@ -122,6 +156,22 @@ void cEuclidParams::setPerformTool(uint8_t tool, bool on)
         else if (!on && euclidEngine.isFrozen())
             euclidEngine.unfreeze();
     }
+    else if (tool == toolProg)
+    {
+        if (on)
+        {
+            const euclid::Progression& p = progAt(performProg);
+            if (p.count == 0)
+            {
+                showMessage("Empty: pick another, or edit this one");
+                return;
+            }
+            euclidEngine.startProgression(p);
+            performProgSlot = 0;
+        }
+        else
+            euclidEngine.stopProgression();
+    }
     else if (tool < toolCount)
     {
         if (on)
@@ -158,6 +208,31 @@ void cEuclidParams::nextPerformTab()
     performTab = static_cast<uint8_t>((performTab + 1) % toolCount);
     selectedPerformRow = kFirstRow[performTab];
     refreshPerform();
+}
+
+// The progression to edit: the user one picked, or a copy of the preset
+// picked in the first empty user one (picked from then on).
+bool cEuclidParams::editPerformProg()
+{
+    if (isUserProg(performProg))
+        return true;
+    for (uint8_t u = 0; u < euclid::kUserProgs; u++)
+    {
+        euclid::Progression& p = euclidProgressions::user(u);
+        if (p.count != 0)
+            continue;
+        p = progAt(performProg);
+        char msg[40];
+        snprintf(msg, sizeof(msg), "Editing a copy: User %d", u + 1);
+        showMessage(msg);
+        performProg = static_cast<uint8_t>(euclid::progressionPresetCount() + u);
+        euclidProgressions::changed();
+        if (euclidEngine.isProgressing())
+            euclidEngine.setProgression(p);
+        return true;
+    }
+    showMessage("Your 4 are full: pick one of yours to edit");
+    return false;
 }
 
 void cEuclidParams::changePerform(int16_t delta)
@@ -218,6 +293,57 @@ void cEuclidParams::changePerform(int16_t delta)
                     euclidEngine.setChordInversion(static_cast<int8_t>(euclidEngine.getChordInversion() + dir));
                 break;
             case toolPulses: performPulses = static_cast<uint8_t>(clampInt(performPulses + dir, 1, 16)); break;
+            case toolProg:
+                if (row == 1)
+                {
+                    // Another progression (playing on, if it's on).
+                    performProg = static_cast<uint8_t>(clampInt(performProg + dir, 0, progCount() - 1));
+                    performProgSlot = 0;
+                    if (euclidEngine.isProgressing() && progAt(performProg).count > 0)
+                        euclidEngine.startProgression(progAt(performProg));
+                }
+                else if (row == 2)
+                    showMessage("Pads jump to a chord while it plays");
+                else if (row == 3)
+                {
+                    const euclid::Progression& p = progAt(performProg);
+                    performProgSlot = static_cast<uint8_t>(clampInt(performProgSlot + dir, 0, p.count > 0 ? p.count - 1 : 0));
+                }
+                else if (editPerformProg())
+                {
+                    euclid::Progression& p = euclidProgressions::user(
+                      static_cast<uint8_t>(performProg - euclid::progressionPresetCount()));
+                    if (p.count == 0)
+                    {
+                        // An empty one starts with a chord on the key's root.
+                        p.count = 1;
+                        p.slot[0] = euclid::ProgSlot();
+                        snprintf(p.name, sizeof(p.name), "User %d", performProg - euclid::progressionPresetCount() + 1);
+                    }
+                    if (performProgSlot >= p.count)
+                        performProgSlot = static_cast<uint8_t>(p.count - 1);
+                    euclid::ProgSlot& slot = p.slot[performProgSlot];
+                    if (row == 4)
+                        slot.root = static_cast<uint8_t>((slot.root + 12 + dir) % 12);
+                    else if (row == 5)
+                        slot.scale = static_cast<uint8_t>(clampInt(slot.scale + dir, 1, MAX_SCALE));
+                    else if (row == 6)
+                        slot.beats = static_cast<uint8_t>(clampInt(slot.beats + dir, 1, 16));
+                    else if (row == 7)
+                    {
+                        // More chords: each new one a copy of the last.
+                        const int count = clampInt(p.count + dir, 1, euclid::kProgSlots);
+                        for (int k = p.count; k < count; k++)
+                            p.slot[k] = p.slot[p.count - 1];
+                        p.count = static_cast<uint8_t>(count);
+                        if (performProgSlot >= p.count)
+                            performProgSlot = static_cast<uint8_t>(p.count - 1);
+                    }
+                    euclidProgressions::changed();
+                    if (euclidEngine.isProgressing())
+                        euclidEngine.setProgression(p);
+                }
+                break;
             default: break;
         }
         applyPerformMode(); // heard straight away if the tool's on
@@ -306,6 +432,50 @@ void cEuclidParams::refreshPerform()
             break;
         }
         case toolPulses: snprintf(performText[1], tn, "+%d", performPulses); break;
+        case toolProg:
+        {
+            const euclid::Progression& p = progAt(performProg);
+            const uint8_t home = progHomeRoot();
+            if (isUserProg(performProg))
+                snprintf(performText[1], tn, "%s",
+                         p.count > 0 ? p.name : "(empty: edit to start)");
+            else
+                snprintf(performText[1], tn, "%s", p.name);
+            // The chords, the one playing in brackets.
+            const bool playing = euclidEngine.isProgressing();
+            const uint8_t at = euclidEngine.getProgressionSlot();
+            size_t n = 0;
+            performText[2][0] = 0;
+            for (uint8_t k = 0; k < p.count && n + 10 < tn; k++)
+            {
+                char c[12];
+                euclid::progressionChordName(p.slot[k], home, c, sizeof(c));
+                const bool now = playing && k == at;
+                n += static_cast<size_t>(snprintf(performText[2] + n, tn - n, "%s%s%s%s", k > 0 ? " " : "",
+                                                  now ? "[" : "", c, now ? "]" : ""));
+            }
+            if (p.count == 0)
+                snprintf(performText[2], tn, "-");
+            if (performProgSlot >= p.count && p.count > 0)
+                performProgSlot = static_cast<uint8_t>(p.count - 1);
+            if (p.count > 0)
+            {
+                const euclid::ProgSlot& sl = p.slot[performProgSlot];
+                char c[12];
+                euclid::progressionChordName(sl, home, c, sizeof(c));
+                snprintf(performText[3], tn, "%d of %d  (%s)", performProgSlot + 1, p.count, c);
+                snprintf(performText[4], tn, "%s  (%s)", kDegrees[sl.root % 12], kNoteNames[(home + sl.root) % 12]);
+                snprintf(performText[5], tn, "%s", sl.scale <= MAX_SCALE ? scaleNames[sl.scale] : "?");
+                snprintf(performText[6], tn, "%d beat%s", sl.beats, sl.beats == 1 ? "" : "s");
+                snprintf(performText[7], tn, "%d", p.count);
+            }
+            else
+                for (uint8_t r = 3; r < 8; r++)
+                    snprintf(performText[r], tn, "-");
+            lastPerformProg = playing;
+            lastPerformProgSlot = at;
+            break;
+        }
         default: break;
     }
 

@@ -82,6 +82,18 @@ void opened(const char* projectDir); // after a project is opened
 void created();
 } // namespace euclidProject
 
+// User progressions (the Perform page's Progression; euclidEngine.h):
+// saved in Sets/progress.prg, and with projects.
+namespace euclid
+{
+struct Progression;
+}
+namespace euclidProgressions
+{
+euclid::Progression& user(uint8_t i); // 0 .. kUserProgs - 1
+void changed();                        // after editing one: saves it
+} // namespace euclidProgressions
+
 // The chain (Song key; euclidChain.h): saved in Sets/chain.chn. While it's
 // on, stopping readies its first step and Play runs the steps in order.
 namespace euclid

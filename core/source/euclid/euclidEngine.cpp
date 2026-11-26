@@ -723,6 +723,13 @@ void Engine::start()
     launchCounter = 0;
     playTime = 0;
     captureCount = 0; // a new take
+    if (progressing)
+    {
+        // From its first chord, on Play's first beat (which counts).
+        progSlot = 0;
+        applyProgSlotLocked();
+        progSkipBeat = true;
+    }
     running = true;
 }
 
@@ -2156,10 +2163,222 @@ void Engine::tickChannel(Channel& c, bool launchPoint)
     }
 }
 
+//------------------------------------------------------------------------------
+// Progressions
+
+namespace
+{
+constexpr uint8_t kMin = 1, kMaj = 2, kDor = 3, kLyd = 4, kLoc = 6, kPhr = 7, kPhrDom = 8, kMix = 9, kMelMin = 10,
+                  kHarmMin = 11;
+struct PresetDef
+{
+    const char* name;
+    uint8_t count;
+    uint8_t slots[kProgSlots][3]; // root, scale, beats
+};
+// Roots are semitones above the key's root when it starts: its I (or i).
+const PresetDef kPresets[] = {
+    // A long vamp on i and bVII (as the Koln Concert's opening).
+    { "i-bVII vamp", 2, { { 0, kMin, 4 }, { 10, kMix, 4 } } },
+    // Gospel plagal: I and IV, back and forth.
+    { "Gospel I-IV", 2, { { 0, kMaj, 4 }, { 5, kMaj, 4 } } },
+    // A modal vamp changing every half bar.
+    { "Half-bar vamp", 2, { { 0, kDor, 2 }, { 5, kMix, 2 } } },
+    // Down to the dominant: i bVII bVI V.
+    { "Andalusian", 4, { { 0, kMin, 4 }, { 10, kMaj, 4 }, { 8, kLyd, 4 }, { 7, kPhrDom, 4 } } },
+    // The line cliche: the minor chord's colour moving under the hands.
+    { "Line cliche", 4, { { 0, kMin, 4 }, { 0, kHarmMin, 4 }, { 0, kMin, 4 }, { 0, kDor, 4 } } },
+    { "ii-V-I", 3, { { 2, kDor, 2 }, { 7, kMix, 2 }, { 0, kMaj, 4 } } },
+    { "vi-ii-V-I", 4, { { 9, kMin, 2 }, { 2, kDor, 2 }, { 7, kMix, 2 }, { 0, kMaj, 2 } } },
+    // Round the circle of fifths in the key: a falling sequence.
+    { "Diatonic 5ths",
+      8,
+      { { 0, kMaj, 2 },
+        { 5, kLyd, 2 },
+        { 11, kLoc, 2 },
+        { 4, kPhr, 2 },
+        { 9, kMin, 2 },
+        { 2, kDor, 2 },
+        { 7, kMix, 2 },
+        { 0, kMaj, 2 } } },
+    // A falling bass under I V vi iii IV I IV V.
+    { "Falling bass",
+      8,
+      { { 0, kMaj, 2 },
+        { 7, kMix, 2 },
+        { 9, kMin, 2 },
+        { 4, kPhr, 2 },
+        { 5, kMaj, 2 },
+        { 0, kMaj, 2 },
+        { 5, kMaj, 2 },
+        { 7, kMix, 2 } } },
+    // Lifts: up a whole step, and round the minor thirds.
+    { "Step lift", 2, { { 0, kMaj, 8 }, { 2, kMaj, 8 } } },
+    { "Minor 3rds", 4, { { 0, kMaj, 4 }, { 3, kMaj, 4 }, { 6, kMaj, 4 }, { 9, kMaj, 4 } } },
+    // Minor with its melodic colour, then the dominant.
+    { "i-iv-V minor", 3, { { 0, kMelMin, 4 }, { 5, kDor, 2 }, { 7, kPhrDom, 2 } } },
+};
+constexpr uint8_t kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
+} // namespace
+
+uint8_t progressionPresetCount()
+{
+    return kPresetCount;
+}
+
+const Progression& progressionPreset(uint8_t i)
+{
+    // Built on first use from the table (no constructors at startup).
+    static Progression built[kPresetCount];
+    static bool ready[kPresetCount] = {};
+    if (i >= kPresetCount)
+        i = 0;
+    if (!ready[i])
+    {
+        Progression& p = built[i];
+        const PresetDef& d = kPresets[i];
+        for (int k = 0; k < kProgNameLength - 1 && d.name[k] != 0; k++)
+            p.name[k] = d.name[k];
+        p.count = d.count;
+        for (uint8_t k = 0; k < d.count; k++)
+        {
+            p.slot[k].root = d.slots[k][0];
+            p.slot[k].scale = d.slots[k][1];
+            p.slot[k].beats = d.slots[k][2];
+        }
+        ready[i] = true;
+    }
+    return built[i];
+}
+
+void progressionChordName(const ProgSlot& s, uint8_t homeRoot, char* out, size_t length)
+{
+    static const char* const kRoots[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    const char* q;
+    switch (s.scale)
+    {
+        case kMaj: q = ""; break;
+        case kMin: q = "m"; break;
+        case kDor: q = "m7"; break;
+        case kMix: q = "7"; break;
+        case kLyd: q = "maj7"; break;
+        case kLoc: q = "m7b5"; break;
+        case kPhr: q = "phr"; break;
+        case kPhrDom: q = "7b9"; break;
+        case kMelMin: q = "mM7"; break;
+        case kHarmMin: q = "m(h)"; break;
+        default: q = "*"; break;
+    }
+    const char* root = kRoots[(homeRoot + s.root) % 12];
+    size_t n = 0;
+    for (const char* c = root; *c != 0 && n + 1 < length; c++)
+        out[n++] = *c;
+    for (const char* c = q; *c != 0 && n + 1 < length; c++)
+        out[n++] = *c;
+    if (length > 0)
+        out[n] = 0;
+}
+
+// The master key to this slot's chord, now.
+void Engine::applyProgSlotLocked()
+{
+    if (progression.count == 0)
+        return;
+    if (progSlot >= progression.count)
+        progSlot = 0;
+    const ProgSlot& s = progression.slot[progSlot];
+    Key k;
+    k.root = static_cast<uint8_t>((progHome.root + s.root) % 12);
+    k.scale = s.scale <= MAX_SCALE ? s.scale : 2;
+    globalStaged = k;
+    globalPending = k;
+    globalActive = k;
+    globalDirty = false;
+    progBeatsLeft = s.beats < 1 ? 1 : s.beats;
+}
+
+void Engine::startProgression(const Progression& p)
+{
+    if (p.count == 0)
+        return;
+    lock();
+    if (!progressing)
+        progHome = globalActive;
+    progression = p;
+    progressing = true;
+    progSlot = 0;
+    applyProgSlotLocked();
+    // The next beat's tick starts the first chord's beats (started between
+    // beats, the part of a beat before it goes with the chord too).
+    progSkipBeat = running;
+    unlock();
+}
+
+void Engine::setProgression(const Progression& p)
+{
+    if (!progressing || p.count == 0)
+        return;
+    lock();
+    progression = p;
+    if (progSlot >= p.count)
+    {
+        progSlot = 0;
+        applyProgSlotLocked();
+    }
+    unlock();
+}
+
+void Engine::stopProgression()
+{
+    if (!progressing)
+        return;
+    lock();
+    progressing = false;
+    globalStaged = progHome;
+    globalPending = progHome;
+    globalActive = progHome;
+    globalDirty = false;
+    unlock();
+}
+
+void Engine::jumpProgression(uint8_t slot)
+{
+    if (!progressing || slot >= progression.count)
+        return;
+    lock();
+    progSlot = slot;
+    applyProgSlotLocked();
+    progSkipBeat = running;
+    unlock();
+}
+
+// On each beat (a quarter note): the chord's beats run down, then the next.
+void Engine::progressionTick()
+{
+    if (!progressing || launchCounter % (kMicroStepsPerStep * 4) != 0)
+        return;
+    if (progSkipBeat)
+    {
+        progSkipBeat = false;
+        return;
+    }
+    if (progBeatsLeft > 1)
+    {
+        progBeatsLeft--;
+        return;
+    }
+    progSlot = static_cast<uint8_t>((progSlot + 1) % progression.count);
+    applyProgSlotLocked();
+}
+
 void Engine::onMicroStep()
 {
     if (!running || (frozen && clockHeld))
         return;
+
+    // A progression's chord changes go first, on their beat, so notes
+    // played on it are in the new key.
+    progressionTick();
 
     const bool launchPoint = launchCounter % launchToMicroSteps(launch) == 0;
 
@@ -2732,6 +2951,16 @@ void Engine::setMutedAtLaunch(int ch, bool muted)
 void Engine::setGlobalKey(const Key& k)
 {
     lock();
+    if (progressing)
+    {
+        // A progression plays: this is its new home, the chord moved with it.
+        progHome.root = static_cast<uint8_t>(k.root % 12);
+        progHome.scale = k.scale <= MAX_SCALE ? k.scale : 0;
+        applyProgSlotLocked();
+        changeCount++;
+        unlock();
+        return;
+    }
     globalStaged.root = static_cast<uint8_t>(k.root % 12);
     globalStaged.scale = k.scale <= MAX_SCALE ? k.scale : 0;
     if (!running || immediateEdits)

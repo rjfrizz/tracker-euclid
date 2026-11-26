@@ -317,7 +317,7 @@ class cEuclidParams : public ModuleBase
     uint8_t selectedPerformRow = 0;
     bool lastPerformFrozen = false;
     int lastPerformMorph = 0;
-    char performText[13][40];
+    char performText[13][48];
     // The tools (a tab and a key each): Freeze, Walk, Arp, Scale, Chord,
     // Pulses. Walk, Arp, Scale, Chord and Pulses on (bit per tool; Freeze
     // is the engine's).
@@ -327,6 +327,13 @@ class cEuclidParams : public ModuleBase
     bool performScaleUpDown = false;
     uint8_t performChord = 1;  // euclid::ChordType, triad to start
     uint8_t performPulses = 2; // Pulses adds
+    // Progression: which (presets, then the user ones) and the chord edited.
+    uint8_t performProg = 0;
+    uint8_t performProgSlot = 0;
+    uint8_t lastPerformProgSlot = 0xFF;
+    bool lastPerformProg = false;
+    uint16_t lastActiveKey = 0xFFFF; // root and scale playing, for the title
+    bool editPerformProg(); // the progression to edit: a user one (a preset is copied first)
     // Walk, Arp, Scale, Chord and Pulses: the channels each reaches (bit per
     // channel, by tool; Freeze's is the engine's).
     uint8_t performMask[7] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };

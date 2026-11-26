@@ -336,6 +336,11 @@ namespace
 {
 constexpr const char* kChainPath = "Sets/chain.chn";
 constexpr const char* kChainTempPath = "Sets/chain.tmp";
+constexpr const char* kProgPath = "Sets/progress.prg";
+constexpr const char* kProgTempPath = "Sets/progress.tmp";
+euclid::Progression userProgs[euclid::kUserProgs];
+bool progDirty = false;
+uint32_t progChangedMs = 0;
 euclid::Chain chainData;
 bool chainDirty = false;
 uint32_t chainChangedMs = 0;
@@ -414,6 +419,32 @@ void saveChain()
         chainDirty = false;
 }
 
+void saveProgressions()
+{
+    uint8_t buf[euclid::kProgFileSize];
+    if (euclid::serializeProgressions(userProgs, buf, sizeof(buf)) > 0 &&
+        writeFileSafely(kProgPath, kProgTempPath, buf, sizeof(buf)))
+        progDirty = false;
+}
+
+void loadProgressions()
+{
+    for (euclid::Progression& p : userProgs)
+        p = euclid::Progression();
+    FileSystem* f = fs();
+    if (f == nullptr || !f->exists(kProgPath))
+        return;
+    auto [isOpen, file] = f->openFile(kProgPath);
+    if (!isOpen)
+        return;
+    uint8_t buf[euclid::kProgFileSize];
+    const size_t size = f->getFileSize(file);
+    const int32_t got = size <= sizeof(buf) ? f->readFile(buf, size, file) : -1;
+    f->closeFile(file);
+    if (got == static_cast<int32_t>(size))
+        euclid::deserializeProgressions(userProgs, buf, size);
+}
+
 void loadChain()
 {
     FileSystem* f = fs();
@@ -430,6 +461,20 @@ void loadChain()
         euclid::deserializeChain(chainData, buf, size);
 }
 } // namespace
+
+namespace euclidProgressions
+{
+euclid::Progression& user(uint8_t i)
+{
+    return userProgs[i < euclid::kUserProgs ? i : 0];
+}
+
+void changed()
+{
+    progDirty = true;
+    progChangedMs = nowMs();
+}
+} // namespace euclidProgressions
 
 namespace euclidChain
 {
@@ -488,6 +533,8 @@ void euclidPlatformUpdate()
     updateChain();
     if (chainDirty && nowMs() - chainChangedMs >= kAutosaveDelayMs && cardReady())
         saveChain();
+    if (progDirty && nowMs() - progChangedMs >= kAutosaveDelayMs && cardReady())
+        saveProgressions();
 
     uint32_t count = euclidEngine.getChangeCount();
     if (count != lastSeenChangeCount)
@@ -541,7 +588,8 @@ bool copyFile(const char* from, const char* to)
 }
 
 // The Sets/ files a project holds, by name.
-constexpr uint8_t kProjectFiles = 3 + 2 * euclid::kSetSlots;
+// From 3 on, a new project starts without them.
+constexpr uint8_t kProjectFiles = 4 + 2 * euclid::kSetSlots;
 void projectFileName(uint8_t i, char* out, size_t len)
 {
     if (i == 0)
@@ -550,8 +598,10 @@ void projectFileName(uint8_t i, char* out, size_t len)
         snprintf(out, len, "current.scn");
     else if (i == 2)
         snprintf(out, len, "chain.chn");
+    else if (i == 3)
+        snprintf(out, len, "progress.prg");
     else
-        snprintf(out, len, "set%d.%s", (i - 3) / 2 + 1, (i - 3) % 2 ? "scn" : "eus");
+        snprintf(out, len, "set%d.%s", (i - 4) / 2 + 1, (i - 4) % 2 ? "scn" : "eus");
 }
 
 // Copies Sets/ (and the synth assignments) to a folder, or back.
@@ -626,6 +676,8 @@ void saved(const char* projectDir)
         writeScenesFile(kCurrentScenesPath, kCurrentScenesTempPath);
         scenesDirty = false;
         saveChain();
+        if (progDirty)
+            saveProgressions();
     }
     euclidSynth::saveAssignments();
 
@@ -678,6 +730,8 @@ void opened(const char* projectDir)
     loadChain();
     chainDirty = false;
     chainIssued = -1;
+    loadProgressions();
+    progDirty = false;
     euclidSynth::clearAssignments();
     euclidSynth::loadAssignments();
     snprintf(path, sizeof(path), "%s/synths.bin", dir);
@@ -718,6 +772,9 @@ void created()
                 f->remove(path);
         }
     }
+    for (euclid::Progression& p : userProgs)
+        p = euclid::Progression();
+    progDirty = false;
     euclidSession::clear();
     for (uint8_t ch = 0; ch < euclid::kChannels; ch++)
         euclidSession::clearChannel(ch);
@@ -748,6 +805,7 @@ void bootLoad()
         }
         readScenesFile(kCurrentScenesPath);
         loadChain();
+        loadProgressions();
     }
 
     bootLoaded = true;

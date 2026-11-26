@@ -1390,6 +1390,58 @@ static void testOverrideMasks()
     CHECK(on1 == 1 && on2 == 3);
 }
 
+// Progressions: the master key to each chord on its beat, round and round;
+// the set keeps its own key; off puts it back.
+static void testProgression()
+{
+    Engine e = makeSeqEngine(Key{0, 2}, {60}); // C major, a C that follows the key
+    Rhythm r;
+    r.steps = 4;
+    r.pulses = 4;
+    e.setRhythm(0, r);
+    const uint8_t n = 60;
+    e.setNotes(0, &n, 1);
+    Progression gospel = progressionPreset(1); // I IV, 4 beats each
+    CHECK(std::string(gospel.name) == "Gospel I-IV" && gospel.count == 2);
+    reset();
+    e.start();
+    e.startProgression(gospel);
+    CHECK(e.isProgressing() && e.getLiveGlobalKey().root == 0);
+    run(e, 192 * 4); // a bar of I
+    CHECK(e.getProgressionSlot() == 0);
+    run(e, 1); // the IV, on the bar
+    CHECK(e.getProgressionSlot() == 1 && e.getLiveGlobalKey().root == 5);
+    CHECK(e.getSavedGlobalKey().root == 0); // the set keeps C
+    run(e, 192 * 4); // round again: I
+    CHECK(e.getProgressionSlot() == 0 && e.getLiveGlobalKey().root == 0);
+    // The notes move with it: the C up to the F on the IV.
+    bool gotF = false;
+    for (auto& ev : events)
+        gotF |= ev.on && ev.note == 65;
+    CHECK(gotF);
+    // A new key by hand: the progression's new home.
+    e.setGlobalKey(Key{7, 2});
+    CHECK(e.getLiveGlobalKey().root == 7 && e.getSavedGlobalKey().root == 7);
+    // A half-bar vamp: two beats a chord (started mid-beat here: that part
+    // of a beat goes with the first chord too).
+    e.startProgression(progressionPreset(2));
+    run(e, 192 * 3);
+    CHECK(e.getProgressionSlot() == 1);
+    e.jumpProgression(0);
+    CHECK(e.getProgressionSlot() == 0);
+    e.stopProgression();
+    CHECK(!e.isProgressing() && e.getLiveGlobalKey().root == 7);
+    e.stop();
+    char name[12];
+    ProgSlot s;
+    s.root = 10;
+    s.scale = 9;
+    progressionChordName(s, 9, name, sizeof(name)); // bVII7 in A: G7
+    CHECK(std::string(name) == "G7");
+    for (uint8_t i = 0; i < progressionPresetCount(); i++)
+        CHECK(progressionPreset(i).count > 0 && progressionPreset(i).name[0] != 0);
+}
+
 static void testNotePoolAndLastNotes()
 {
     // C major from C3 (note 36), one octave: the seven notes.
@@ -1917,6 +1969,7 @@ int main()
     testChordOverride();
     testPulseBoost();
     testOverrideMasks();
+    testProgression();
     testNotePoolAndLastNotes();
     testShiftedNoteShown();
     testStepsByHand();

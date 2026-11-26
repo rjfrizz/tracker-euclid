@@ -158,9 +158,25 @@ void cEuclidParams::update()
             refreshMiniLines();
     }
 
-    // The Perform page follows freeze (Stop unfreezes too).
+    // The key playing (a progression moves it on its beats): the title and
+    // the Global page show it.
+    {
+        const euclid::Key k = euclidEngine.getActiveGlobalKey();
+        const uint16_t key = static_cast<uint16_t>(k.root | (k.scale << 4));
+        if (key != lastActiveKey)
+        {
+            lastActiveKey = key;
+            refreshTitle();
+            if (view == View::global)
+                refreshGlobal();
+        }
+    }
+
+    // The Perform page follows freeze and the progression (Stop unfreezes).
     if (view == View::perform &&
-        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph))
+        (euclidEngine.isFrozen() != lastPerformFrozen || euclidEngine.getMorph() != lastPerformMorph ||
+         euclidEngine.isProgressing() != lastPerformProg ||
+         (euclidEngine.isProgressing() && euclidEngine.getProgressionSlot() != lastPerformProgSlot)))
     {
         refreshPerform();
         refreshChannels();
@@ -1519,9 +1535,17 @@ static void functPads(uint8_t pad, uint8_t state, [[maybe_unused]] int16_t velo)
     {
         padsBacklight.setFrontLayer(1, mtConfig.values.padsLightFront, pad);
 
-        // The Perform page's pads do nothing (yet).
+        // On the Perform page's Progression tab, while it plays, pad n jumps
+        // to chord n.
         if (EP->view == cEuclidParams::View::perform)
+        {
+            if (EP->performTab == 6 && euclidEngine.isProgressing())
+            {
+                euclidEngine.jumpProgression(pad);
+                EP->refreshPerform();
+            }
             return;
+        }
 
         // On the Pattern page a pad is a step of the selected channel: a
         // pulse is muted, a rest added, a changed step put back (staged; with

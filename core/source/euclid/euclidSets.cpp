@@ -1,5 +1,7 @@
 #include "euclidSets.h"
 
+#include "scales.h"
+
 namespace euclid
 {
 
@@ -57,7 +59,7 @@ size_t serializeSet(const Engine& engine, uint8_t slot, uint8_t* buf, size_t buf
     for (size_t i = 0; i < kSetFileSize; i++)
         buf[i] = 0;
 
-    const Key key = engine.getGlobalKey();
+    const Key key = engine.getSavedGlobalKey(); // a progression's home, not its chord
     buf[0] = 'E';
     buf[1] = 'U';
     buf[2] = 'C';
@@ -403,6 +405,73 @@ bool deserializeSet(Engine& engine, const uint8_t* buf, size_t len, uint8_t* slo
 
     if (slotOut != nullptr)
         *slotOut = buf[6] <= kSetSlots ? buf[6] : 0;
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// User progressions (euclidEngine.h)
+
+size_t serializeProgressions(const Progression* user, uint8_t* buf, size_t length)
+{
+    if (length < kProgFileSize)
+        return 0;
+    for (size_t i = 0; i < kProgFileSize; i++)
+        buf[i] = 0;
+    buf[0] = 'E';
+    buf[1] = 'U';
+    buf[2] = 'P';
+    buf[3] = 'R';
+    buf[4] = 1; // version
+    buf[5] = kUserProgs;
+    size_t at = 8;
+    for (int u = 0; u < kUserProgs; u++)
+    {
+        for (int k = 0; k < kProgNameLength; k++)
+            buf[at++] = static_cast<uint8_t>(user[u].name[k]);
+        buf[at++] = user[u].count;
+        for (int k = 0; k < kProgSlots; k++)
+        {
+            buf[at++] = user[u].slot[k].root;
+            buf[at++] = user[u].slot[k].scale;
+            buf[at++] = user[u].slot[k].beats;
+        }
+    }
+    const uint32_t crc = crc32(buf, kProgFileSize - 4);
+    for (int i = 0; i < 4; i++)
+        buf[kProgFileSize - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    return kProgFileSize;
+}
+
+bool deserializeProgressions(Progression* user, const uint8_t* buf, size_t length)
+{
+    if (buf == nullptr || length != kProgFileSize || buf[0] != 'E' || buf[1] != 'U' || buf[2] != 'P' ||
+        buf[3] != 'R' || buf[4] != 1 || buf[5] != kUserProgs)
+        return false;
+    uint32_t crc = 0;
+    for (int i = 0; i < 4; i++)
+        crc |= static_cast<uint32_t>(buf[kProgFileSize - 4 + i]) << (8 * i);
+    if (crc != crc32(buf, kProgFileSize - 4))
+        return false;
+    size_t at = 8;
+    for (int u = 0; u < kUserProgs; u++)
+    {
+        Progression p;
+        for (int k = 0; k < kProgNameLength; k++)
+            p.name[k] = static_cast<char>(buf[at++]);
+        p.name[kProgNameLength - 1] = 0;
+        p.count = buf[at++];
+        if (p.count > kProgSlots)
+            p.count = 0;
+        for (int k = 0; k < kProgSlots; k++)
+        {
+            p.slot[k].root = static_cast<uint8_t>(buf[at++] % 12);
+            p.slot[k].scale = buf[at] <= MAX_SCALE ? buf[at] : 2;
+            at++;
+            const uint8_t b = buf[at++];
+            p.slot[k].beats = b < 1 ? 1 : (b > 16 ? 16 : b);
+        }
+        user[u] = p;
+    }
     return true;
 }
 

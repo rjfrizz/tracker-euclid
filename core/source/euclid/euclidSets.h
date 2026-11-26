@@ -123,6 +123,13 @@ constexpr size_t kSetV1FileSize = kSetV1HeaderSize + kChannels * kSetV1ChannelSi
 
 uint32_t crc32(const uint8_t* data, size_t length);
 
+// User progressions in a small file (Sets/progress.prg, and with projects):
+// "EUPR", version 1, the count, then each one's name (16 bytes), slots used
+// and 16 slots of root, scale and beats; a CRC-32 at the end.
+constexpr size_t kProgFileSize = 8 + kUserProgs * (kProgNameLength + 1 + kProgSlots * 3) + 4;
+size_t serializeProgressions(const Progression* user, uint8_t* buf, size_t length);
+bool deserializeProgressions(Progression* user, const uint8_t* buf, size_t length);
+
 // Writes the engine's staged settings (what the screen shows, including edits
 // not yet committed) into buf. Returns the number of bytes written, or 0 if buf is too
 // small.

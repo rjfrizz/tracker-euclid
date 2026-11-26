@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 using namespace euclid;
 
@@ -429,6 +430,24 @@ static void testLoadsVersion1()
     CHECK(x.keyMode == KeyMode::follow && x.range == 2);
 }
 
+// User progressions: round the file and back; bad files are refused.
+static void testProgressionsFile()
+{
+    Progression user[kUserProgs];
+    snprintf(user[1].name, sizeof(user[1].name), "Mine");
+    user[1].count = 2;
+    user[1].slot[0] = ProgSlot{ 0, 1, 4 };
+    user[1].slot[1] = ProgSlot{ 10, 9, 2 };
+    uint8_t buf[kProgFileSize];
+    CHECK(serializeProgressions(user, buf, sizeof(buf)) == kProgFileSize);
+    Progression back[kUserProgs];
+    CHECK(deserializeProgressions(back, buf, sizeof(buf)));
+    CHECK(std::string(back[1].name) == "Mine" && back[1].count == 2 && back[0].count == 0);
+    CHECK(back[1].slot[1].root == 10 && back[1].slot[1].scale == 9 && back[1].slot[1].beats == 2);
+    buf[20] ^= 1;
+    CHECK(!deserializeProgressions(back, buf, sizeof(buf)));
+}
+
 static void testCrcKnownValue()
 {
     const char* s = "123456789";
@@ -529,6 +548,7 @@ int main()
     testLoadsVersion3();
     testLoadsVersion4();
     testLoadsVersion5();
+    testProgressionsFile();
     testLoadsVersion10();
     testLoadsVersion7();
     testLoadsVersion6();
