@@ -46,6 +46,10 @@ def sounds(lines):
             while i < len(parts):
                 # "12   Name   Category", or "1933 Name   Category" (4 digits)
                 m = re.fullmatch(r"(\d{1,4})(?: (.+))?", parts[i])
+                # A page's footer ("4   SEQTRAK Data List") isn't a sound.
+                if m and "SEQTRAK Data List" in (m.group(2) or (parts[i + 1] if i + 1 < len(parts) else "")):
+                    i += 2
+                    continue
                 if m and m.group(2):
                     d[int(m.group(1))] = m.group(2)
                     i += 2
