@@ -2,7 +2,8 @@
 // Seven tools, a key each under the screen and a tab each across the top;
 // a key turns its tool on, again off (hands free), and shows its tab, where
 // its settings are, ending with a row a channel for which channels it takes
-// (all to start with; the Performance key also moves on a tab).
+// (all to start with). Left and Right, or the Performance key, move between
+// the tabs without turning anything on.
 //   Freeze: holds the notes of the channels picked (and the clock, if
 //     that's all of them); the wheel then moves each on through its next
 //     notes, as many as Notes ahead, gliding (a single MIDI note bends,
@@ -203,9 +204,9 @@ void cEuclidParams::performKey(uint8_t key)
     refreshTitle();
 }
 
-void cEuclidParams::nextPerformTab()
+void cEuclidParams::nextPerformTab(int dir)
 {
-    performTab = static_cast<uint8_t>((performTab + 1) % toolCount);
+    performTab = static_cast<uint8_t>((performTab + toolCount + (dir < 0 ? -1 : 1)) % toolCount);
     selectedPerformRow = kFirstRow[performTab];
     refreshPerform();
 }

@@ -1218,6 +1218,12 @@ static void functLeft()
         EP->moveChainField(-1);
         return;
     }
+    // The Perform page: the tools' tabs, without turning them on.
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->nextPerformTab(-1);
+        return;
+    }
     if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)
     {
         EP->moveShiftCursor(-1);
@@ -1249,6 +1255,12 @@ static void functRight()
     if (EP->view == cEuclidParams::View::chain)
     {
         EP->moveChainField(1);
+        return;
+    }
+    // The Perform page: the tools' tabs, without turning them on.
+    if (EP->view == cEuclidParams::View::perform)
+    {
+        EP->nextPerformTab(1);
         return;
     }
     if (EP->view == cEuclidParams::View::shift && !EP->shiftSettings)

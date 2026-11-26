@@ -309,7 +309,7 @@ class cEuclidParams : public ModuleBase
     // The Perform page (performEuclidParams.cpp).
     uint8_t performRowCount() const;
     void performKey(uint8_t key);
-    void nextPerformTab();
+    void nextPerformTab(int dir = 1); // the next tool's tab (or the one before)
     bool performToolOn(uint8_t tool) const;
     void changePerform(int16_t delta);
     void movePerformRow(int delta);
